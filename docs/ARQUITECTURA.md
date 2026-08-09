@@ -105,6 +105,32 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 
 El esquema completo y comentado está en `backend/prisma/schema.prisma`.
 
+## Importar/exportar productos por Excel
+
+En Productos → "Importar / exportar Excel". Cada fila del Excel es una
+variante (una combinación talla/color con su propio SKU); varias filas con
+el mismo nombre+marca se agrupan como el mismo producto. Obligatorio por
+fila: `nombre`, `marca`, `categoria`, `sku` — todo lo demás (modelo,
+descripción, precios, talla, color, stock inicial) es opcional. La carga de
+stock inicial es opcional a propósito: los ajustes de inventario "de verdad"
+(entradas, salidas, conteos) tienen su propio flujo en Inventario, con su
+propio registro en `movimientos_inventario`; el Excel es solo para
+registrar productos rápido, no para llevar el control fino del stock.
+
+Comportamiento al importar:
+- Si el SKU de una fila ya existe en el sistema, esa fila se omite (no se
+  sobreescribe nada).
+- Si la marca/categoría/talla que trae la fila no existen todavía, se crean
+  solas.
+- Si el nombre+marca de una fila coincide con un producto que ya existe, no
+  se duplica: se le agrega la variante nueva (por ejemplo, para dar de alta
+  una talla nueva de un producto que ya tenías).
+- Antes de escribir nada en la base de datos hay una vista previa
+  (`POST /productos/importar-excel/vista-previa`) que valida todo el
+  archivo y muestra fila por fila qué se va a crear, qué se omite y por qué.
+  Solo al confirmar (eligiendo la sucursal donde cargar el stock inicial) se
+  escribe de verdad (`POST /productos/importar-excel/confirmar`).
+
 ## Por qué esta pila tecnológica
 
 - **PostgreSQL**: ya lo pediste explícitamente y ya tienes experiencia con él
@@ -122,8 +148,8 @@ El esquema completo y comentado está en `backend/prisma/schema.prisma`.
 ## Próximos pasos sugeridos (no incluidos en este scaffold inicial)
 
 - Reportes/dashboards de ventas (por periodo, por vendedor, por producto, por sucursal).
-- Carga masiva de productos desde Excel/CSV.
-- Fotos de producto (requeriría almacenamiento tipo S3/Cloudinary).
 - Notificaciones de bajo stock (correo o WhatsApp).
 - Restringir a nivel API (no solo en el frontend) que un usuario con
   sucursal asignada solo pueda operar sobre esa sucursal.
+- Actualización masiva de precios por Excel (hoy la importación solo crea,
+  no actualiza, productos existentes — ver sección de importar/exportar).

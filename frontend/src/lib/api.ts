@@ -57,3 +57,29 @@ export async function apiUpload<T = unknown>(path: string, formData: FormData): 
 
   return res.json();
 }
+
+// Para descargar archivos generados por el backend (plantillas, exportes).
+// El navegador no manda el header Authorization en un <a href> normal, así
+// que se pide como blob y se dispara la descarga a mano.
+export async function apiDownload(path: string, nombreArchivo: string): Promise<void> {
+  const token = getToken();
+
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(body.error || `Error ${res.status}`, res.status);
+  }
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nombreArchivo;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}

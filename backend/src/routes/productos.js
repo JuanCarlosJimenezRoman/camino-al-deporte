@@ -26,6 +26,10 @@ const upload = multer({
 
 const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }] } };
 
+// Importante: se monta ANTES de "GET /:id" para que rutas como
+// /productos/plantilla-excel no se confundan con un id de producto.
+router.use('/', require('./productosImportExport'));
+
 // GET /productos - todos los roles autenticados pueden consultar
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
   const { marcaId, categoriaId, q } = req.query;

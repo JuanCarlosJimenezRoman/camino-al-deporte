@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { GaleriaFotos, Imagen } from '@/components/GaleriaFotos';
@@ -183,9 +184,14 @@ export default function ProductosPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1 style={{ fontSize: 22 }}>Productos</h1>
         {puedeCrear && (
-          <button className="btn" onClick={() => (mostrarForm ? setMostrarForm(false) : abrirFormulario())}>
-            {mostrarForm ? 'Cerrar' : '+ Nuevo producto'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link href="/dashboard/productos/importar" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
+              Importar / exportar Excel
+            </Link>
+            <button className="btn" onClick={() => (mostrarForm ? setMostrarForm(false) : abrirFormulario())}>
+              {mostrarForm ? 'Cerrar' : '+ Nuevo producto'}
+            </button>
+          </div>
         )}
       </div>
 
