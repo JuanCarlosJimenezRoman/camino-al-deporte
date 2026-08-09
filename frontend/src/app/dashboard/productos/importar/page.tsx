@@ -117,8 +117,8 @@ export default function ImportarProductosPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Importar / exportar productos</h1>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <h1 className="text-xl sm:text-2xl">Importar / exportar productos</h1>
         <Link href="/dashboard/productos" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
           ← Volver a Productos
         </Link>

@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
+import { Badge } from '@/components/ui/badge';
+
+const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'secondary'> = {
+  COMPLETADA: 'success',
+  CANCELADA: 'destructive',
+};
 
 interface Sucursal {
   id: number;
@@ -71,8 +77,8 @@ export default function HistorialVentasPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Historial de ventas</h1>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <h1 className="text-xl sm:text-2xl">Historial de ventas</h1>
         <Link href="/dashboard/ventas" className="btn-secondary btn">
           Volver a ventas
         </Link>
@@ -156,7 +162,9 @@ export default function HistorialVentasPage() {
                     {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
                     {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
                   </td>
-                  <td>{v.estado}</td>
+                  <td>
+                    <Badge variant={ESTADO_VARIANT[v.estado] || 'secondary'}>{v.estado}</Badge>
+                  </td>
                   <td>{v.usuario?.nombre}</td>
                   <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
                 </tr>

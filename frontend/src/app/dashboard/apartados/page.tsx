@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { Badge } from '@/components/ui/badge';
+
+const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'warning' | 'secondary'> = {
+  ACTIVO: 'warning',
+  LIQUIDADO: 'success',
+  CANCELADO: 'destructive',
+};
 
 interface Sucursal {
   id: number;
@@ -130,8 +137,8 @@ export default function ApartadosPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Apartados</h1>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <h1 className="text-xl sm:text-2xl">Apartados</h1>
         <button className="btn" onClick={() => setMostrarForm((v) => !v)}>
           {mostrarForm ? 'Cerrar formulario' : '+ Nuevo apartado'}
         </button>
@@ -310,7 +317,9 @@ function ApartadoFila({
         <td>${apartado.total}</td>
         <td>${apartado.pagado.toFixed(2)}</td>
         <td>${apartado.saldoPendiente.toFixed(2)}</td>
-        <td>{apartado.estado}</td>
+        <td>
+          <Badge variant={ESTADO_VARIANT[apartado.estado] || 'secondary'}>{apartado.estado}</Badge>
+        </td>
         <td>{apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : '—'}</td>
         <td>
           <button className="btn-secondary btn" onClick={onToggle}>
@@ -633,7 +642,7 @@ function NuevoApartadoForm({
         </>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-4">
         <div>
           <h3 style={{ fontSize: 13, marginBottom: 6 }}>Cliente</h3>
           {clienteSeleccionado ? (

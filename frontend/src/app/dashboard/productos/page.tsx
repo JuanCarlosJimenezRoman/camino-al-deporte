@@ -181,10 +181,10 @@ export default function ProductosPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Productos</h1>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <h1 className="text-xl sm:text-2xl">Productos</h1>
         {puedeCrear && (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="flex flex-wrap gap-2">
             <Link href="/dashboard/productos/importar" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
               Importar / exportar Excel
             </Link>
@@ -306,7 +306,7 @@ export default function ProductosPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div className="flex flex-wrap gap-2 mb-4">
         <input
           placeholder="Buscar por nombre..."
           value={busqueda}

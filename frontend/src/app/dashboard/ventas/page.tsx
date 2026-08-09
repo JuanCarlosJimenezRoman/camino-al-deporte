@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
+import { Badge } from '@/components/ui/badge';
+
+const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'secondary'> = {
+  COMPLETADA: 'success',
+  CANCELADA: 'destructive',
+};
 
 interface Sucursal {
   id: number;
@@ -143,9 +149,9 @@ export default function VentasPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Ventas</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <h1 className="text-xl sm:text-2xl">Ventas</h1>
+        <div className="flex flex-wrap gap-2">
           {puedeVer('apartados', usuario?.rol) && (
             <Link href="/dashboard/apartados" className="btn-secondary btn">
               Apartados
@@ -292,7 +298,9 @@ export default function VentasPage() {
                   </>
                 )}
               </td>
-              <td>{v.estado}</td>
+              <td>
+                <Badge variant={ESTADO_VARIANT[v.estado] || 'secondary'}>{v.estado}</Badge>
+              </td>
               <td>{v.usuario?.nombre}</td>
               <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
             </tr>
