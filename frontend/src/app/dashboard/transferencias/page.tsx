@@ -2,13 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Badge } from '@/components/ui/badge';
-
-const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'warning' | 'secondary'> = {
-  SOLICITADA: 'warning',
-  RECIBIDA: 'success',
-  CANCELADA: 'destructive',
-};
 
 interface Sucursal {
   id: number;
@@ -16,7 +9,7 @@ interface Sucursal {
 }
 
 interface Existencia {
-  id: number;
+  id: number | null;
   sucursalId: number;
   stockActual: number;
   variante: { id: number; sku: string; talla: { valor: string } | null; producto: { nombre: string } };
@@ -148,7 +141,7 @@ export default function TransferenciasPage() {
           {existenciasOrigen
             .filter((e) => e.stockActual > 0)
             .map((e) => (
-              <option key={e.id} value={e.variante.id}>
+              <option key={e.variante.id} value={e.variante.id}>
                 {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
                 {e.variante.sku} — disponible: {e.stockActual}
               </option>
@@ -190,9 +183,7 @@ export default function TransferenciasPage() {
               <td>
                 {t.sucursalOrigen.nombre} → {t.sucursalDestino.nombre}
               </td>
-              <td>
-                <Badge variant={ESTADO_VARIANT[t.estado] || 'secondary'}>{t.estado}</Badge>
-              </td>
+              <td>{t.estado}</td>
               <td>{t.solicitadoPor?.nombre}</td>
               <td style={{ display: 'flex', gap: 6 }}>
                 {t.estado === 'SOLICITADA' && (

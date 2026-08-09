@@ -1,85 +1,23 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* -----------------------------------------------------------------------
-   Paleta "Camino al Deporte" — dorado / negro / blanco, inspirada en la
-   estructura de diseño de KREDIY ERP (sidebar, cards, KPIs) pero con la
-   identidad de marca del club.
-   ----------------------------------------------------------------------- */
 :root {
-  --font-size: 14px;
-
-  /* Cada token de color se guarda como canales "R G B" (sin función) para
-     poder componerlo con Tailwind como rgb(var(--x) / <alpha-value>) y así
-     soportar variantes de opacidad (bg-primary/10, text-foreground/60, etc). */
-  --background: 250 249 247;
-  --foreground: 23 19 13;
-  --card: 255 255 255;
-  --card-foreground: 23 19 13;
-  --popover: 255 255 255;
-  --popover-foreground: 23 19 13;
-
-  --primary: 184 134 11;
-  --primary-foreground: 23 19 13;
-  --secondary: 244 241 234;
-  --secondary-foreground: 23 19 13;
-  --muted: 244 241 234;
-  --muted-foreground: 107 98 88;
-  --accent: 246 234 208;
-  --accent-foreground: 23 19 13;
-  --destructive: 192 57 43;
-  --destructive-foreground: 255 255 255;
-  --success: 26 125 54;
-  --success-foreground: 255 255 255;
-  --warning: 160 106 0;
-  --warning-foreground: 255 255 255;
-
-  --border: 231 226 214;
-  --input-background: 255 255 255;
-  --ring: 184 134 11;
-
-  --chart-1: 184 134 11;
-  --chart-2: 16 185 129;
-  --chart-3: 59 130 246;
-  --chart-4: 139 92 246;
-  --chart-5: 192 57 43;
-
-  --radius: 0.625rem;
-
-  --sidebar: 21 18 13;
-  --sidebar-foreground: 243 239 230;
-  --sidebar-primary: 184 134 11;
-  --sidebar-primary-foreground: 21 18 13;
-  --sidebar-accent: 36 31 22;
-  --sidebar-accent-foreground: 243 239 230;
-  --sidebar-border: 42 36 25;
-
-  /* Compatibilidad con nombres previos usados en el resto del código */
-  --color-bg: rgb(var(--background));
-  --color-panel: rgb(var(--card));
-  --color-border: rgb(var(--border));
-  --color-text: rgb(var(--foreground));
-  --color-muted: rgb(var(--muted-foreground));
-  --color-primary: rgb(var(--primary));
+  --color-bg: #f4f5f7;
+  --color-panel: #ffffff;
+  --color-border: #e2e4e8;
+  --color-text: #1f2430;
+  --color-muted: #6b7280;
+  --color-primary: #b8860b; /* dorado, en línea con el logo */
   --color-primary-dark: #8a6508;
-  --color-danger: rgb(var(--destructive));
+  --color-danger: #c0392b;
 }
 
 * {
   box-sizing: border-box;
-  border-color: rgb(var(--border));
-}
-
-html {
-  font-size: var(--font-size);
 }
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: rgb(var(--background));
-  color: rgb(var(--foreground));
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 a {
@@ -91,76 +29,71 @@ button {
   cursor: pointer;
 }
 
-h1,
-h2,
-h3,
-h4 {
+.btn {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.35;
 }
 
-/* -----------------------------------------------------------------------
-   Clases heredadas (.btn, .card, table) usadas en las páginas del
-   dashboard. Se reconstruyen sobre Tailwind para que todas las pantallas
-   existentes hereden el look nuevo sin tener que tocar cada componente.
-   ----------------------------------------------------------------------- */
-@layer components {
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground
-      px-4 py-2 text-sm font-semibold shadow-soft transition-all
-      hover:bg-primary/90 hover:shadow-card
-      disabled:pointer-events-none disabled:opacity-50
-      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40;
-  }
+.btn:hover {
+  background: var(--color-primary-dark);
+}
 
-  .btn-secondary {
-    @apply bg-transparent text-foreground border border-border shadow-none
-      hover:bg-secondary hover:border-border;
-  }
+.btn-secondary {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
 
-  .card {
-    @apply bg-card text-card-foreground border border-border rounded-xl p-5 shadow-card;
-  }
+.btn-secondary:hover {
+  background: #f0f0f0;
+}
 
-  input,
-  select,
-  textarea {
-    @apply w-full rounded-lg border border-border bg-input px-3 py-2 text-sm
-      text-foreground placeholder:text-muted-foreground transition-colors
-      focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary;
-  }
+input,
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  width: 100%;
+}
 
-  input[type='file'] {
-    @apply border-0 bg-transparent px-0 py-1;
-  }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-panel);
+  border-radius: 8px;
+  overflow: hidden;
+}
 
-  label {
-    @apply text-sm font-medium text-foreground/80;
-  }
+th,
+td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 14px;
+}
 
-  table {
-    @apply w-full border-collapse bg-card rounded-xl overflow-hidden border border-border;
-  }
+th {
+  background: #fafafa;
+  color: var(--color-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 12px;
+}
 
-  th,
-  td {
-    @apply text-left px-4 py-3 text-sm border-b border-border;
-  }
+.card {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 20px;
+}
 
-  th {
-    @apply bg-secondary text-muted-foreground font-semibold uppercase text-xs tracking-wide;
-  }
-
-  tbody tr {
-    @apply transition-colors hover:bg-secondary/60;
-  }
-
-  tbody tr:last-child td {
-    @apply border-b-0;
-  }
-
-  .stock-bajo {
-    @apply text-destructive font-semibold;
-  }
+.stock-bajo {
+  color: var(--color-danger);
+  font-weight: 600;
 }

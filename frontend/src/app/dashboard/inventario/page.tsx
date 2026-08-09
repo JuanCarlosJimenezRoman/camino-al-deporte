@@ -10,11 +10,10 @@ interface Sucursal {
 }
 
 interface Existencia {
-  id: number;
+  id: number | null;
   sucursalId: number;
   stockActual: number;
   stockMinimo: number;
-  sucursal: { id: number; nombre: string };
   variante: {
     id: number;
     sku: string;
@@ -111,7 +110,7 @@ export default function InventarioPage() {
         </thead>
         <tbody>
           {existencias.map((e) => (
-            <tr key={e.id}>
+            <tr key={e.variante.id}>
               <td>{e.variante.sku}</td>
               <td>{e.variante.producto?.nombre}</td>
               <td>{e.variante.producto?.marca?.nombre}</td>

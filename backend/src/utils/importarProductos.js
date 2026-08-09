@@ -208,16 +208,18 @@ async function ejecutarImportacion(filasCrudas, { sucursalId, usuarioId }) {
         });
         stats.variantesCreadas++;
 
-        if (f.stockInicial > 0 || f.stockMinimo > 0) {
-          await tx.existencia.create({
-            data: {
-              sucursalId,
-              varianteId: variante.id,
-              stockActual: f.stockInicial,
-              stockMinimo: f.stockMinimo,
-            },
-          });
-        }
+        // Siempre se crea la fila de existencia en la sucursal elegida, aunque
+        // el stock inicial sea 0 — si no, la variante no aparecería en
+        // Inventario (que lista existencias) y no habría forma de cargarle
+        // stock después.
+        await tx.existencia.create({
+          data: {
+            sucursalId,
+            varianteId: variante.id,
+            stockActual: f.stockInicial,
+            stockMinimo: f.stockMinimo,
+          },
+        });
         if (f.stockInicial > 0) {
           await tx.movimientoInventario.create({
             data: {

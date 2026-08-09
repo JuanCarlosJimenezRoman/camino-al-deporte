@@ -3,12 +3,6 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Badge } from '@/components/ui/badge';
-
-const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'secondary'> = {
-  COMPLETADA: 'success',
-  CANCELADA: 'destructive',
-};
 
 interface Sucursal {
   id: number;
@@ -27,7 +21,7 @@ interface Venta {
 }
 
 interface Existencia {
-  id: number;
+  id: number | null;
   stockActual: number;
   variante: {
     id: number;
@@ -127,7 +121,7 @@ export default function VentasPage() {
         <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ marginBottom: 10 }}>
           <option value="">Selecciona...</option>
           {existencias.map((e) => (
-            <option key={e.id} value={e.variante.id}>
+            <option key={e.variante.id} value={e.variante.id}>
               {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
               {e.variante.sku} — stock: {e.stockActual}
             </option>
@@ -175,9 +169,7 @@ export default function VentasPage() {
               <td>{v.sucursal?.nombre}</td>
               <td>{v.cliente || '—'}</td>
               <td>${v.total}</td>
-              <td>
-                <Badge variant={ESTADO_VARIANT[v.estado] || 'secondary'}>{v.estado}</Badge>
-              </td>
+              <td>{v.estado}</td>
               <td>{v.usuario?.nombre}</td>
               <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
             </tr>

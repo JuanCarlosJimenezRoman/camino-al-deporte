@@ -9,56 +9,81 @@ const router = express.Router();
 
 const ROLES_INVENTARIO = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
 
-// GET /inventario/existencias - consulta de stock, opcionalmente filtrado por
-// sucursal (?sucursalId=) y/o por texto de SKU/nombre de producto.
+// GET /inventario/existencias?sucursalId= - consulta de stock de esa sucursal.
+//
+// Importante: esto se arma a partir de TODAS las variantes activas (no solo
+// las que ya tienen una fila en "existencias"). Una variante puede no tener
+// todavía fila de existencia en una sucursal (por ejemplo, si se importó por
+// Excel con stock 0, o si se creó en otra sucursal) — en ese caso aparece
+// aquí igual, con stock 0, para que se pueda editar. Si no se hiciera así,
+// un producto recién creado con stock 0 "desaparecería" de Inventario y no
+// habría forma de cargarle stock.
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
   const { skuOProducto, sucursalId } = req.query;
+  if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
 
-  const existencias = await prisma.existencia.findMany({
+  const variantes = await prisma.productoVariante.findMany({
     where: {
-      ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
-      variante: {
-        activo: true,
-        ...(skuOProducto
-          ? {
-              OR: [
-                { sku: { contains: String(skuOProducto), mode: 'insensitive' } },
-                { producto: { nombre: { contains: String(skuOProducto), mode: 'insensitive' } } },
-              ],
-            }
-          : {}),
-      },
+      activo: true,
+      producto: { activo: true },
+      ...(skuOProducto
+        ? {
+            OR: [
+              { sku: { contains: String(skuOProducto), mode: 'insensitive' } },
+              { producto: { nombre: { contains: String(skuOProducto), mode: 'insensitive' } } },
+            ],
+          }
+        : {}),
     },
     include: {
-      sucursal: true,
-      variante: {
-        include: {
-          producto: { include: { marca: true, categoria: true } },
-          talla: true,
-        },
-      },
+      producto: { include: { marca: true, categoria: true } },
+      talla: true,
+      existencias: { where: { sucursalId: Number(sucursalId) } },
     },
-    orderBy: { variante: { sku: 'asc' } },
+    orderBy: { sku: 'asc' },
   });
 
-  res.json(existencias);
+  const resultado = variantes.map((v) => {
+    const { existencias, ...variante } = v;
+    const ex = existencias[0];
+    return {
+      id: ex ? ex.id : null,
+      sucursalId: Number(sucursalId),
+      stockActual: ex ? ex.stockActual : 0,
+      stockMinimo: ex ? ex.stockMinimo : 0,
+      variante,
+    };
+  });
+
+  res.json(resultado);
 }));
 
-// GET /inventario/bajo-stock - existencias en o por debajo del mínimo, opcionalmente por sucursal
+// GET /inventario/bajo-stock?sucursalId= - variantes en o por debajo del mínimo en esa sucursal
 router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
   const { sucursalId } = req.query;
+  if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
 
-  const existencias = await prisma.existencia.findMany({
-    where: {
-      ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
-    },
+  const variantes = await prisma.productoVariante.findMany({
+    where: { activo: true, producto: { activo: true } },
     include: {
-      sucursal: true,
-      variante: { include: { producto: true, talla: true } },
+      producto: true,
+      talla: true,
+      existencias: { where: { sucursalId: Number(sucursalId) } },
     },
   });
 
-  const bajoStock = existencias
+  const bajoStock = variantes
+    .map((v) => {
+      const { existencias, ...variante } = v;
+      const ex = existencias[0];
+      return {
+        id: ex ? ex.id : null,
+        sucursalId: Number(sucursalId),
+        stockActual: ex ? ex.stockActual : 0,
+        stockMinimo: ex ? ex.stockMinimo : 0,
+        variante,
+      };
+    })
     .filter((e) => e.stockActual <= e.stockMinimo)
     .sort((a, b) => a.stockActual - b.stockActual);
 
