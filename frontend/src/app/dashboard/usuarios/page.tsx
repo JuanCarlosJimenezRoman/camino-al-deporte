@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { Badge } from '@/components/ui/badge';
 
 interface Usuario {
   id: number;
@@ -210,7 +211,7 @@ export default function UsuariosPage() {
                     ))}
                   </select>
                 ) : (
-                  ROL_LABEL[u.rol] || u.rol
+                  <Badge variant="secondary">{ROL_LABEL[u.rol] || u.rol}</Badge>
                 )}
               </td>
               <td>
@@ -230,7 +231,9 @@ export default function UsuariosPage() {
                   u.sucursal || '—'
                 )}
               </td>
-              <td>{u.activo ? 'Sí' : 'No'}</td>
+              <td>
+                <Badge variant={u.activo ? 'success' : 'destructive'}>{u.activo ? 'Activo' : 'Inactivo'}</Badge>
+              </td>
               <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {editandoId === u.id ? (
                   <>
