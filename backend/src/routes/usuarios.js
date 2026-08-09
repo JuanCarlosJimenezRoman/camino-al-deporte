@@ -13,7 +13,7 @@ const ROLES_ADMIN = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
 
 router.get('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (req, res) => {
   const usuarios = await prisma.usuario.findMany({
-    include: { rol: true },
+    include: { rol: true, sucursal: true },
     orderBy: { nombre: 'asc' },
   });
   res.json(
@@ -24,6 +24,8 @@ router.get('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (re
       rol: u.rol.nombre,
       activo: u.activo,
       ultimoLogin: u.ultimoLogin,
+      sucursalId: u.sucursalId,
+      sucursal: u.sucursal ? u.sucursal.nombre : null,
     }))
   );
 }));
@@ -33,6 +35,7 @@ const usuarioSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   rol: z.enum(['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA']),
+  sucursalId: z.number().int().optional(),
 });
 
 router.post('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (req, res) => {
@@ -40,7 +43,7 @@ router.post('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (r
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { nombre, email, password, rol } = parsed.data;
+  const { nombre, email, password, rol, sucursalId } = parsed.data;
 
   const rolRow = await prisma.rol.findUnique({ where: { nombre: rol } });
   if (!rolRow) return res.status(400).json({ error: 'Rol no válido.' });
@@ -49,7 +52,7 @@ router.post('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (r
 
   try {
     const usuario = await prisma.usuario.create({
-      data: { nombre, email, passwordHash, rolId: rolRow.id },
+      data: { nombre, email, passwordHash, rolId: rolRow.id, sucursalId },
     });
     res.status(201).json({ id: usuario.id, nombre: usuario.nombre, email: usuario.email });
   } catch (err) {
@@ -66,6 +69,7 @@ router.put('/:id', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async 
     rol: z.enum(['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA']).optional(),
     activo: z.boolean().optional(),
     password: z.string().min(8).optional(),
+    sucursalId: z.number().int().nullable().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {

@@ -49,6 +49,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {puedeVer('inventario', usuario.rol) && (
             <NavItem href="/dashboard/inventario">Inventario</NavItem>
           )}
+          {puedeVer('sucursales', usuario.rol) && (
+            <NavItem href="/dashboard/sucursales">Sucursales</NavItem>
+          )}
+          {puedeVer('transferencias', usuario.rol) && (
+            <NavItem href="/dashboard/transferencias">Transferencias</NavItem>
+          )}
           {puedeVer('ventas', usuario.rol) && <NavItem href="/dashboard/ventas">Ventas</NavItem>}
           {puedeVer('usuarios', usuario.rol) && (
             <NavItem href="/dashboard/usuarios">Usuarios</NavItem>

@@ -63,13 +63,44 @@ Si a futuro se necesita un campo que sí amerite estar indexado/filtrable de
 forma nativa (no solo dentro del JSON), ese sí requiere una migración
 tradicional — es la excepción, no la regla.
 
+## Multi-sucursal / bodega
+
+El catálogo (producto, variante, SKU, precio) es **global**: el mismo SKU
+significa lo mismo en cualquier sucursal. El **stock es por sucursal**, vía
+la tabla `existencias` (sucursal + variante → stock actual y mínimo). Esto
+permite:
+
+- Ver existencias de una sucursal específica o buscarlas en todas.
+- Que cada usuario de rol INVENTARIO/VENTAS/CONSULTA tenga una sucursal
+  "de casa" (`usuarios.sucursal_id`) que el frontend usa por defecto —
+  ADMIN_PRINCIPAL/DESARROLLO no tienen sucursal fija y ven todas.
+- Registrar ventas y movimientos de inventario (entrada/salida/ajuste)
+  siempre atados a una sucursal concreta.
+
+**Transferencias entre sucursales** (`transferencias_inventario`) siguen un
+flujo de dos pasos, como en una operación real de bodega:
+
+1. **Solicitada**: al crear la transferencia, el stock se descuenta de
+   inmediato de la sucursal origen (la mercancía "sale" y queda en tránsito).
+2. **Recibida**: alguien en la sucursal destino confirma la llegada
+   (`POST /transferencias/:id/recibir`), y ahí se suma el stock al destino.
+3. **Cancelada**: si se cancela antes de recibirse, el stock regresa al
+   origen.
+
+Este diseño evita que el stock "aparezca" en el destino antes de que la
+mercancía físicamente llegue, y dejaría rastro si algo se pierde en el
+camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
+
 ## Modelo de datos (resumen)
 
-- `roles`, `usuarios`
+- `roles`, `usuarios` (con `sucursal_id` opcional)
+- `sucursales`
 - `marcas`, `modelos`, `categorias`, `tallas`
-- `productos`, `producto_variantes` (variante = talla/color con stock propio)
-- `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones)
-- `ventas`, `venta_items`
+- `productos`, `producto_variantes` (catálogo global: variante = talla/color + SKU)
+- `existencias` (stock por sucursal + variante)
+- `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones, transferencias)
+- `transferencias_inventario` (mover mercancía entre sucursales)
+- `ventas`, `venta_items` (atadas a una sucursal)
 - `campos_personalizados`
 
 El esquema completo y comentado está en `backend/prisma/schema.prisma`.
@@ -90,8 +121,9 @@ El esquema completo y comentado está en `backend/prisma/schema.prisma`.
 
 ## Próximos pasos sugeridos (no incluidos en este scaffold inicial)
 
-- Reportes/dashboards de ventas (por periodo, por vendedor, por producto).
+- Reportes/dashboards de ventas (por periodo, por vendedor, por producto, por sucursal).
 - Carga masiva de productos desde Excel/CSV.
 - Fotos de producto (requeriría almacenamiento tipo S3/Cloudinary).
 - Notificaciones de bajo stock (correo o WhatsApp).
-- Multi-sucursal, si "Camino al deporte" llega a tener más de un punto de venta.
+- Restringir a nivel API (no solo en el frontend) que un usuario con
+  sucursal asignada solo pueda operar sobre esa sucursal.

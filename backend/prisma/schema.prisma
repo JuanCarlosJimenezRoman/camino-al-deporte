@@ -44,10 +44,58 @@ model Usuario {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  // Sucursal "de casa" del usuario. Null para ADMIN_PRINCIPAL/DESARROLLO,
+  // que ven todas las sucursales. Para INVENTARIO/VENTAS/CONSULTA acota
+  // qué sucursal ve por defecto en el frontend (no es una restricción dura
+  // a nivel API todavía, ver docs/ARQUITECTURA.md).
+  sucursalId   Int?     @map("sucursal_id")
+  sucursal     Sucursal? @relation(fields: [sucursalId], references: [id])
+
   movimientos  MovimientoInventario[]
   ventas       Venta[]
+  transferenciasSolicitadas TransferenciaInventario[] @relation("TransferenciasSolicitadas")
+  transferenciasRecibidas   TransferenciaInventario[] @relation("TransferenciasRecibidas")
 
   @@map("usuarios")
+}
+
+// ---------------------------------------------------------------------------
+// Sucursales / bodegas
+// ---------------------------------------------------------------------------
+
+model Sucursal {
+  id              Int      @id @default(autoincrement())
+  nombre          String
+  codigo          String?  @unique
+  direccion       String?
+  telefono        String?
+  esBodegaCentral Boolean  @default(false) @map("es_bodega_central")
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  usuarios        Usuario[]
+  existencias     Existencia[]
+  movimientos     MovimientoInventario[]
+  ventas          Venta[]
+  transferenciasOrigen  TransferenciaInventario[] @relation("TransferenciaOrigen")
+  transferenciasDestino TransferenciaInventario[] @relation("TransferenciaDestino")
+
+  @@map("sucursales")
+}
+
+// Stock de una variante (talla/color) en una sucursal específica. El
+// catálogo (producto/variante/SKU) es global; el stock es por sucursal.
+model Existencia {
+  id          Int              @id @default(autoincrement())
+  sucursalId  Int              @map("sucursal_id")
+  sucursal    Sucursal         @relation(fields: [sucursalId], references: [id])
+  varianteId  Int              @map("variante_id")
+  variante    ProductoVariante @relation(fields: [varianteId], references: [id])
+  stockActual Int              @default(0) @map("stock_actual")
+  stockMinimo Int              @default(0) @map("stock_minimo")
+
+  @@unique([sucursalId, varianteId])
+  @@map("existencias")
 }
 
 // ---------------------------------------------------------------------------
@@ -136,12 +184,14 @@ model ProductoVariante {
   talla         Talla?   @relation(fields: [tallaId], references: [id])
   color         String?
   sku           String   @unique
-  stockActual   Int      @default(0) @map("stock_actual")
-  stockMinimo   Int      @default(0) @map("stock_minimo")
   activo        Boolean  @default(true)
 
+  // El stock ya no vive aquí: cada variante puede tener stock distinto en
+  // cada sucursal (ver modelo Existencia).
+  existencias   Existencia[]
   movimientos   MovimientoInventario[]
   ventaItems    VentaItem[]
+  transferencias TransferenciaInventario[]
 
   @@unique([productoId, tallaId, color])
   @@map("producto_variantes")
@@ -157,10 +207,14 @@ enum TipoMovimiento {
   AJUSTE
   VENTA
   DEVOLUCION
+  TRANSFERENCIA_SALIDA
+  TRANSFERENCIA_ENTRADA
 }
 
 model MovimientoInventario {
   id          Int              @id @default(autoincrement())
+  sucursalId  Int              @map("sucursal_id")
+  sucursal    Sucursal         @relation(fields: [sucursalId], references: [id])
   varianteId  Int              @map("variante_id")
   variante    ProductoVariante @relation(fields: [varianteId], references: [id])
   tipo        TipoMovimiento
@@ -168,9 +222,48 @@ model MovimientoInventario {
   motivo      String?
   usuarioId   Int              @map("usuario_id")
   usuario     Usuario          @relation(fields: [usuarioId], references: [id])
+
+  // Si el movimiento vino de una transferencia entre sucursales
+  transferenciaId Int?         @map("transferencia_id")
+  transferencia   TransferenciaInventario? @relation(fields: [transferenciaId], references: [id])
+
   createdAt   DateTime         @default(now()) @map("created_at")
 
   @@map("movimientos_inventario")
+}
+
+// ---------------------------------------------------------------------------
+// Transferencias de mercancía entre sucursales
+// ---------------------------------------------------------------------------
+
+enum EstadoTransferencia {
+  SOLICITADA  // creada, stock ya descontado del origen, en camino
+  RECIBIDA    // confirmada en destino, stock ya sumado al destino
+  CANCELADA   // cancelada antes de recibirse, stock devuelto al origen
+}
+
+model TransferenciaInventario {
+  id                Int      @id @default(autoincrement())
+  folio             String   @unique
+  varianteId        Int      @map("variante_id")
+  variante          ProductoVariante @relation(fields: [varianteId], references: [id])
+  cantidad          Int
+  sucursalOrigenId  Int      @map("sucursal_origen_id")
+  sucursalOrigen    Sucursal @relation("TransferenciaOrigen", fields: [sucursalOrigenId], references: [id])
+  sucursalDestinoId Int      @map("sucursal_destino_id")
+  sucursalDestino   Sucursal @relation("TransferenciaDestino", fields: [sucursalDestinoId], references: [id])
+  estado            EstadoTransferencia @default(SOLICITADA)
+  solicitadoPorId   Int      @map("solicitado_por_id")
+  solicitadoPor     Usuario  @relation("TransferenciasSolicitadas", fields: [solicitadoPorId], references: [id])
+  recibidoPorId     Int?     @map("recibido_por_id")
+  recibidoPor       Usuario? @relation("TransferenciasRecibidas", fields: [recibidoPorId], references: [id])
+  notas             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  recibidoAt        DateTime? @map("recibido_at")
+
+  movimientos       MovimientoInventario[]
+
+  @@map("transferencias_inventario")
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +279,8 @@ enum EstadoVenta {
 model Venta {
   id          Int         @id @default(autoincrement())
   folio       String      @unique
+  sucursalId  Int         @map("sucursal_id")
+  sucursal    Sucursal    @relation(fields: [sucursalId], references: [id])
   usuarioId   Int         @map("usuario_id")
   usuario     Usuario     @relation(fields: [usuarioId], references: [id])
   cliente     String?

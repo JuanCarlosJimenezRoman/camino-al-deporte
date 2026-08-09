@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+
+interface Sucursal {
+  id: number;
+  nombre: string;
+}
 
 interface Venta {
   id: number;
@@ -11,17 +17,24 @@ interface Venta {
   estado: string;
   createdAt: string;
   usuario: { nombre: string };
+  sucursal: { nombre: string };
 }
 
 interface Existencia {
   id: number;
-  sku: string;
   stockActual: number;
-  talla: { valor: string } | null;
-  producto: { nombre: string; precioVenta: string };
+  variante: {
+    id: number;
+    sku: string;
+    talla: { valor: string } | null;
+    producto: { nombre: string; precioVenta: string };
+  };
 }
 
 export default function VentasPage() {
+  const { usuario } = useAuth();
+  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
+  const [sucursalId, setSucursalId] = useState('');
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [varianteId, setVarianteId] = useState('');
@@ -29,34 +42,45 @@ export default function VentasPage() {
   const [cliente, setCliente] = useState('');
   const [mensaje, setMensaje] = useState<string | null>(null);
 
+  useEffect(() => {
+    api<Sucursal[]>('/sucursales').then((data) => {
+      setSucursales(data);
+      const inicial = usuario?.sucursalId ? String(usuario.sucursalId) : data[0] ? String(data[0].id) : '';
+      setSucursalId(inicial);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function cargar() {
-    const [v, e] = await Promise.all([
-      api<Venta[]>('/ventas'),
-      api<Existencia[]>('/inventario/existencias'),
-    ]);
+    const v = await api<Venta[]>('/ventas');
     setVentas(v);
-    setExistencias(e);
+    if (sucursalId) {
+      const e = await api<Existencia[]>(`/inventario/existencias?sucursalId=${sucursalId}`);
+      setExistencias(e);
+    }
   }
 
   useEffect(() => {
     cargar();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sucursalId]);
 
   async function registrarVenta() {
-    if (!varianteId) return;
-    const variante = existencias.find((e) => String(e.id) === varianteId);
-    if (!variante) return;
+    if (!varianteId || !sucursalId) return;
+    const existencia = existencias.find((e) => String(e.variante.id) === varianteId);
+    if (!existencia) return;
 
     try {
       await api('/ventas', {
         method: 'POST',
         body: JSON.stringify({
+          sucursalId: Number(sucursalId),
           cliente: cliente || undefined,
           items: [
             {
               varianteId: Number(varianteId),
               cantidad,
-              precioUnitario: Number(variante.producto.precioVenta),
+              precioUnitario: Number(existencia.variante.producto.precioVenta),
             },
           ],
         }),
@@ -77,12 +101,29 @@ export default function VentasPage() {
       <div className="card" style={{ marginBottom: 20, maxWidth: 480 }}>
         <h2 style={{ fontSize: 15, marginBottom: 12 }}>Registrar venta rápida</h2>
 
+        <label style={{ fontSize: 13 }}>Sucursal</label>
+        <select
+          value={sucursalId}
+          onChange={(e) => {
+            setSucursalId(e.target.value);
+            setVarianteId('');
+          }}
+          style={{ marginBottom: 10 }}
+        >
+          {sucursales.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.nombre}
+            </option>
+          ))}
+        </select>
+
         <label style={{ fontSize: 13 }}>Producto / SKU</label>
         <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ marginBottom: 10 }}>
           <option value="">Selecciona...</option>
           {existencias.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.producto.nombre} {e.talla ? `(${e.talla.valor})` : ''} — {e.sku} — stock: {e.stockActual}
+            <option key={e.id} value={e.variante.id}>
+              {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
+              {e.variante.sku} — stock: {e.stockActual}
             </option>
           ))}
         </select>
@@ -104,7 +145,7 @@ export default function VentasPage() {
 
         {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
 
-        <button className="btn" onClick={registrarVenta}>
+        <button className="btn" onClick={registrarVenta} disabled={!varianteId}>
           Registrar venta
         </button>
       </div>
@@ -113,6 +154,7 @@ export default function VentasPage() {
         <thead>
           <tr>
             <th>Folio</th>
+            <th>Sucursal</th>
             <th>Cliente</th>
             <th>Total</th>
             <th>Estado</th>
@@ -124,6 +166,7 @@ export default function VentasPage() {
           {ventas.map((v) => (
             <tr key={v.id}>
               <td>{v.folio}</td>
+              <td>{v.sucursal?.nombre}</td>
               <td>{v.cliente || '—'}</td>
               <td>${v.total}</td>
               <td>{v.estado}</td>
@@ -133,7 +176,7 @@ export default function VentasPage() {
           ))}
           {ventas.length === 0 && (
             <tr>
-              <td colSpan={6} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={7} style={{ color: 'var(--color-muted)' }}>
                 Sin ventas registradas.
               </td>
             </tr>

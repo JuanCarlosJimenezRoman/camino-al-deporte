@@ -24,7 +24,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       marca: true,
       modelo: true,
       categoria: true,
-      variantes: { include: { talla: true } },
+      variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
     },
     orderBy: { nombre: 'asc' },
   });
@@ -39,12 +39,27 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
       marca: true,
       modelo: true,
       categoria: true,
-      variantes: { include: { talla: true } },
+      variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
     },
   });
   if (!producto) return res.status(404).json({ error: 'Producto no encontrado.' });
   res.json(producto);
 }));
+
+// Existencia inicial opcional al dar de alta una variante: por cada sucursal
+// donde ya tengas ese producto físicamente.
+const existenciaInicialSchema = z.object({
+  sucursalId: z.number().int(),
+  stockActual: z.number().int().nonnegative().default(0),
+  stockMinimo: z.number().int().nonnegative().default(0),
+});
+
+const varianteSchema = z.object({
+  tallaId: z.number().int().optional(),
+  color: z.string().optional(),
+  sku: z.string().min(1),
+  existencias: z.array(existenciaInicialSchema).optional(),
+});
 
 const productoSchema = z.object({
   nombre: z.string().min(1),
@@ -56,20 +71,10 @@ const productoSchema = z.object({
   precioVenta: z.number().nonnegative().optional(),
   atributosExtra: z.record(z.any()).optional(),
   // variantes iniciales opcionales al crear el producto
-  variantes: z
-    .array(
-      z.object({
-        tallaId: z.number().int().optional(),
-        color: z.string().optional(),
-        sku: z.string().min(1),
-        stockActual: z.number().int().nonnegative().default(0),
-        stockMinimo: z.number().int().nonnegative().default(0),
-      })
-    )
-    .optional(),
+  variantes: z.array(varianteSchema).optional(),
 });
 
-// POST /productos - crear producto (con variantes opcionales)
+// POST /productos - crear producto (con variantes y existencias iniciales opcionales)
 router.post('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (req, res) => {
   const parsed = productoSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -77,28 +82,40 @@ router.post('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async 
   }
   const { variantes, ...productoData } = parsed.data;
 
-  const producto = await prisma.producto.create({
-    data: {
-      ...productoData,
-      variantes: variantes ? { create: variantes } : undefined,
-    },
-    include: { variantes: true },
+  const producto = await prisma.$transaction(async (tx) => {
+    const creado = await tx.producto.create({ data: productoData });
+
+    for (const v of variantes || []) {
+      const { existencias, ...varianteData } = v;
+      const variante = await tx.productoVariante.create({
+        data: { ...varianteData, productoId: creado.id },
+      });
+      for (const ex of existencias || []) {
+        await tx.existencia.create({
+          data: { ...ex, varianteId: variante.id },
+        });
+      }
+    }
+
+    return tx.producto.findUnique({
+      where: { id: creado.id },
+      include: { variantes: { include: { existencias: true, talla: true } } },
+    });
   });
 
   res.status(201).json(producto);
 }));
 
-// PUT /productos/:id - editar producto
+// PUT /productos/:id - editar producto (datos generales, no variantes)
 router.put('/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (req, res) => {
-  const parsed = productoSchema.partial().safeParse(req.body);
+  const parsed = productoSchema.omit({ variantes: true }).partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { variantes, ...productoData } = parsed.data;
 
   const producto = await prisma.producto.update({
     where: { id: Number(req.params.id) },
-    data: productoData,
+    data: parsed.data,
   });
 
   res.json(producto);
@@ -124,20 +141,23 @@ router.post(
   requireAuth,
   requireRole(...ROLES_EDICION),
   asyncHandler(async (req, res) => {
-    const schema = z.object({
-      tallaId: z.number().int().optional(),
-      color: z.string().optional(),
-      sku: z.string().min(1),
-      stockActual: z.number().int().nonnegative().default(0),
-      stockMinimo: z.number().int().nonnegative().default(0),
-    });
-    const parsed = schema.safeParse(req.body);
+    const parsed = varianteSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
+    const { existencias, ...varianteData } = parsed.data;
 
-    const variante = await prisma.productoVariante.create({
-      data: { ...parsed.data, productoId: Number(req.params.id) },
+    const variante = await prisma.$transaction(async (tx) => {
+      const creada = await tx.productoVariante.create({
+        data: { ...varianteData, productoId: Number(req.params.id) },
+      });
+      for (const ex of existencias || []) {
+        await tx.existencia.create({ data: { ...ex, varianteId: creada.id } });
+      }
+      return tx.productoVariante.findUnique({
+        where: { id: creada.id },
+        include: { existencias: { include: { sucursal: true } }, talla: true },
+      });
     });
 
     res.status(201).json(variante);

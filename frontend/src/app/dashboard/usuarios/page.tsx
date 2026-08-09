@@ -9,20 +9,30 @@ interface Usuario {
   email: string;
   rol: string;
   activo: boolean;
+  sucursal: string | null;
+}
+
+interface Sucursal {
+  id: number;
+  nombre: string;
 }
 
 const ROLES = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA'];
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rol, setRol] = useState('CONSULTA');
+  const [sucursalId, setSucursalId] = useState('');
   const [mensaje, setMensaje] = useState<string | null>(null);
 
   async function cargar() {
-    setUsuarios(await api<Usuario[]>('/usuarios'));
+    const [u, s] = await Promise.all([api<Usuario[]>('/usuarios'), api<Sucursal[]>('/sucursales')]);
+    setUsuarios(u);
+    setSucursales(s);
   }
 
   useEffect(() => {
@@ -33,12 +43,19 @@ export default function UsuariosPage() {
     try {
       await api('/usuarios', {
         method: 'POST',
-        body: JSON.stringify({ nombre, email, password, rol }),
+        body: JSON.stringify({
+          nombre,
+          email,
+          password,
+          rol,
+          sucursalId: sucursalId ? Number(sucursalId) : undefined,
+        }),
       });
       setMensaje('Usuario creado.');
       setNombre('');
       setEmail('');
       setPassword('');
+      setSucursalId('');
       cargar();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al crear usuario.');
@@ -68,11 +85,23 @@ export default function UsuariosPage() {
         </div>
 
         <label style={{ fontSize: 13 }}>Rol</label>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 10 }}>
           <select value={rol} onChange={(e) => setRol(e.target.value)}>
             {ROLES.map((r) => (
               <option key={r} value={r}>
                 {r}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <label style={{ fontSize: 13 }}>Sucursal (opcional — vacío = ve todas)</label>
+        <div style={{ marginBottom: 12 }}>
+          <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+            <option value="">Sin asignar</option>
+            {sucursales.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
               </option>
             ))}
           </select>
@@ -91,6 +120,7 @@ export default function UsuariosPage() {
             <th>Nombre</th>
             <th>Email</th>
             <th>Rol</th>
+            <th>Sucursal</th>
             <th>Activo</th>
           </tr>
         </thead>
@@ -100,6 +130,7 @@ export default function UsuariosPage() {
               <td>{u.nombre}</td>
               <td>{u.email}</td>
               <td>{u.rol}</td>
+              <td>{u.sucursal || '—'}</td>
               <td>{u.activo ? 'Sí' : 'No'}</td>
             </tr>
           ))}

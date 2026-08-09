@@ -22,6 +22,16 @@ async function main() {
     });
   }
 
+  // La migración multi-sucursal ya crea "Sucursal Principal" para bases de
+  // datos existentes. Este upsert es solo para instalaciones nuevas donde
+  // corres el seed después de `migrate dev`/`migrate deploy` sin datos previos.
+  console.log('Asegurando sucursal principal...');
+  await prisma.sucursal.upsert({
+    where: { codigo: 'PRINCIPAL' },
+    update: {},
+    create: { nombre: 'Sucursal Principal', codigo: 'PRINCIPAL', esBodegaCentral: true },
+  });
+
   const email = process.env.SEED_ADMIN_EMAIL || 'admin@caminoaldeporte.com';
   const password = process.env.SEED_ADMIN_PASSWORD || 'cambia-esta-password';
   const nombre = process.env.SEED_ADMIN_NOMBRE || 'Administrador Principal';

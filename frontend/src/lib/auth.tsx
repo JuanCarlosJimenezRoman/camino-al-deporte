@@ -11,6 +11,8 @@ export interface Usuario {
   nombre: string;
   email: string;
   rol: Rol;
+  sucursalId?: number | null;
+  sucursal?: { id: number; nombre: string } | null;
 }
 
 interface AuthContextValue {
@@ -76,6 +78,8 @@ export const PERMISOS = {
   ventas: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   usuarios: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   camposPersonalizados: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  sucursales: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA'] as Rol[],
+  transferencias: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

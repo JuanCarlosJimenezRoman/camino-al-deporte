@@ -9,51 +9,70 @@ const router = express.Router();
 
 const ROLES_INVENTARIO = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
 
-// GET /inventario/existencias - consulta de stock (todos los roles, incluido CONSULTA)
+// GET /inventario/existencias - consulta de stock, opcionalmente filtrado por
+// sucursal (?sucursalId=) y/o por texto de SKU/nombre de producto.
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
-  const { skuOProducto } = req.query;
+  const { skuOProducto, sucursalId } = req.query;
 
-  const variantes = await prisma.productoVariante.findMany({
+  const existencias = await prisma.existencia.findMany({
     where: {
-      activo: true,
-      ...(skuOProducto
-        ? {
-            OR: [
-              { sku: { contains: String(skuOProducto), mode: 'insensitive' } },
-              { producto: { nombre: { contains: String(skuOProducto), mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
+      ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
+      variante: {
+        activo: true,
+        ...(skuOProducto
+          ? {
+              OR: [
+                { sku: { contains: String(skuOProducto), mode: 'insensitive' } },
+                { producto: { nombre: { contains: String(skuOProducto), mode: 'insensitive' } } },
+              ],
+            }
+          : {}),
+      },
     },
     include: {
-      producto: { include: { marca: true, categoria: true } },
-      talla: true,
+      sucursal: true,
+      variante: {
+        include: {
+          producto: { include: { marca: true, categoria: true } },
+          talla: true,
+        },
+      },
     },
-    orderBy: { sku: 'asc' },
+    orderBy: { variante: { sku: 'asc' } },
   });
 
-  res.json(variantes);
+  res.json(existencias);
 }));
 
-// GET /inventario/bajo-stock - variantes en o por debajo del stock mínimo
+// GET /inventario/bajo-stock - existencias en o por debajo del mínimo, opcionalmente por sucursal
 router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
-  const variantes = await prisma.$queryRaw`
-    SELECT pv.*, p.nombre AS producto_nombre
-    FROM producto_variantes pv
-    JOIN productos p ON p.id = pv.producto_id
-    WHERE pv.activo = true AND pv.stock_actual <= pv.stock_minimo
-    ORDER BY pv.stock_actual ASC
-  `;
-  res.json(variantes);
+  const { sucursalId } = req.query;
+
+  const existencias = await prisma.existencia.findMany({
+    where: {
+      ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
+    },
+    include: {
+      sucursal: true,
+      variante: { include: { producto: true, talla: true } },
+    },
+  });
+
+  const bajoStock = existencias
+    .filter((e) => e.stockActual <= e.stockMinimo)
+    .sort((a, b) => a.stockActual - b.stockActual);
+
+  res.json(bajoStock);
 }));
 
-// POST /inventario/movimientos - registrar entrada/salida/ajuste de stock
+// POST /inventario/movimientos - registrar entrada/salida/ajuste de stock en una sucursal
 router.post(
   '/movimientos',
   requireAuth,
   requireRole(...ROLES_INVENTARIO),
   asyncHandler(async (req, res) => {
     const schema = z.object({
+      sucursalId: z.number().int(),
       varianteId: z.number().int(),
       tipo: z.enum(['ENTRADA', 'SALIDA', 'AJUSTE']),
       cantidad: z.number().int(),
@@ -63,26 +82,30 @@ router.post(
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
-    const { varianteId, tipo, cantidad, motivo } = parsed.data;
+    const { sucursalId, varianteId, tipo, cantidad, motivo } = parsed.data;
 
     // Entradas suman, salidas restan; ajuste usa el signo tal cual se envía.
     const delta = tipo === 'SALIDA' ? -Math.abs(cantidad) : tipo === 'ENTRADA' ? Math.abs(cantidad) : cantidad;
 
     const resultado = await prisma
       .$transaction(async (tx) => {
-        const variante = await tx.productoVariante.findUnique({ where: { id: varianteId } });
-        if (!variante) throw new Error('VARIANTE_NO_ENCONTRADA');
+        const existencia = await tx.existencia.findUnique({
+          where: { sucursalId_varianteId: { sucursalId, varianteId } },
+        });
 
-        const nuevoStock = variante.stockActual + delta;
+        const stockPrevio = existencia ? existencia.stockActual : 0;
+        const nuevoStock = stockPrevio + delta;
         if (nuevoStock < 0) throw new Error('STOCK_INSUFICIENTE');
 
-        const actualizada = await tx.productoVariante.update({
-          where: { id: varianteId },
-          data: { stockActual: nuevoStock },
+        const actualizada = await tx.existencia.upsert({
+          where: { sucursalId_varianteId: { sucursalId, varianteId } },
+          update: { stockActual: nuevoStock },
+          create: { sucursalId, varianteId, stockActual: nuevoStock, stockMinimo: 0 },
         });
 
         const movimiento = await tx.movimientoInventario.create({
           data: {
+            sucursalId,
             varianteId,
             tipo,
             cantidad: delta,
@@ -95,29 +118,55 @@ router.post(
       })
       .catch((err) => {
         if (err.message === 'STOCK_INSUFICIENTE') return { error: 'STOCK_INSUFICIENTE' };
-        if (err.message === 'VARIANTE_NO_ENCONTRADA') return { error: 'VARIANTE_NO_ENCONTRADA' };
         throw err;
       });
 
     if (resultado.error === 'STOCK_INSUFICIENTE') {
       return res.status(409).json({ error: 'Stock insuficiente para esta salida.' });
     }
-    if (resultado.error === 'VARIANTE_NO_ENCONTRADA') {
-      return res.status(404).json({ error: 'Variante no encontrada.' });
-    }
 
     res.status(201).json(resultado);
   })
 );
 
-// GET /inventario/movimientos/:varianteId - historial de una variante
+// GET /inventario/movimientos/:varianteId - historial de una variante (todas las sucursales)
 router.get('/movimientos/:varianteId', requireAuth, asyncHandler(async (req, res) => {
   const movimientos = await prisma.movimientoInventario.findMany({
     where: { varianteId: Number(req.params.varianteId) },
-    include: { usuario: { select: { nombre: true, email: true } } },
+    include: {
+      usuario: { select: { nombre: true, email: true } },
+      sucursal: { select: { nombre: true } },
+    },
     orderBy: { createdAt: 'desc' },
   });
   res.json(movimientos);
 }));
+
+// PUT /inventario/minimo - fija el stock mínimo de una variante en una sucursal
+router.put(
+  '/minimo',
+  requireAuth,
+  requireRole(...ROLES_INVENTARIO),
+  asyncHandler(async (req, res) => {
+    const schema = z.object({
+      sucursalId: z.number().int(),
+      varianteId: z.number().int(),
+      stockMinimo: z.number().int().nonnegative(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    const { sucursalId, varianteId, stockMinimo } = parsed.data;
+
+    const existencia = await prisma.existencia.upsert({
+      where: { sucursalId_varianteId: { sucursalId, varianteId } },
+      update: { stockMinimo },
+      create: { sucursalId, varianteId, stockMinimo, stockActual: 0 },
+    });
+
+    res.json(existencia);
+  })
+);
 
 module.exports = router;

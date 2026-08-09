@@ -36,7 +36,7 @@ router.post('/login', asyncHandler(async (req, res) => {
   }
 
   const token = jwt.sign(
-    { id: usuario.id, email: usuario.email, rol: usuario.rol.nombre },
+    { id: usuario.id, email: usuario.email, rol: usuario.rol.nombre, sucursalId: usuario.sucursalId },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
   );
@@ -53,6 +53,7 @@ router.post('/login', asyncHandler(async (req, res) => {
       nombre: usuario.nombre,
       email: usuario.email,
       rol: usuario.rol.nombre,
+      sucursalId: usuario.sucursalId,
     },
   });
 }));
@@ -62,7 +63,7 @@ router.post('/login', asyncHandler(async (req, res) => {
 router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const usuario = await prisma.usuario.findUnique({
     where: { id: req.usuario.id },
-    include: { rol: true },
+    include: { rol: true, sucursal: true },
   });
   if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
@@ -71,6 +72,8 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
     nombre: usuario.nombre,
     email: usuario.email,
     rol: usuario.rol.nombre,
+    sucursalId: usuario.sucursalId,
+    sucursal: usuario.sucursal ? { id: usuario.sucursal.id, nombre: usuario.sucursal.nombre } : null,
   });
 }));
 
