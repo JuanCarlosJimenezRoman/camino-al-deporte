@@ -38,6 +38,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Error interno del servidor.' });
 });
 
+// Red de seguridad: si algo async se escapa sin pasar por asyncHandler,
+// que quede registrado en logs en vez de tumbar el proceso completo.
+process.on('unhandledRejection', (err) => {
+  console.error('unhandledRejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException:', err);
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`API Camino al Deporte escuchando en el puerto ${PORT}`);

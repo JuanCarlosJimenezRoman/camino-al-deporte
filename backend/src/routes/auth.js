@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
@@ -13,7 +14,7 @@ const loginSchema = z.object({
 });
 
 // POST /auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', asyncHandler(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Email y password son requeridos.' });
@@ -54,11 +55,11 @@ router.post('/login', async (req, res) => {
       rol: usuario.rol.nombre,
     },
   });
-});
+}));
 
 // GET /auth/me - devuelve el usuario autenticado (para que el frontend
 // sepa qué vista/rol mostrar al cargar la app).
-router.get('/me', requireAuth, async (req, res) => {
+router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const usuario = await prisma.usuario.findUnique({
     where: { id: req.usuario.id },
     include: { rol: true },
@@ -71,6 +72,6 @@ router.get('/me', requireAuth, async (req, res) => {
     email: usuario.email,
     rol: usuario.rol.nombre,
   });
-});
+}));
 
 module.exports = router;

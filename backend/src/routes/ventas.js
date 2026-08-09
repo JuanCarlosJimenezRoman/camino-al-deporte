@@ -3,13 +3,14 @@ const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
 const ROLES_VENTAS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 
 // GET /ventas - listar ventas (admin/desarrollo ven todo; ventas ve las propias)
-router.get('/', requireAuth, requireRole(...ROLES_VENTAS), async (req, res) => {
+router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (req, res) => {
   const esAdmin = ['ADMIN_PRINCIPAL', 'DESARROLLO'].includes(req.usuario.rol);
 
   const ventas = await prisma.venta.findMany({
@@ -22,7 +23,7 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), async (req, res) => {
   });
 
   res.json(ventas);
-});
+}));
 
 const ventaSchema = z.object({
   cliente: z.string().optional(),
@@ -39,7 +40,7 @@ const ventaSchema = z.object({
 });
 
 // POST /ventas - registrar una venta y descontar inventario en la misma transacción
-router.post('/', requireAuth, requireRole(...ROLES_VENTAS), async (req, res) => {
+router.post('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (req, res) => {
   const parsed = ventaSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
@@ -104,41 +105,48 @@ router.post('/', requireAuth, requireRole(...ROLES_VENTAS), async (req, res) => 
     }
     throw err;
   }
-});
+}));
 
 // POST /ventas/:id/cancelar - cancela y repone inventario
-router.post('/:id/cancelar', requireAuth, requireRole('ADMIN_PRINCIPAL', 'DESARROLLO'), async (req, res) => {
-  const ventaId = Number(req.params.id);
+router.post(
+  '/:id/cancelar',
+  requireAuth,
+  requireRole('ADMIN_PRINCIPAL', 'DESARROLLO'),
+  asyncHandler(async (req, res) => {
+    const ventaId = Number(req.params.id);
 
-  const venta = await prisma.$transaction(async (tx) => {
-    const v = await tx.venta.findUnique({ where: { id: ventaId }, include: { items: true } });
-    if (!v) throw new Error('VENTA_NO_ENCONTRADA');
-    if (v.estado === 'CANCELADA') return v;
+    const venta = await prisma
+      .$transaction(async (tx) => {
+        const v = await tx.venta.findUnique({ where: { id: ventaId }, include: { items: true } });
+        if (!v) throw new Error('VENTA_NO_ENCONTRADA');
+        if (v.estado === 'CANCELADA') return v;
 
-    for (const item of v.items) {
-      await tx.productoVariante.update({
-        where: { id: item.varianteId },
-        data: { stockActual: { increment: item.cantidad } },
+        for (const item of v.items) {
+          await tx.productoVariante.update({
+            where: { id: item.varianteId },
+            data: { stockActual: { increment: item.cantidad } },
+          });
+          await tx.movimientoInventario.create({
+            data: {
+              varianteId: item.varianteId,
+              tipo: 'DEVOLUCION',
+              cantidad: item.cantidad,
+              motivo: `Cancelación venta ${v.folio}`,
+              usuarioId: req.usuario.id,
+            },
+          });
+        }
+
+        return tx.venta.update({ where: { id: ventaId }, data: { estado: 'CANCELADA' } });
+      })
+      .catch((err) => {
+        if (err.message === 'VENTA_NO_ENCONTRADA') return null;
+        throw err;
       });
-      await tx.movimientoInventario.create({
-        data: {
-          varianteId: item.varianteId,
-          tipo: 'DEVOLUCION',
-          cantidad: item.cantidad,
-          motivo: `Cancelación venta ${v.folio}`,
-          usuarioId: req.usuario.id,
-        },
-      });
-    }
 
-    return tx.venta.update({ where: { id: ventaId }, data: { estado: 'CANCELADA' } });
-  }).catch((err) => {
-    if (err.message === 'VENTA_NO_ENCONTRADA') return null;
-    throw err;
-  });
-
-  if (!venta) return res.status(404).json({ error: 'Venta no encontrada.' });
-  res.json(venta);
-});
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada.' });
+    res.json(venta);
+  })
+);
 
 module.exports = router;

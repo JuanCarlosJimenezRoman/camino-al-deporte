@@ -4,13 +4,14 @@ const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
 // Solo ADMIN_PRINCIPAL y DESARROLLO gestionan usuarios.
 const ROLES_ADMIN = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
 
-router.get('/', requireAuth, requireRole(...ROLES_ADMIN), async (req, res) => {
+router.get('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (req, res) => {
   const usuarios = await prisma.usuario.findMany({
     include: { rol: true },
     orderBy: { nombre: 'asc' },
@@ -25,7 +26,7 @@ router.get('/', requireAuth, requireRole(...ROLES_ADMIN), async (req, res) => {
       ultimoLogin: u.ultimoLogin,
     }))
   );
-});
+}));
 
 const usuarioSchema = z.object({
   nombre: z.string().min(1),
@@ -34,7 +35,7 @@ const usuarioSchema = z.object({
   rol: z.enum(['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA']),
 });
 
-router.post('/', requireAuth, requireRole(...ROLES_ADMIN), async (req, res) => {
+router.post('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (req, res) => {
   const parsed = usuarioSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
@@ -57,9 +58,9 @@ router.post('/', requireAuth, requireRole(...ROLES_ADMIN), async (req, res) => {
     }
     throw err;
   }
-});
+}));
 
-router.put('/:id', requireAuth, requireRole(...ROLES_ADMIN), async (req, res) => {
+router.put('/:id', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (req, res) => {
   const schema = z.object({
     nombre: z.string().min(1).optional(),
     rol: z.enum(['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA']).optional(),
@@ -84,6 +85,6 @@ router.put('/:id', requireAuth, requireRole(...ROLES_ADMIN), async (req, res) =>
 
   const usuario = await prisma.usuario.update({ where: { id: Number(req.params.id) }, data });
   res.json({ id: usuario.id, nombre: usuario.nombre, email: usuario.email });
-});
+}));
 
 module.exports = router;

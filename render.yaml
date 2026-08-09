@@ -1,0 +1,39 @@
+# Blueprint de Render (opcional). Si prefieres configurar los servicios a
+# mano desde el dashboard, puedes ignorar este archivo — pero úsalo si
+# quieres evitar cualquier ambigüedad entre npm/yarn o build commands.
+#
+# Para usarlo: Render Dashboard > New > Blueprint > selecciona este repo.
+services:
+  - type: web
+    name: camino-al-deporte-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: FRONTEND_URL
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_ADMIN_NOMBRE
+        value: Administrador Principal
+
+  - type: web
+    name: camino-al-deporte-frontend
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

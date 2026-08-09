@@ -31,16 +31,24 @@ git push -u origin main
 
 1. Dashboard de Render → **New > Web Service** → conecta el repo.
 2. **Root Directory**: `backend`
-3. **Build Command**: `npm install && npx prisma generate && npx prisma migrate deploy`
-4. **Start Command**: `npm start`
-5. Variables de entorno (Environment):
+3. **Build Command**: `npm install` (esto ya corre `prisma generate` solo,
+   por el script `postinstall` del `package.json`)
+4. **Start Command**: `npm start` (esto ya corre `prisma migrate deploy`
+   antes de levantar el servidor — así las tablas siempre existen, sin
+   importar qué Build Command hayas configurado)
+5. Si el "Environment" del servicio detecta `yarn.lock`, Render puede usar
+   `yarn` en vez de `npm` por su cuenta. Con los scripts `postinstall`/`start`
+   de arriba, funciona igual con cualquiera de los dos — pero para evitar
+   ambigüedad, confirma explícitamente en Settings que el Build/Start Command
+   sean los de arriba (o usa `render.yaml`, ver sección 7).
+6. Variables de entorno (Environment):
    - `DATABASE_URL` → la Internal Database URL del paso 2
    - `JWT_SECRET` → genera un valor largo y aleatorio
    - `JWT_EXPIRES_IN` → `8h`
    - `FRONTEND_URL` → la URL de tu frontend (la agregas después de desplegarlo)
    - `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NOMBRE` → para el
      usuario administrador inicial
-6. Después del primer deploy exitoso, corre el seed una sola vez desde la
+7. Después del primer deploy exitoso, corre el seed una sola vez desde la
    **Shell** de Render (pestaña "Shell" del servicio):
    ```
    npm run seed
@@ -74,13 +82,45 @@ Una vez tengas la URL final del frontend, vuelve al backend y actualiza
    contraseña" en el scaffold — se puede agregar como siguiente paso, o
    cambiarla directo en la base de datos).
 
-## 6. Nota sobre este scaffold
+## 6. Errores comunes al desplegar
+
+**`The table 'public.usuarios' does not exist in the current database`**
+Significa que las migraciones de Prisma nunca corrieron contra la base de
+datos real (el esquema de `schema.prisma` describe las tablas, pero hay que
+"aplicarlas" con `prisma migrate deploy`). Desde esta versión del scaffold,
+el script `start` ya incluye ese paso automáticamente, así que basta con
+volver a desplegar (Manual Deploy). Si sigue sin aparecer la tabla, entra a
+la Shell del servicio en Render y corre `npx prisma migrate deploy` a mano
+para ver el error específico.
+
+**¿Uso npm o yarn?** No importa cuál use Render por su cuenta — con los
+scripts `postinstall` (corre `prisma generate`) y `start` (corre `prisma
+migrate deploy` antes de arrancar) que ya trae el `package.json`, el
+resultado es el mismo con cualquiera de los dos gestores. Si quieres
+eliminar la duda por completo, usa `render.yaml` (sección 7) o fija
+manualmente el Build/Start Command en Settings del servicio.
+
+**El servidor "truena" completo en vez de responder un error 500**
+Era un bug de este scaffold: Express 4 no atrapa errores lanzados dentro de
+rutas `async` a menos que se envuelvan explícitamente. Ya está corregido —
+todas las rutas usan un wrapper (`asyncHandler`) que convierte cualquier
+error en una respuesta 500 en vez de tumbar el proceso.
+
+## 7. Despliegue con Blueprint (opcional)
+
+El repo incluye un `render.yaml` en la raíz. Si prefieres no configurar cada
+servicio a mano: Render Dashboard → **New > Blueprint** → selecciona el repo
+→ Render lee `render.yaml` y crea backend y frontend con los comandos ya
+definidos. Aun así tendrás que llenar a mano las variables marcadas como
+`sync: false` (secretos y URLs).
+
+## 8. Nota sobre este scaffold
 
 El código se generó en este entorno sandbox, que **no tiene acceso al
 registro de npm** por políticas de red, así que no pude correr `npm install`
 ni `npm run build` aquí para verificarlo de punta a punta. Sí verifiqué la
 sintaxis de todos los archivos `.js`/`.ts`/`.tsx`. Te recomiendo, como primer
-paso en tu máquina o en Render, correr:
+paso en tu máquina, correr:
 
 ```
 cd backend && npm install && npx prisma generate
