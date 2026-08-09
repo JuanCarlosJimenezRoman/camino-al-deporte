@@ -12,6 +12,8 @@ const inventarioRoutes = require('./routes/inventario');
 const ventasRoutes = require('./routes/ventas');
 const sucursalesRoutes = require('./routes/sucursales');
 const transferenciasRoutes = require('./routes/transferencias');
+const clientesRoutes = require('./routes/clientes');
+const apartadosRoutes = require('./routes/apartados');
 
 const app = express();
 
@@ -35,6 +37,8 @@ app.use('/inventario', inventarioRoutes);
 app.use('/ventas', ventasRoutes);
 app.use('/sucursales', sucursalesRoutes);
 app.use('/transferencias', transferenciasRoutes);
+app.use('/clientes', clientesRoutes);
+app.use('/apartados', apartadosRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, next) => {

@@ -25,13 +25,21 @@ inventarios y ventas de "Camino al Deporte", con acceso diferenciado por rol.
 
 ## Roles y permisos
 
-| Rol | Productos | Inventario | Ventas | Usuarios | Campos personalizados |
-|---|---|---|---|---|---|
-| ADMIN_PRINCIPAL | CRUD | CRUD | CRUD + cancelar | CRUD | CRUD |
-| DESARROLLO | CRUD | CRUD | CRUD + cancelar | CRUD | CRUD |
-| INVENTARIO | CRUD | CRUD | — | — | — |
-| VENTAS | Solo lectura | Solo lectura | Crear/ver propias | — | — |
-| CONSULTA | Solo lectura | Solo lectura (existencias) | — | — | — |
+| Rol | Productos | Inventario | Ventas | Apartados | Usuarios | Campos personalizados |
+|---|---|---|---|---|---|---|
+| ADMIN_PRINCIPAL | CRUD | CRUD | CRUD + cancelar, cualquier sucursal, historial global | CRUD, cualquier sucursal | CRUD | CRUD |
+| DESARROLLO | CRUD | CRUD | CRUD + cancelar, cualquier sucursal, historial global | CRUD, cualquier sucursal | CRUD | CRUD |
+| INVENTARIO | CRUD | CRUD | — | — | — | — |
+| VENTAS | Solo lectura | Lectura de cualquier sucursal (para buscar/pedir), edición solo vía Inventario/Admin | Crear/ver, forzado a **su propia sucursal** | Crear/abonar/cancelar, forzado a su propia sucursal | — | — |
+| CONSULTA | Solo lectura | Solo lectura (existencias) | — | — | — | — |
+
+**Importante — VENTAS y su sucursal:** un usuario con rol VENTAS solo puede
+registrar ventas y apartados desde la sucursal que tiene asignada
+(`usuarios.sucursal_id`); esto se valida en el backend (`POST /ventas` y
+`POST /apartados` ignoran cualquier `sucursalId` que mande el cliente y usan
+siempre el del token), no solo en la interfaz. Sí puede **consultar** (sin
+editar) la existencia de cualquier sucursal desde Inventario, para buscar un
+modelo que no tiene y pedirlo si un cliente lo quiere.
 
 La diferencia entre `ADMIN_PRINCIPAL` y `DESARROLLO` es organizativa, no
 técnica: ambos tienen acceso total. `DESARROLLO` es para quien mantiene el
@@ -98,12 +106,62 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 - `marcas`, `modelos`, `categorias`, `tallas`
 - `productos`, `producto_variantes` (catálogo global: variante = talla/color + SKU)
 - `existencias` (stock por sucursal + variante)
-- `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones, transferencias)
+- `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones, transferencias, apartados)
 - `transferencias_inventario` (mover mercancía entre sucursales)
-- `ventas`, `venta_items` (atadas a una sucursal)
+- `ventas`, `venta_items` (atadas a una sucursal; con método de pago y comprobante)
+- `cuentas_transferencia` (catálogo de cuentas propias donde se reciben transferencias)
+- `clientes`, `apartados`, `apartado_items`, `apartado_pagos` (layaway)
 - `campos_personalizados`
 
 El esquema completo y comentado está en `backend/prisma/schema.prisma`.
+
+## Ventas: métodos de pago, corte del día, historial y apartados
+
+**Métodos de pago.** Cada venta (y cada abono de apartado) registra un
+`metodoPago`: `EFECTIVO`, `TARJETA` o `TRANSFERENCIA`. Cuando es
+transferencia, es obligatorio indicar a cuál de las `cuentas_transferencia`
+del negocio llegó el pago y subir una foto del comprobante (se guarda en
+Cloudinary, carpeta `camino-al-deporte/comprobantes`). Las cuentas de
+transferencia se administran en Catálogos → "Cuentas de transferencia"
+(solo ADMIN_PRINCIPAL/DESARROLLO las crean o editan; el resto de roles solo
+las consulta al elegir cuenta en una venta).
+
+**Corte del día** (`GET /ventas/corte-dia`) resume las ventas completadas de
+una fecha: total general, desglose por método de pago, desglose por cuenta
+de transferencia y ventas canceladas ese día (informativas, no se suman al
+total). VENTAS solo ve el corte de su propia sucursal; admin puede ver una
+sucursal específica o el corte global. *Limitación conocida v1*: el "día" se
+calcula en UTC, no en la zona horaria del negocio — si esto causa que ventas
+cercanas a medianoche caigan en el corte equivocado, se puede ajustar con un
+offset de zona horaria.
+
+**Historial de ventas** (`GET /ventas/historial`, solo ADMIN_PRINCIPAL/
+DESARROLLO) permite filtrar por sucursal y rango de fechas, con un resumen
+de total por sucursal además del listado detallado.
+
+**Apartados (layaway).** Un cliente puede apartar uno o varios artículos
+(`apartados` + `apartado_items`) dando o no un anticipo. Reglas clave:
+
+- El stock se **descuenta de inmediato** al crear el apartado (igual que una
+  venta), desde la sucursal donde físicamente está cada artículo
+  (`apartado_items.sucursal_stock_id`) — que puede ser distinta de la
+  sucursal donde se atiende al cliente (`apartados.sucursal_venta_id`). Esto
+  permite apartar algo que está en otra sucursal para que el cliente no se
+  lo lleve otro comprador mientras junta el dinero.
+- **No se crea ninguna transferencia automática.** Si el artículo apartado
+  está en otra sucursal, moverlo físicamente sigue siendo un paso manual con
+  el módulo de Transferencias, cuando llegue el momento de entregarlo.
+- Los abonos (`apartado_pagos`) se registran uno por uno, cada uno con su
+  propio método de pago y comprobante si aplica. El saldo pendiente se
+  calcula al vuelo (`total - suma de pagos`), nunca se guarda cacheado, para
+  evitar que se desincronice.
+- Si el saldo llega a 0, el apartado pasa a `LIQUIDADO` automáticamente.
+- Cancelar un apartado (`CANCELADO`) solo es posible si sigue `ACTIVO`, y
+  regresa el stock reservado a la sucursal de donde salió. Los pagos ya
+  recibidos no se reembolsan automáticamente — el registro queda como
+  referencia de cuánto se le debe devolver al cliente si aplica.
+- La pantalla de Apartados también muestra un resumen de "clientes con
+  adeudo" (suma del saldo pendiente de sus apartados activos).
 
 ## Importar/exportar productos por Excel
 
@@ -147,9 +205,11 @@ Comportamiento al importar:
 
 ## Próximos pasos sugeridos (no incluidos en este scaffold inicial)
 
-- Reportes/dashboards de ventas (por periodo, por vendedor, por producto, por sucursal).
+- Reportes/dashboards de ventas (por periodo, por vendedor, por producto).
 - Notificaciones de bajo stock (correo o WhatsApp).
-- Restringir a nivel API (no solo en el frontend) que un usuario con
-  sucursal asignada solo pueda operar sobre esa sucursal.
 - Actualización masiva de precios por Excel (hoy la importación solo crea,
   no actualiza, productos existentes — ver sección de importar/exportar).
+- Corte del día en la zona horaria del negocio en vez de UTC (ver limitación
+  conocida arriba).
+- Reembolso/registro del dinero devuelto al cancelar un apartado con abonos
+  ya pagados (hoy queda solo como referencia, sin flujo dedicado).

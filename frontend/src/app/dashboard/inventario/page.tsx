@@ -25,6 +25,10 @@ interface Existencia {
 
 export default function InventarioPage() {
   const { usuario } = useAuth();
+  // VENTAS solo puede consultar existencias (de su sucursal o de otras, para
+  // buscar un modelo y pedirlo si un cliente lo quiere) — no puede editar
+  // stock desde aquí; eso sigue siendo trabajo de INVENTARIO/ADMIN.
+  const puedeEditar = usuario?.rol !== 'VENTAS';
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [sucursalId, setSucursalId] = useState<string>('');
   const [existencias, setExistencias] = useState<Existencia[]>([]);
@@ -34,6 +38,8 @@ export default function InventarioPage() {
   useEffect(() => {
     api<Sucursal[]>('/sucursales').then((data) => {
       setSucursales(data);
+      // VENTAS arranca viendo su propia sucursal, pero puede cambiar el
+      // selector para consultar existencia en otras (no puede editar ahí).
       const inicial = usuario?.sucursalId ? String(usuario.sucursalId) : data[0] ? String(data[0].id) : '';
       setSucursalId(inicial);
     });
@@ -105,7 +111,7 @@ export default function InventarioPage() {
             <th>Marca</th>
             <th>Talla</th>
             <th>Stock</th>
-            <th>Acciones</th>
+            {puedeEditar && <th>Acciones</th>}
           </tr>
         </thead>
         <tbody>
@@ -116,19 +122,21 @@ export default function InventarioPage() {
               <td>{e.variante.producto?.marca?.nombre}</td>
               <td>{e.variante.talla?.valor ?? '—'}</td>
               <td className={e.stockActual <= e.stockMinimo ? 'stock-bajo' : ''}>{e.stockActual}</td>
-              <td style={{ display: 'flex', gap: 6 }}>
-                <button className="btn-secondary btn" onClick={() => registrarMovimiento(e.variante.id, 'ENTRADA')}>
-                  + Entrada
-                </button>
-                <button className="btn-secondary btn" onClick={() => registrarMovimiento(e.variante.id, 'SALIDA')}>
-                  − Salida
-                </button>
-              </td>
+              {puedeEditar && (
+                <td style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn-secondary btn" onClick={() => registrarMovimiento(e.variante.id, 'ENTRADA')}>
+                    + Entrada
+                  </button>
+                  <button className="btn-secondary btn" onClick={() => registrarMovimiento(e.variante.id, 'SALIDA')}>
+                    − Salida
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
           {existencias.length === 0 && (
             <tr>
-              <td colSpan={6} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={puedeEditar ? 6 : 5} style={{ color: 'var(--color-muted)' }}>
                 Sin existencias registradas en esta sucursal.
               </td>
             </tr>

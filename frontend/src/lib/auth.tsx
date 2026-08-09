@@ -74,13 +74,22 @@ export function useAuth() {
 // sección nueva, solo hay que tocar este archivo.
 export const PERMISOS = {
   productos: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA'] as Rol[],
-  inventario: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
+  // VENTAS entra en modo solo-consulta: puede ver existencias de cualquier
+  // sucursal (para buscar un modelo y pedirlo si no lo tiene la suya), pero
+  // la página oculta los botones de Entrada/Salida/Ajuste para ese rol.
+  inventario: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS'] as Rol[],
   ventas: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   usuarios: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   camposPersonalizados: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   sucursales: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA'] as Rol[],
   transferencias: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
   catalogos: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
+  // Cuentas donde se reciben transferencias: información financiera, solo
+  // administración las crea/edita (el resto de roles solo las consulta al
+  // elegir cuenta en una venta/abono).
+  cuentasTransferencia: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  apartados: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  historialVentas: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

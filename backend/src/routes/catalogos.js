@@ -170,6 +170,60 @@ router.put('/tallas/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHandl
   }
 }));
 
+// ---- Cuentas de transferencia (dónde se reciben los pagos por transferencia) --
+
+// Es información sensible/financiera: solo ADMIN_PRINCIPAL/DESARROLLO la
+// editan. Cualquier rol autenticado puede listarla (VENTAS la necesita para
+// elegir la cuenta al registrar un pago por transferencia).
+router.get('/cuentas-transferencia', requireAuth, asyncHandler(async (req, res) => {
+  const cuentas = await prisma.cuentaTransferencia.findMany({
+    where: req.query.todas ? undefined : { activo: true },
+    orderBy: { nombre: 'asc' },
+  });
+  res.json(cuentas);
+}));
+
+const cuentaTransferenciaSchema = z.object({
+  nombre: z.string().min(1),
+  banco: z.string().optional(),
+  titular: z.string().optional(),
+  numeroCuenta: z.string().optional(),
+});
+
+router.post(
+  '/cuentas-transferencia',
+  requireAuth,
+  requireRole('ADMIN_PRINCIPAL', 'DESARROLLO'),
+  asyncHandler(async (req, res) => {
+    const parsed = cuentaTransferenciaSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    const cuenta = await prisma.cuentaTransferencia.create({ data: parsed.data });
+    res.status(201).json(cuenta);
+  })
+);
+
+router.put(
+  '/cuentas-transferencia/:id',
+  requireAuth,
+  requireRole('ADMIN_PRINCIPAL', 'DESARROLLO'),
+  asyncHandler(async (req, res) => {
+    const parsed = cuentaTransferenciaSchema
+      .partial()
+      .extend({ activo: z.boolean().optional() })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    const cuenta = await prisma.cuentaTransferencia.update({
+      where: { id: Number(req.params.id) },
+      data: parsed.data,
+    });
+    res.json(cuenta);
+  })
+);
+
 // ---- Campos personalizados (rol DESARROLLO) ---------------------------
 
 router.get('/campos-personalizados', requireAuth, asyncHandler(async (req, res) => {
