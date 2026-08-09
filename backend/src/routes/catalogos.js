@@ -188,6 +188,9 @@ const cuentaTransferenciaSchema = z.object({
   banco: z.string().optional(),
   titular: z.string().optional(),
   numeroCuenta: z.string().optional(),
+  // Si es true, esta cuenta (y su CLABE) se le muestra al cliente al pagar
+  // un pedido en la tienda en línea (ver routes/tienda/pedidos.js).
+  paraVentasOnline: z.boolean().optional(),
 });
 
 router.post(

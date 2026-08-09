@@ -1,0 +1,277 @@
+const express = require('express');
+const { z } = require('zod');
+const prisma = require('../../db');
+const { requireClienteAuth } = require('../../middleware/authCliente');
+const { asyncHandler } = require('../../utils/asyncHandler');
+const { manejarSubidaImagen } = require('../../middleware/uploadImagen');
+const { subirImagen } = require('../../config/cloudinary');
+
+const router = express.Router();
+
+const IMAGEN_PRINCIPAL_INCLUDE = {
+  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+};
+
+const PEDIDO_INCLUDE = {
+  items: {
+    include: {
+      variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+      sucursalStock: { select: { nombre: true } },
+    },
+  },
+  cuentaTransferencia: true,
+};
+
+// GET /tienda/pedidos - pedidos del cliente autenticado
+router.get('/', requireClienteAuth, asyncHandler(async (req, res) => {
+  const pedidos = await prisma.pedido.findMany({
+    where: { clienteId: req.cliente.id },
+    include: PEDIDO_INCLUDE,
+    orderBy: { createdAt: 'desc' },
+  });
+  res.json(pedidos);
+}));
+
+// GET /tienda/pedidos/:id - detalle, solo si es del cliente autenticado
+router.get('/:id', requireClienteAuth, asyncHandler(async (req, res) => {
+  const pedido = await prisma.pedido.findUnique({
+    where: { id: Number(req.params.id) },
+    include: PEDIDO_INCLUDE,
+  });
+  if (!pedido || pedido.clienteId !== req.cliente.id) {
+    return res.status(404).json({ error: 'Pedido no encontrado.' });
+  }
+  res.json(pedido);
+}));
+
+const itemSchema = z.object({
+  varianteId: z.number().int(),
+  cantidad: z.number().int().positive(),
+});
+
+const pedidoSchema = z.object({
+  destinatario: z.string().min(1),
+  telefonoContacto: z.string().min(1),
+  calle: z.string().min(1),
+  numeroExt: z.string().min(1),
+  numeroInt: z.string().optional(),
+  colonia: z.string().min(1),
+  municipio: z.string().min(1),
+  estadoMx: z.string().min(1),
+  codigoPostal: z.string().min(1),
+  referencias: z.string().optional(),
+  notas: z.string().optional(),
+  items: z.array(itemSchema).min(1),
+});
+
+// POST /tienda/pedidos - crea el pedido desde el carrito y reserva el stock
+// de inmediato (mismo criterio que Apartados: así dos clientes no pueden
+// "comprar" la misma última pieza mientras uno de los dos nunca paga). El
+// cliente no elige sucursal: por cada artículo se busca automáticamente una
+// sucursal con stock suficiente (se prefiere la bodega central; si ninguna
+// sucursal por sí sola tiene suficiente, el pedido se rechaza — v1 no
+// reparte un mismo renglón entre varias sucursales).
+router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
+  const parsed = pedidoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const { items, ...direccion } = parsed.data;
+
+  try {
+    const pedido = await prisma.$transaction(async (tx) => {
+      const cuenta = await tx.cuentaTransferencia.findFirst({
+        where: { activo: true, paraVentasOnline: true },
+        orderBy: { id: 'asc' },
+      });
+      if (!cuenta) throw new Error('SIN_CUENTA_ONLINE');
+
+      let total = 0;
+      const itemsData = [];
+
+      for (const item of items) {
+        const variante = await tx.productoVariante.findUnique({
+          where: { id: item.varianteId },
+          include: {
+            producto: true,
+            existencias: { include: { sucursal: true }, orderBy: { stockActual: 'desc' } },
+          },
+        });
+        if (!variante || !variante.activo || !variante.producto.activo) {
+          throw new Error(`VARIANTE_NO_DISPONIBLE:${item.varianteId}`);
+        }
+
+        const candidatas = variante.existencias
+          .filter((e) => e.stockActual >= item.cantidad)
+          .sort((a, b) => (b.sucursal.esBodegaCentral ? 1 : 0) - (a.sucursal.esBodegaCentral ? 1 : 0) || b.stockActual - a.stockActual);
+        if (candidatas.length === 0) throw new Error(`STOCK_INSUFICIENTE:${variante.sku}`);
+        const elegida = candidatas[0];
+
+        const precioUnitario = Number(variante.producto.precioVenta);
+        const subtotal = precioUnitario * item.cantidad;
+        total += subtotal;
+
+        await tx.existencia.update({
+          where: { id: elegida.id },
+          data: { stockActual: { decrement: item.cantidad } },
+        });
+
+        itemsData.push({
+          varianteId: item.varianteId,
+          sucursalStockId: elegida.sucursalId,
+          cantidad: item.cantidad,
+          precioUnitario,
+          subtotal,
+        });
+      }
+
+      const folio = `PED-${Date.now()}`;
+      const referenciaPago = folio.replace('PED-', 'PED');
+
+      const nuevo = await tx.pedido.create({
+        data: {
+          folio,
+          clienteId: req.cliente.id,
+          total,
+          ...direccion,
+          cuentaTransferenciaId: cuenta.id,
+          referenciaPago,
+          items: { create: itemsData },
+        },
+        include: PEDIDO_INCLUDE,
+      });
+
+      for (const it of itemsData) {
+        await tx.movimientoInventario.create({
+          data: {
+            sucursalId: it.sucursalStockId,
+            varianteId: it.varianteId,
+            tipo: 'PEDIDO_ONLINE',
+            cantidad: -it.cantidad,
+            motivo: `Pedido en línea ${folio}`,
+            pedidoId: nuevo.id,
+          },
+        });
+      }
+
+      return nuevo;
+    });
+
+    res.status(201).json(pedido);
+  } catch (err) {
+    if (err.message === 'SIN_CUENTA_ONLINE') {
+      return res.status(503).json({ error: 'La tienda en línea no tiene una cuenta de pago configurada todavía. Intenta más tarde.' });
+    }
+    if (err.message.startsWith('STOCK_INSUFICIENTE')) {
+      return res.status(409).json({ error: `Sin existencias suficientes para el SKU ${err.message.split(':')[1]}.` });
+    }
+    if (err.message.startsWith('VARIANTE_NO_DISPONIBLE')) {
+      return res.status(409).json({ error: 'Uno de los artículos del carrito ya no está disponible.' });
+    }
+    throw err;
+  }
+}));
+
+// POST /tienda/pedidos/:id/comprobante - sube la foto del comprobante SPEI y
+// pasa el pedido a EN_VALIDACION para que un empleado lo revise.
+router.post(
+  '/:id/comprobante',
+  requireClienteAuth,
+  manejarSubidaImagen('comprobante'),
+  asyncHandler(async (req, res) => {
+    const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) } });
+    if (!pedido || pedido.clienteId !== req.cliente.id) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    if (!['PENDIENTE_PAGO', 'EN_VALIDACION'].includes(pedido.estado)) {
+      return res.status(409).json({ error: 'Este pedido ya no admite subir un comprobante.' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Falta la foto del comprobante (campo "comprobante").' });
+    }
+
+    const subida = await subirImagen(req.file.buffer, 'comprobantes');
+
+    const actualizado = await prisma.pedido.update({
+      where: { id: pedido.id },
+      data: {
+        comprobanteUrl: subida.url,
+        comprobantePublicId: subida.publicId,
+        comprobanteSubidoAt: new Date(),
+        comprobanteRechazadoMotivo: null,
+        estado: 'EN_VALIDACION',
+      },
+      include: PEDIDO_INCLUDE,
+    });
+
+    res.json(actualizado);
+  })
+);
+
+// POST /tienda/pedidos/:id/confirmar-recibido - el cliente confirma que ya
+// le llegó el pedido.
+router.post('/:id/confirmar-recibido', requireClienteAuth, asyncHandler(async (req, res) => {
+  const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) } });
+  if (!pedido || pedido.clienteId !== req.cliente.id) {
+    return res.status(404).json({ error: 'Pedido no encontrado.' });
+  }
+  if (pedido.estado !== 'ENVIADO') {
+    return res.status(409).json({ error: 'Solo se puede confirmar la recepción de un pedido que ya fue enviado.' });
+  }
+
+  const actualizado = await prisma.pedido.update({
+    where: { id: pedido.id },
+    data: { estado: 'RECIBIDO', recibidoAt: new Date() },
+    include: PEDIDO_INCLUDE,
+  });
+  res.json(actualizado);
+}));
+
+// POST /tienda/pedidos/:id/cancelar - el cliente cancela mientras siga
+// PENDIENTE_PAGO (antes de subir comprobante); regresa el stock reservado.
+// Una vez subido el comprobante, cancelar ya lo maneja el negocio
+// (POST /pedidos-online/:id/cancelar) para no perder el rastro de un pago
+// que ya podría estar en camino.
+router.post('/:id/cancelar', requireClienteAuth, asyncHandler(async (req, res) => {
+  const pedido = await prisma.pedido.findUnique({
+    where: { id: Number(req.params.id) },
+    include: { items: true },
+  });
+  if (!pedido || pedido.clienteId !== req.cliente.id) {
+    return res.status(404).json({ error: 'Pedido no encontrado.' });
+  }
+  if (pedido.estado !== 'PENDIENTE_PAGO') {
+    return res.status(409).json({ error: 'Este pedido ya no se puede cancelar directamente; contacta a la tienda.' });
+  }
+
+  const actualizado = await prisma.$transaction(async (tx) => {
+    for (const item of pedido.items) {
+      await tx.existencia.upsert({
+        where: { sucursalId_varianteId: { sucursalId: item.sucursalStockId, varianteId: item.varianteId } },
+        update: { stockActual: { increment: item.cantidad } },
+        create: {
+          sucursalId: item.sucursalStockId,
+          varianteId: item.varianteId,
+          stockActual: item.cantidad,
+          stockMinimo: 0,
+        },
+      });
+      await tx.movimientoInventario.create({
+        data: {
+          sucursalId: item.sucursalStockId,
+          varianteId: item.varianteId,
+          tipo: 'DEVOLUCION',
+          cantidad: item.cantidad,
+          motivo: `Cancelación pedido ${pedido.folio} (por el cliente)`,
+          pedidoId: pedido.id,
+        },
+      });
+    }
+
+    return tx.pedido.update({ where: { id: pedido.id }, data: { estado: 'CANCELADO' }, include: PEDIDO_INCLUDE });
+  });
+
+  res.json(actualizado);
+}));
+
+module.exports = router;

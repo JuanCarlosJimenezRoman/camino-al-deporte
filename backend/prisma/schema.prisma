@@ -57,6 +57,7 @@ model Usuario {
   transferenciasRecibidas   TransferenciaInventario[] @relation("TransferenciasRecibidas")
   apartadosCreados          Apartado[]      @relation("ApartadosCreados")
   pagosApartadoRegistrados  ApartadoPago[]  @relation("PagosApartadoRegistrados")
+  pedidosValidados          Pedido[]        @relation("PedidosValidados")
 
   @@map("usuarios")
 }
@@ -83,6 +84,7 @@ model Sucursal {
   transferenciasDestino TransferenciaInventario[] @relation("TransferenciaDestino")
   apartadosStock  ApartadoItem[] @relation("ApartadoStock")
   apartadosVenta  Apartado[]     @relation("ApartadoVenta")
+  pedidosStock    PedidoItem[]   @relation("PedidoStock")
 
   @@map("sucursales")
 }
@@ -214,6 +216,7 @@ model ProductoVariante {
   ventaItems    VentaItem[]
   transferencias TransferenciaInventario[]
   apartadoItems ApartadoItem[]
+  pedidoItems   PedidoItem[]
 
   @@unique([productoId, tallaId, color])
   @@map("producto_variantes")
@@ -232,6 +235,7 @@ enum TipoMovimiento {
   TRANSFERENCIA_SALIDA
   TRANSFERENCIA_ENTRADA
   APARTADO
+  PEDIDO_ONLINE
 }
 
 model MovimientoInventario {
@@ -243,12 +247,20 @@ model MovimientoInventario {
   tipo        TipoMovimiento
   cantidad    Int              // positivo o negativo según tipo
   motivo      String?
-  usuarioId   Int              @map("usuario_id")
-  usuario     Usuario          @relation(fields: [usuarioId], references: [id])
+
+  // Opcional: los movimientos generados por un pedido en línea no los hace
+  // ningún empleado (el cliente arma su propio pedido), así que aquí no hay
+  // usuario interno que registrar.
+  usuarioId   Int?             @map("usuario_id")
+  usuario     Usuario?         @relation(fields: [usuarioId], references: [id])
 
   // Si el movimiento vino de una transferencia entre sucursales
   transferenciaId Int?         @map("transferencia_id")
   transferencia   TransferenciaInventario? @relation(fields: [transferenciaId], references: [id])
+
+  // Si el movimiento vino de un pedido de la tienda en línea
+  pedidoId    Int?             @map("pedido_id")
+  pedido      Pedido?          @relation(fields: [pedidoId], references: [id])
 
   createdAt   DateTime         @default(now()) @map("created_at")
 
@@ -310,10 +322,17 @@ model CuentaTransferencia {
   titular      String?
   numeroCuenta String?  @map("numero_cuenta") // CLABE o número de cuenta/tarjeta
   activo       Boolean  @default(true)
+
+  // Si es true, esta cuenta se muestra a los clientes de la tienda en línea
+  // como destino del SPEI al hacer checkout (ver Pedido). Puede haber varias
+  // cuentas activas de uso interno que no se quieran exponer al público.
+  paraVentasOnline Boolean @default(false) @map("para_ventas_online")
+
   createdAt    DateTime @default(now()) @map("created_at")
 
   ventas       Venta[]
   pagosApartado ApartadoPago[]
+  pedidos      Pedido[]
 
   @@map("cuentas_transferencia")
 }
@@ -405,9 +424,21 @@ model Cliente {
   telefono  String   @unique // clave natural para buscar/evitar duplicar clientes
   email     String?
   notas     String?
+
+  // Cuenta de la tienda en línea: un Cliente puede existir solo como
+  // registro interno (dado de alta por staff en un apartado, sin password)
+  // o también tener cuenta propia para comprar en línea (con password). No
+  // hay una unicidad de email a nivel de base de datos porque registros
+  // viejos creados por staff pueden repetir/omitir email; la unicidad para
+  // efectos de login se valida en el endpoint de registro (ver
+  // routes/tienda/auth.js) contra clientes que YA tengan passwordHash.
+  passwordHash String? @map("password_hash")
+  activo       Boolean @default(true)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   apartados Apartado[]
+  pedidos   Pedido[]
 
   @@map("clientes")
 }
@@ -487,4 +518,109 @@ model ApartadoPago {
   createdAt             DateTime @default(now()) @map("created_at")
 
   @@map("apartado_pagos")
+}
+
+// ---------------------------------------------------------------------------
+// Tienda en línea: pedidos de clientes con cuenta propia
+// ---------------------------------------------------------------------------
+//
+// A diferencia de una Venta (mostrador) o un Apartado (layaway con abonos),
+// un Pedido es de pago único hecho por el cliente sin intervención de un
+// vendedor: elige productos, paga por SPEI a una cuenta del negocio y sube su
+// comprobante. El pago se valida a mano (v1: no hay integración bancaria
+// automática) y luego el pedido sigue su ciclo de envío/entrega.
+//
+// Reserva de stock: igual que en Apartado, el stock se descuenta de
+// inmediato al crear el pedido (así dos clientes no pueden "comprar" la
+// misma última pieza mientras uno de los dos nunca paga). A diferencia de
+// Apartado, aquí el cliente no elige la sucursal: el backend busca
+// automáticamente una sucursal con stock suficiente para cada artículo
+// (prefiriendo la bodega central) y la guarda en
+// PedidoItem.sucursalStockId. Si el pedido se cancela antes de pagarse, el
+// stock regresa a esa misma sucursal.
+
+enum EstadoPedido {
+  PENDIENTE_PAGO // creado, stock reservado, esperando que el cliente suba su comprobante
+  EN_VALIDACION  // el cliente ya subió comprobante, un empleado debe revisarlo
+  PAGADO         // un empleado confirmó que el pago llegó
+  ENVIADO        // el pedido ya salió del negocio hacia el cliente
+  RECIBIDO       // el cliente (o un empleado) confirmó que ya llegó
+  CANCELADO      // cancelado antes de pagarse; el stock se devolvió
+}
+
+model Pedido {
+  id        Int          @id @default(autoincrement())
+  folio     String       @unique
+  clienteId Int          @map("cliente_id")
+  cliente   Cliente      @relation(fields: [clienteId], references: [id])
+
+  estado    EstadoPedido @default(PENDIENTE_PAGO)
+  total     Decimal      @default(0) @db.Decimal(10, 2)
+
+  // Dirección de envío: se guarda "congelada" en el pedido (no como
+  // referencia a un catálogo de direcciones del cliente) para que, si el
+  // cliente cambia sus datos después, los pedidos ya hechos conserven la
+  // dirección con la que realmente se enviaron.
+  destinatario     String
+  telefonoContacto String  @map("telefono_contacto")
+  calle            String
+  numeroExt        String  @map("numero_ext")
+  numeroInt        String? @map("numero_int")
+  colonia          String
+  municipio        String
+  estadoMx         String  @map("estado_mx")
+  codigoPostal     String  @map("codigo_postal")
+  referencias      String?
+
+  // Pago por transferencia SPEI: cuenta que se le mostró al cliente y
+  // referencia que se le pidió poner en el concepto, para poder ubicar el
+  // pago manualmente entre los movimientos bancarios reales.
+  cuentaTransferenciaId Int?                 @map("cuenta_transferencia_id")
+  cuentaTransferencia   CuentaTransferencia? @relation(fields: [cuentaTransferenciaId], references: [id])
+  referenciaPago        String               @map("referencia_pago")
+
+  comprobanteUrl             String?   @map("comprobante_url")
+  comprobantePublicId        String?   @map("comprobante_public_id")
+  comprobanteSubidoAt        DateTime? @map("comprobante_subido_at")
+  // Motivo si un empleado rechaza el comprobante y el pedido regresa a
+  // PENDIENTE_PAGO para que el cliente vuelva a intentar.
+  comprobanteRechazadoMotivo String?   @map("comprobante_rechazado_motivo")
+
+  validadoPorId Int?      @map("validado_por_id")
+  validadoPor   Usuario?  @relation("PedidosValidados", fields: [validadoPorId], references: [id])
+  validadoAt    DateTime? @map("validado_at")
+
+  paqueteria String?
+  numeroGuia String?   @map("numero_guia")
+  enviadoAt  DateTime? @map("enviado_at")
+  recibidoAt DateTime? @map("recibido_at")
+
+  notas String?
+
+  items       PedidoItem[]
+  movimientos MovimientoInventario[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("pedidos")
+}
+
+model PedidoItem {
+  id              Int              @id @default(autoincrement())
+  pedidoId        Int              @map("pedido_id")
+  pedido          Pedido           @relation(fields: [pedidoId], references: [id])
+  varianteId      Int              @map("variante_id")
+  variante        ProductoVariante @relation(fields: [varianteId], references: [id])
+
+  // Sucursal de donde se descontó el stock (elegida automáticamente al
+  // crear el pedido, ver comentario arriba del modelo Pedido).
+  sucursalStockId Int              @map("sucursal_stock_id")
+  sucursalStock   Sucursal         @relation("PedidoStock", fields: [sucursalStockId], references: [id])
+
+  cantidad       Int
+  precioUnitario Decimal @map("precio_unitario") @db.Decimal(10, 2)
+  subtotal       Decimal @db.Decimal(10, 2)
+
+  @@map("pedido_items")
 }

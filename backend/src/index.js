@@ -14,6 +14,10 @@ const sucursalesRoutes = require('./routes/sucursales');
 const transferenciasRoutes = require('./routes/transferencias');
 const clientesRoutes = require('./routes/clientes');
 const apartadosRoutes = require('./routes/apartados');
+const pedidosOnlineRoutes = require('./routes/pedidosOnline');
+const tiendaAuthRoutes = require('./routes/tienda/auth');
+const tiendaCatalogoRoutes = require('./routes/tienda/catalogo');
+const tiendaPedidosRoutes = require('./routes/tienda/pedidos');
 
 const app = express();
 
@@ -39,6 +43,12 @@ app.use('/sucursales', sucursalesRoutes);
 app.use('/transferencias', transferenciasRoutes);
 app.use('/clientes', clientesRoutes);
 app.use('/apartados', apartadosRoutes);
+app.use('/pedidos-online', pedidosOnlineRoutes);
+
+// Tienda en línea (cara al cliente): catálogo público + cuenta + pedidos.
+app.use('/tienda/auth', tiendaAuthRoutes);
+app.use('/tienda/productos', tiendaCatalogoRoutes);
+app.use('/tienda/pedidos', tiendaPedidosRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, next) => {

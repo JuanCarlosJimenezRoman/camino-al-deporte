@@ -90,6 +90,7 @@ export const PERMISOS = {
   cuentasTransferencia: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   apartados: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   historialVentas: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  pedidosOnline: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

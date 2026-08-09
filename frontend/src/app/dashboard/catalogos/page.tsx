@@ -33,6 +33,7 @@ interface CuentaTransferencia {
   titular: string | null;
   numeroCuenta: string | null;
   activo: boolean;
+  paraVentasOnline: boolean;
 }
 
 export default function CatalogosPage() {
@@ -131,12 +132,26 @@ function CuentasTransferenciaCard() {
     }
   }
 
+  async function toggleOnline(c: CuentaTransferencia) {
+    try {
+      await api(`/catalogos/cuentas-transferencia/${c.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ paraVentasOnline: !c.paraVentasOnline }),
+      });
+      cargar();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar.');
+    }
+  }
+
   return (
     <div className="card" style={{ gridColumn: '1 / -1' }}>
       <h2 style={{ fontSize: 15, marginBottom: 4 }}>Cuentas de transferencia</h2>
       <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 12 }}>
         Cuentas propias donde llegan los pagos por transferencia. Aparecen como opción al registrar una
-        venta o un abono de apartado pagado por transferencia.
+        venta o un abono de apartado pagado por transferencia. Marca "Tienda en línea" en al menos una
+        cuenta activa para que los clientes de la tienda puedan pagar por SPEI — sin eso, no se pueden
+        crear pedidos en línea.
       </p>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -163,6 +178,7 @@ function CuentasTransferenciaCard() {
             <th>Banco</th>
             <th>Titular</th>
             <th>Cuenta / CLABE</th>
+            <th>Tienda en línea</th>
             <th>Acciones</th>
           </tr>
         </thead>
@@ -199,6 +215,7 @@ function CuentasTransferenciaCard() {
                       style={{ maxWidth: 180 }}
                     />
                   </td>
+                  <td>{c.paraVentasOnline ? 'Sí' : 'No'}</td>
                   <td style={{ display: 'flex', gap: 6 }}>
                     <button className="btn" onClick={() => guardarEdicion(c.id)}>
                       Guardar
@@ -214,6 +231,7 @@ function CuentasTransferenciaCard() {
                   <td>{c.banco || '—'}</td>
                   <td>{c.titular || '—'}</td>
                   <td>{c.numeroCuenta || '—'}</td>
+                  <td>{c.paraVentasOnline ? 'Sí' : 'No'}</td>
                   <td style={{ display: 'flex', gap: 6 }}>
                     <button
                       className="btn-secondary btn"
@@ -232,6 +250,9 @@ function CuentasTransferenciaCard() {
                     <button className="btn-secondary btn" onClick={() => toggleActivo(c)}>
                       {c.activo ? 'Desactivar' : 'Activar'}
                     </button>
+                    <button className="btn-secondary btn" onClick={() => toggleOnline(c)}>
+                      {c.paraVentasOnline ? 'Quitar de tienda' : 'Usar en tienda'}
+                    </button>
                   </td>
                 </>
               )}
@@ -239,7 +260,7 @@ function CuentasTransferenciaCard() {
           ))}
           {cuentas.length === 0 && (
             <tr>
-              <td colSpan={5} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={6} style={{ color: 'var(--color-muted)' }}>
                 Sin cuentas registradas todavía.
               </td>
             </tr>

@@ -110,7 +110,8 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 - `transferencias_inventario` (mover mercancía entre sucursales)
 - `ventas`, `venta_items` (atadas a una sucursal; con método de pago y comprobante)
 - `cuentas_transferencia` (catálogo de cuentas propias donde se reciben transferencias)
-- `clientes`, `apartados`, `apartado_items`, `apartado_pagos` (layaway)
+- `clientes` (también cuentas de la tienda en línea, ver más abajo), `apartados`, `apartado_items`, `apartado_pagos` (layaway)
+- `pedidos`, `pedido_items` (tienda en línea, pago único por SPEI)
 - `campos_personalizados`
 
 El esquema completo y comentado está en `backend/prisma/schema.prisma`.
@@ -163,6 +164,88 @@ de total por sucursal además del listado detallado.
 - La pantalla de Apartados también muestra un resumen de "clientes con
   adeudo" (suma del saldo pendiente de sus apartados activos).
 
+## Tienda en línea: catálogo público, cuentas de cliente y pedidos por SPEI
+
+Además de la venta de mostrador y los apartados, el sistema tiene una tienda
+en línea de cara al cliente: ve el catálogo, crea su cuenta, arma un pedido y
+lo paga por transferencia SPEI a una cuenta del negocio subiendo su
+comprobante. Vive en las mismas rutas del backend (`/tienda/...`) y en la
+misma base de datos que el resto del sistema — no hay un segundo backend ni
+una segunda base de datos.
+
+**Cuentas de cliente.** Son un tipo de sesión totalmente aparte de
+`usuarios` (empleados): usan la tabla `clientes` con un `password_hash`
+propio y su propio JWT (`POST /tienda/auth/registro`, `POST
+/tienda/auth/login`, `GET /tienda/auth/me`), verificado por el middleware
+`requireClienteAuth` en vez de `requireAuth`. Si alguien ya tenía un registro
+en `clientes` por haber hecho un apartado en tienda física (sin contraseña),
+registrarse con el mismo correo o teléfono "reclama" esa cuenta en vez de
+duplicarla, para que vea su historial junto con sus pedidos en línea.
+
+**Catálogo público** (`GET /tienda/productos`, `GET /tienda/productos/:id`)
+no requiere sesión y solo muestra productos activos con existencia mayor a
+cero, sumando el stock de todas las sucursales — al cliente no le importa de
+cuál sucursal sale, eso lo decide el backend al crear el pedido.
+
+**Crear un pedido** (`POST /tienda/pedidos`, requiere sesión de cliente)
+reserva el stock de inmediato, igual que un Apartado: por cada artículo
+busca automáticamente una sucursal con existencia suficiente (prefiriendo la
+bodega central) y descuenta ahí. El cliente no elige sucursal. Si ninguna
+sucursal por sí sola tiene suficiente para un renglón, el pedido se rechaza
+(v1 no reparte un mismo renglón entre varias sucursales). Al crearse, el
+pedido queda en `PENDIENTE_PAGO` con una `referenciaPago` (para el concepto
+del SPEI) y la cuenta bancaria a la que debe pagar — la primera cuenta activa
+marcada `paraVentasOnline` en Catálogos → Cuentas de transferencia. Si no hay
+ninguna marcada así, la creación del pedido falla con un mensaje claro (hay
+que configurar al menos una cuenta con ese flag antes de operar la tienda).
+
+**Verificación del pago — manual en v1.** El mockup original de este
+proyecto contemplaba un match automático contra el banco (monto, cuenta,
+fecha). Eso requeriría contratar una integración bancaria (por ejemplo STP,
+Belvo o Fintoc) que hoy no existe, así que v1 usa revisión manual: el cliente
+sube su comprobante (`POST /tienda/pedidos/:id/comprobante`, pasa a
+`EN_VALIDACION`) y alguien de VENTAS/ADMIN lo compara contra el estado de
+cuenta real y lo aprueba (`POST /pedidos-online/:id/validar-pago` → `PAGADO`)
+o lo rechaza con motivo (`POST /pedidos-online/:id/rechazar-comprobante` →
+vuelve a `PENDIENTE_PAGO` para que el cliente suba uno correcto; el stock
+sigue reservado mientras tanto). Si más adelante se contrata una integración
+bancaria, ese match automático reemplazaría solo este paso manual — el resto
+del flujo (reserva de stock, estados, envío) no cambia.
+
+**Ciclo de vida de un pedido:**
+
+```
+PENDIENTE_PAGO → EN_VALIDACION → PAGADO → ENVIADO → RECIBIDO
+      ↓                ↓
+  CANCELADO        (rechazo: vuelve a PENDIENTE_PAGO)
+```
+
+- `CANCELADO`: el cliente puede cancelar su propio pedido solo mientras sigue
+  `PENDIENTE_PAGO` (`POST /tienda/pedidos/:id/cancelar`); el negocio puede
+  cancelarlo en cualquier estado anterior a `ENVIADO`
+  (`POST /pedidos-online/:id/cancelar`). En ambos casos el stock reservado
+  regresa a la sucursal de donde salió. Cancelar un pedido ya enviado o
+  recibido requeriría un flujo de devolución que no existe todavía (misma
+  limitación que hoy tienen los Apartados).
+- `ENVIADO`: lo marca el negocio (`POST /pedidos-online/:id/marcar-enviado`),
+  opcionalmente con paquetería y número de guía.
+- `RECIBIDO`: lo confirma el cliente desde su cuenta
+  (`POST /tienda/pedidos/:id/confirmar-recibido`) o, si no lo hace (por
+  ejemplo, lo recogió en tienda), el negocio puede cerrarlo de todos modos
+  (`POST /pedidos-online/:id/marcar-recibido`).
+
+**Trazabilidad de inventario.** Cada pedido genera movimientos de inventario
+con `tipo: PEDIDO_ONLINE` (al crearse) o `DEVOLUCION` (al cancelarse),
+igual que ventas/apartados/transferencias. Estos movimientos no los hace
+ningún empleado — por eso `movimientos_inventario.usuario_id` ahora es
+opcional (antes era obligatorio); solo lo generado por acciones de un
+cliente en la tienda en línea queda sin usuario y con `pedido_id` en su
+lugar.
+
+**Roles.** Quién administra pedidos en línea (validar pago, marcar enviado,
+cancelar) son los mismos roles que ya operan ventas/apartados:
+ADMIN_PRINCIPAL, DESARROLLO, VENTAS.
+
 ## Importar/exportar productos por Excel
 
 En Productos → "Importar / exportar Excel". Cada fila del Excel es una
@@ -213,3 +296,11 @@ Comportamiento al importar:
   conocida arriba).
 - Reembolso/registro del dinero devuelto al cancelar un apartado con abonos
   ya pagados (hoy queda solo como referencia, sin flujo dedicado).
+- Verificación automática del pago SPEI de pedidos en línea contra el banco
+  (hoy es manual, ver sección de tienda en línea); requeriría contratar una
+  integración bancaria (STP, Belvo, Fintoc, etc.).
+- Liberar automáticamente el stock reservado de pedidos que se quedan en
+  `PENDIENTE_PAGO` mucho tiempo sin comprobante (hoy solo se libera si el
+  cliente o el negocio cancelan a mano).
+- Devolución/reembolso de un pedido ya `ENVIADO`/`RECIBIDO` (hoy solo se
+  puede cancelar antes de enviarse, misma limitación que Apartados).
