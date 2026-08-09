@@ -1,0 +1,242 @@
+// Esquema de base de datos - Camino al Deporte
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Roles y usuarios
+// ---------------------------------------------------------------------------
+
+enum RolNombre {
+  ADMIN_PRINCIPAL // acceso total: usuarios, roles, catálogos, inventario, ventas, reportes
+  DESARROLLO      // acceso total + puede crear/modificar campos personalizados
+  INVENTARIO      // gestiona productos, variantes, entradas/salidas de stock
+  VENTAS          // registra ventas, consulta stock, no edita catálogo
+  CONSULTA        // solo lectura: existencias y precios
+}
+
+model Rol {
+  id        Int       @id @default(autoincrement())
+  nombre    RolNombre @unique
+  descripcion String?
+  usuarios  Usuario[]
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("roles")
+}
+
+model Usuario {
+  id           Int      @id @default(autoincrement())
+  nombre       String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  rolId        Int      @map("rol_id")
+  rol          Rol      @relation(fields: [rolId], references: [id])
+  activo       Boolean  @default(true)
+  ultimoLogin  DateTime? @map("ultimo_login")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  movimientos  MovimientoInventario[]
+  ventas       Venta[]
+
+  @@map("usuarios")
+}
+
+// ---------------------------------------------------------------------------
+// Catálogos: marcas, modelos, tallas, categorías
+// ---------------------------------------------------------------------------
+
+model Marca {
+  id        Int        @id @default(autoincrement())
+  nombre    String     @unique
+  activo    Boolean    @default(true)
+  modelos   Modelo[]
+  productos Producto[]
+
+  @@map("marcas")
+}
+
+model Modelo {
+  id        Int        @id @default(autoincrement())
+  nombre    String
+  marcaId   Int        @map("marca_id")
+  marca     Marca      @relation(fields: [marcaId], references: [id])
+  activo    Boolean    @default(true)
+  productos Producto[]
+
+  @@unique([nombre, marcaId])
+  @@map("modelos")
+}
+
+model Categoria {
+  id        Int        @id @default(autoincrement())
+  nombre    String     @unique
+  activo    Boolean    @default(true)
+  productos Producto[]
+
+  @@map("categorias")
+}
+
+// Tallas son un catálogo reutilizable (ej: "7", "8.5", "S", "M", "38")
+// El campo `tipo` permite agrupar (calzado, ropa, accesorio) para no mezclar
+// tallas de zapato con tallas de playera en el mismo selector.
+model Talla {
+  id       Int               @id @default(autoincrement())
+  valor    String
+  tipo     String            // "calzado" | "ropa" | "accesorio" | ...
+  orden    Int               @default(0)
+  variantes ProductoVariante[]
+
+  @@unique([valor, tipo])
+  @@map("tallas")
+}
+
+// ---------------------------------------------------------------------------
+// Productos y variantes (una variante = combinación talla/color con stock propio)
+// ---------------------------------------------------------------------------
+
+model Producto {
+  id           Int      @id @default(autoincrement())
+  nombre       String
+  descripcion  String?
+  marcaId      Int      @map("marca_id")
+  marca        Marca    @relation(fields: [marcaId], references: [id])
+  modeloId     Int?     @map("modelo_id")
+  modelo       Modelo?  @relation(fields: [modeloId], references: [id])
+  categoriaId  Int      @map("categoria_id")
+  categoria    Categoria @relation(fields: [categoriaId], references: [id])
+  precioCompra Decimal  @default(0) @map("precio_compra") @db.Decimal(10, 2)
+  precioVenta  Decimal  @default(0) @map("precio_venta") @db.Decimal(10, 2)
+  activo       Boolean  @default(true)
+
+  // Campos personalizados definidos dinámicamente por el rol DESARROLLO
+  // sin necesidad de migraciones (ver modelo CampoPersonalizado).
+  atributosExtra Json?  @default("{}") @map("atributos_extra")
+
+  variantes    ProductoVariante[]
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("productos")
+}
+
+model ProductoVariante {
+  id            Int      @id @default(autoincrement())
+  productoId    Int      @map("producto_id")
+  producto      Producto @relation(fields: [productoId], references: [id])
+  tallaId       Int?     @map("talla_id")
+  talla         Talla?   @relation(fields: [tallaId], references: [id])
+  color         String?
+  sku           String   @unique
+  stockActual   Int      @default(0) @map("stock_actual")
+  stockMinimo   Int      @default(0) @map("stock_minimo")
+  activo        Boolean  @default(true)
+
+  movimientos   MovimientoInventario[]
+  ventaItems    VentaItem[]
+
+  @@unique([productoId, tallaId, color])
+  @@map("producto_variantes")
+}
+
+// ---------------------------------------------------------------------------
+// Inventario: historial de movimientos (entradas, salidas, ajustes)
+// ---------------------------------------------------------------------------
+
+enum TipoMovimiento {
+  ENTRADA
+  SALIDA
+  AJUSTE
+  VENTA
+  DEVOLUCION
+}
+
+model MovimientoInventario {
+  id          Int              @id @default(autoincrement())
+  varianteId  Int              @map("variante_id")
+  variante    ProductoVariante @relation(fields: [varianteId], references: [id])
+  tipo        TipoMovimiento
+  cantidad    Int              // positivo o negativo según tipo
+  motivo      String?
+  usuarioId   Int              @map("usuario_id")
+  usuario     Usuario          @relation(fields: [usuarioId], references: [id])
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@map("movimientos_inventario")
+}
+
+// ---------------------------------------------------------------------------
+// Ventas
+// ---------------------------------------------------------------------------
+
+enum EstadoVenta {
+  COMPLETADA
+  CANCELADA
+  PENDIENTE
+}
+
+model Venta {
+  id          Int         @id @default(autoincrement())
+  folio       String      @unique
+  usuarioId   Int         @map("usuario_id")
+  usuario     Usuario     @relation(fields: [usuarioId], references: [id])
+  cliente     String?
+  total       Decimal     @default(0) @db.Decimal(10, 2)
+  metodoPago  String?     @map("metodo_pago")
+  estado      EstadoVenta @default(COMPLETADA)
+  items       VentaItem[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@map("ventas")
+}
+
+model VentaItem {
+  id             Int              @id @default(autoincrement())
+  ventaId        Int              @map("venta_id")
+  venta          Venta            @relation(fields: [ventaId], references: [id])
+  varianteId     Int              @map("variante_id")
+  variante       ProductoVariante @relation(fields: [varianteId], references: [id])
+  cantidad       Int
+  precioUnitario Decimal          @map("precio_unitario") @db.Decimal(10, 2)
+  subtotal       Decimal          @db.Decimal(10, 2)
+
+  @@map("venta_items")
+}
+
+// ---------------------------------------------------------------------------
+// Campos personalizados (para que el rol DESARROLLO agregue campos a futuro
+// sin tocar código): describe qué campos extra existen para cada entidad y
+// cómo debe renderizarlos el frontend. Los valores reales viven en el JSON
+// `atributosExtra` de cada registro.
+// ---------------------------------------------------------------------------
+
+enum TipoCampo {
+  TEXTO
+  NUMERO
+  BOOLEANO
+  FECHA
+  SELECT
+}
+
+model CampoPersonalizado {
+  id          Int       @id @default(autoincrement())
+  entidad     String    // "producto" | "producto_variante" | ...
+  clave       String    // nombre interno del campo, ej: "genero"
+  etiqueta    String    // texto visible, ej: "Género"
+  tipo        TipoCampo
+  opciones    Json?     // para SELECT: ["Hombre","Mujer","Unisex"]
+  requerido   Boolean   @default(false)
+  activo      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([entidad, clave])
+  @@map("campos_personalizados")
+}
