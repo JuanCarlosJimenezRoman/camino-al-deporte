@@ -36,3 +36,24 @@ export async function api<T = unknown>(
   if (res.status === 204) return undefined as T;
   return res.json();
 }
+
+// Para subir archivos (multipart/form-data). No se pone Content-Type a mano:
+// el navegador arma el boundary correcto solo cuando el body es un FormData.
+export async function apiUpload<T = unknown>(path: string, formData: FormData): Promise<T> {
+  const token = getToken();
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(body.error || `Error ${res.status}`, res.status);
+  }
+
+  return res.json();
+}

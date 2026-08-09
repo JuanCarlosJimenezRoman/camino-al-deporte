@@ -170,10 +170,27 @@ model Producto {
   atributosExtra Json?  @default("{}") @map("atributos_extra")
 
   variantes    ProductoVariante[]
+  imagenes     ProductoImagen[]
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("productos")
+}
+
+// Fotos del producto (no de la variante: la misma foto sirve para todas las
+// tallas/colores). Se guardan en Cloudinary; aquí solo vive la URL y el
+// public_id necesario para poder borrarlas allá también.
+model ProductoImagen {
+  id          Int      @id @default(autoincrement())
+  productoId  Int      @map("producto_id")
+  producto    Producto @relation(fields: [productoId], references: [id])
+  url         String
+  publicId    String   @map("public_id")
+  esPrincipal Boolean  @default(false) @map("es_principal")
+  orden       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("producto_imagenes")
 }
 
 model ProductoVariante {

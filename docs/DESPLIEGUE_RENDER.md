@@ -48,12 +48,32 @@ git push -u origin main
    - `FRONTEND_URL` → la URL de tu frontend (la agregas después de desplegarlo)
    - `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NOMBRE` → para el
      usuario administrador inicial
+   - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` →
+     ver sección 3bis (fotos de producto)
 7. Después del primer deploy exitoso, corre el seed una sola vez desde la
    **Shell** de Render (pestaña "Shell" del servicio):
    ```
    npm run seed
    ```
    Esto crea los 5 roles y el usuario administrador principal.
+
+## 3bis. Cloudinary (fotos de producto)
+
+Las fotos de producto se guardan en [Cloudinary](https://cloudinary.com), no
+en Render (Render borra cualquier archivo subido en cada despliegue, así que
+no sirve para esto).
+
+1. Crea una cuenta gratis en <https://cloudinary.com/users/register/free>.
+2. En el Dashboard, justo arriba, verás **Cloud name**, **API Key** y
+   **API Secret** (el secret tiene un botón de "ojo" para revelarlo).
+3. Copia esos tres valores a las variables de entorno del backend en Render:
+   `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`.
+4. No hace falta configurar nada más del lado de Cloudinary — el backend crea
+   la carpeta `camino-al-deporte/productos` sola la primera vez que subas una foto.
+5. El plan gratis incluye 25 créditos/mes (~25 GB de almacenamiento o
+   tráfico combinados), de sobra para el catálogo de una tienda. Cada imagen
+   se redimensiona automáticamente a un máximo de 1200×1200px al subirla,
+   para no gastar espacio de más.
 
 ## 4. Frontend
 

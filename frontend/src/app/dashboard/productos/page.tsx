@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
+import { GaleriaFotos, Imagen } from '@/components/GaleriaFotos';
 
 interface Existencia {
   stockActual: number;
@@ -24,6 +25,7 @@ interface Producto {
   marca: { nombre: string };
   categoria: { nombre: string };
   variantes: Variante[];
+  imagenes: Imagen[];
 }
 
 interface Marca {
@@ -63,6 +65,7 @@ export default function ProductosPage() {
   const [busqueda, setBusqueda] = useState('');
   const [cargando, setCargando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [galeriaAbiertaId, setGaleriaAbiertaId] = useState<number | null>(null);
 
   // Catálogos para el formulario de alta
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -315,41 +318,90 @@ export default function ProductosPage() {
         <table>
           <thead>
             <tr>
+              <th>Foto</th>
               <th>Producto</th>
               <th>Marca</th>
               <th>Categoría</th>
               <th>Precio</th>
               <th>Variantes (talla / SKU / stock por sucursal)</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            {productos.map((p) => (
-              <tr key={p.id}>
-                <td>{p.nombre}</td>
-                <td>{p.marca?.nombre}</td>
-                <td>{p.categoria?.nombre}</td>
-                <td>${p.precioVenta}</td>
-                <td>
-                  {p.variantes.map((v) => (
-                    <div key={v.id} style={{ fontSize: 12, marginBottom: 4 }}>
-                      {v.talla?.valor ?? '—'} · {v.sku}
-                      {v.existencias.length > 0 && (
-                        <>
-                          {' '}
-                          ·{' '}
-                          {v.existencias
-                            .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
-                            .join(', ')}
-                        </>
+            {productos.map((p) => {
+              const portada = p.imagenes.find((img) => img.esPrincipal) || p.imagenes[0];
+              return (
+                <Fragment key={p.id}>
+                  <tr>
+                    <td>
+                      {portada ? (
+                        <img
+                          src={portada.url}
+                          alt=""
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6 }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: 6,
+                            background: '#f0f0f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 10,
+                            color: 'var(--color-muted)',
+                          }}
+                        >
+                          Sin foto
+                        </div>
                       )}
-                    </div>
-                  ))}
-                </td>
-              </tr>
-            ))}
+                    </td>
+                    <td>{p.nombre}</td>
+                    <td>{p.marca?.nombre}</td>
+                    <td>{p.categoria?.nombre}</td>
+                    <td>${p.precioVenta}</td>
+                    <td>
+                      {p.variantes.map((v) => (
+                        <div key={v.id} style={{ fontSize: 12, marginBottom: 4 }}>
+                          {v.talla?.valor ?? '—'} · {v.sku}
+                          {v.existencias.length > 0 && (
+                            <>
+                              {' '}
+                              ·{' '}
+                              {v.existencias
+                                .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
+                                .join(', ')}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </td>
+                    <td>
+                      {puedeCrear && (
+                        <button
+                          className="btn-secondary btn"
+                          onClick={() => setGaleriaAbiertaId(galeriaAbiertaId === p.id ? null : p.id)}
+                        >
+                          {galeriaAbiertaId === p.id ? 'Cerrar fotos' : 'Fotos'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {galeriaAbiertaId === p.id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: '#fafafa' }}>
+                        <GaleriaFotos productoId={p.id} imagenes={p.imagenes} onCambio={cargarProductos} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
             {productos.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ color: 'var(--color-muted)' }}>
+                <td colSpan={7} style={{ color: 'var(--color-muted)' }}>
                   Sin productos todavía.
                 </td>
               </tr>

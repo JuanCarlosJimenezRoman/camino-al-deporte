@@ -1,13 +1,30 @@
 const express = require('express');
+const multer = require('multer');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { subirImagen, borrarImagen } = require('../config/cloudinary');
 
 const router = express.Router();
 
 const ROLES_EDICION = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
+
+// Multer guarda el archivo en memoria (no en disco: Render no persiste
+// archivos entre despliegues) para subirlo directo a Cloudinary.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('SOLO_IMAGENES'));
+    }
+    cb(null, true);
+  },
+});
+
+const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }] } };
 
 // GET /productos - todos los roles autenticados pueden consultar
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
@@ -25,6 +42,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       modelo: true,
       categoria: true,
       variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
+      ...IMAGENES_INCLUDE,
     },
     orderBy: { nombre: 'asc' },
   });
@@ -40,6 +58,7 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
       modelo: true,
       categoria: true,
       variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
+      ...IMAGENES_INCLUDE,
     },
   });
   if (!producto) return res.status(404).json({ error: 'Producto no encontrado.' });
@@ -161,6 +180,95 @@ router.post(
     });
 
     res.status(201).json(variante);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Fotos del producto (Cloudinary)
+// ---------------------------------------------------------------------------
+
+// POST /productos/:id/imagenes - subir una foto (multipart/form-data, campo "imagen")
+router.post(
+  '/:id/imagenes',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  (req, res, next) => {
+    upload.single('imagen')(req, res, (err) => {
+      if (err) {
+        if (err.message === 'SOLO_IMAGENES') return res.status(400).json({ error: 'El archivo debe ser una imagen.' });
+        if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'La imagen no puede pesar más de 5 MB.' });
+        return res.status(400).json({ error: 'No se pudo procesar el archivo.' });
+      }
+      next();
+    });
+  },
+  asyncHandler(async (req, res) => {
+    const productoId = Number(req.params.id);
+    if (!req.file) return res.status(400).json({ error: 'Falta el archivo de imagen (campo "imagen").' });
+
+    const producto = await prisma.producto.findUnique({ where: { id: productoId } });
+    if (!producto) return res.status(404).json({ error: 'Producto no encontrado.' });
+
+    const { url, publicId } = await subirImagen(req.file.buffer);
+
+    const esPrimera = (await prisma.productoImagen.count({ where: { productoId } })) === 0;
+
+    const imagen = await prisma.productoImagen.create({
+      data: { productoId, url, publicId, esPrincipal: esPrimera },
+    });
+
+    res.status(201).json(imagen);
+  })
+);
+
+// PUT /productos/:id/imagenes/:imagenId/principal - marcarla como foto de portada
+router.put(
+  '/:id/imagenes/:imagenId/principal',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  asyncHandler(async (req, res) => {
+    const productoId = Number(req.params.id);
+    const imagenId = Number(req.params.imagenId);
+
+    await prisma.$transaction([
+      prisma.productoImagen.updateMany({ where: { productoId }, data: { esPrincipal: false } }),
+      prisma.productoImagen.update({ where: { id: imagenId }, data: { esPrincipal: true } }),
+    ]);
+
+    res.json({ ok: true });
+  })
+);
+
+// DELETE /productos/:id/imagenes/:imagenId - borra de Cloudinary y de la BD
+router.delete(
+  '/:id/imagenes/:imagenId',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  asyncHandler(async (req, res) => {
+    const imagen = await prisma.productoImagen.findUnique({ where: { id: Number(req.params.imagenId) } });
+    if (!imagen) return res.status(404).json({ error: 'Imagen no encontrada.' });
+
+    await borrarImagen(imagen.publicId).catch((err) => {
+      // Si Cloudinary ya no la tiene (borrada a mano, etc.) seguimos y
+      // limpiamos igual el registro local en vez de dejarlo huérfano.
+      console.error('No se pudo borrar de Cloudinary:', err.message);
+    });
+
+    await prisma.productoImagen.delete({ where: { id: imagen.id } });
+
+    // Si era la principal, promovemos otra (si queda alguna) para que el
+    // producto siempre tenga una portada mientras tenga fotos.
+    if (imagen.esPrincipal) {
+      const siguiente = await prisma.productoImagen.findFirst({
+        where: { productoId: imagen.productoId },
+        orderBy: { orden: 'asc' },
+      });
+      if (siguiente) {
+        await prisma.productoImagen.update({ where: { id: siguiente.id }, data: { esPrincipal: true } });
+      }
+    }
+
+    res.status(204).send();
   })
 );
 
