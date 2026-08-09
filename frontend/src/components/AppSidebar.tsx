@@ -10,6 +10,7 @@ import {
   Store,
   Users,
   CalendarClock,
+  Globe,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -61,6 +62,11 @@ export function AppSidebar({
         puedeVer('inventario', rol) && { href: '/dashboard/inventario', label: 'Inventario', icon: Warehouse },
         puedeVer('ventas', rol) && { href: '/dashboard/ventas', label: 'Ventas', icon: ShoppingCart },
         puedeVer('apartados', rol) && { href: '/dashboard/apartados', label: 'Apartados', icon: CalendarClock },
+        puedeVer('pedidosOnline', rol) && {
+          href: '/dashboard/pedidos-online',
+          label: 'Pedidos en línea',
+          icon: Globe,
+        },
         puedeVer('transferencias', rol) && {
           href: '/dashboard/transferencias',
           label: 'Transferencias',
