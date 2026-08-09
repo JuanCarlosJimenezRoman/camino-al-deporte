@@ -1,23 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -----------------------------------------------------------------------
+   Paleta "Camino al Deporte" — colores tomados directamente del tema de
+   referencia (KREDIY ERP): naranja como color primario, fondo claro,
+   acentos durazno. El logo del club solo se usa como imagen, no define
+   la paleta.
+   ----------------------------------------------------------------------- */
 :root {
-  --color-bg: #f4f5f7;
-  --color-panel: #ffffff;
-  --color-border: #e2e4e8;
-  --color-text: #1f2430;
-  --color-muted: #6b7280;
-  --color-primary: #b8860b; /* dorado, en línea con el logo */
-  --color-primary-dark: #8a6508;
-  --color-danger: #c0392b;
+  --font-size: 14px;
+
+  /* Cada token se guarda como canales "R G B" (sin función) para poder
+     componerlo con Tailwind como rgb(var(--x) / <alpha-value>) y soportar
+     variantes de opacidad (bg-primary/10, text-foreground/60, etc). */
+  --background: 250 250 250;
+  --foreground: 7 6 7;
+  --card: 255 255 255;
+  --card-foreground: 7 6 7;
+  --popover: 255 255 255;
+  --popover-foreground: 7 6 7;
+
+  --primary: 255 78 0; /* #FF4E00 */
+  --primary-foreground: 255 255 255;
+  --secondary: 248 249 250;
+  --secondary-foreground: 7 6 7;
+  --muted: 248 249 250;
+  --muted-foreground: 107 114 128;
+  --accent: 248 225 222; /* #F8E1DE */
+  --accent-foreground: 7 6 7;
+  --destructive: 239 68 68;
+  --destructive-foreground: 255 255 255;
+  --success: 16 185 129;
+  --success-foreground: 255 255 255;
+  --warning: 245 158 11;
+  --warning-foreground: 255 255 255;
+
+  --border: 229 231 235;
+  --input-background: 255 255 255;
+  --ring: 255 78 0;
+
+  --chart-1: 255 78 0;
+  --chart-2: 16 185 129;
+  --chart-3: 245 158 11;
+  --chart-4: 139 92 246;
+  --chart-5: 239 68 68;
+
+  --radius: 0.5rem;
+
+  --sidebar: 255 255 255;
+  --sidebar-foreground: 7 6 7;
+  --sidebar-primary: 255 78 0;
+  --sidebar-primary-foreground: 255 255 255;
+  --sidebar-accent: 248 225 222;
+  --sidebar-accent-foreground: 7 6 7;
+  --sidebar-border: 229 231 235;
+
+  /* Compatibilidad con nombres previos usados en el resto del código */
+  --color-bg: rgb(var(--background));
+  --color-panel: rgb(var(--card));
+  --color-border: rgb(var(--border));
+  --color-text: rgb(var(--foreground));
+  --color-muted: rgb(var(--muted-foreground));
+  --color-primary: rgb(var(--primary));
+  --color-primary-dark: #cc3e00;
+  --color-danger: rgb(var(--destructive));
 }
 
 * {
   box-sizing: border-box;
+  border-color: rgb(var(--border));
+}
+
+html {
+  font-size: var(--font-size);
 }
 
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
 }
 
 a {
@@ -29,71 +92,90 @@ button {
   cursor: pointer;
 }
 
-.btn {
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  font-size: 14px;
+h1,
+h2,
+h3,
+h4 {
   font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
 }
 
-.btn:hover {
-  background: var(--color-primary-dark);
+/* -----------------------------------------------------------------------
+   Clases heredadas (.btn, .card, table) usadas en las páginas del
+   dashboard. Se reconstruyen sobre Tailwind para que todas las pantallas
+   existentes hereden el look nuevo sin tener que tocar cada componente.
+   ----------------------------------------------------------------------- */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground
+      px-4 py-2 text-sm font-semibold shadow-soft transition-all
+      hover:bg-primary/90 hover:shadow-card
+      disabled:pointer-events-none disabled:opacity-50
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent text-foreground border border-border shadow-none
+      hover:bg-secondary hover:border-border;
+  }
+
+  .card {
+    @apply bg-card text-card-foreground border border-border rounded-xl p-4 sm:p-5 shadow-card;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply w-full rounded-lg border border-border bg-input px-3 py-2 text-sm
+      text-foreground placeholder:text-muted-foreground transition-colors
+      focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-primary;
+  }
+
+  input[type='file'] {
+    @apply border-0 bg-transparent px-0 py-1;
+  }
+
+  input[type='checkbox'] {
+    @apply w-auto;
+  }
+
+  label {
+    @apply text-sm font-medium text-foreground/80;
+  }
+
+  table {
+    @apply w-full border-collapse bg-card rounded-xl overflow-hidden border border-border text-sm;
+    min-width: 640px;
+  }
+
+  th,
+  td {
+    @apply text-left px-3 sm:px-4 py-2.5 sm:py-3 text-sm border-b border-border whitespace-nowrap;
+  }
+
+  th {
+    @apply bg-secondary text-muted-foreground font-semibold uppercase text-xs tracking-wide;
+  }
+
+  tbody tr {
+    @apply transition-colors hover:bg-secondary/60;
+  }
+
+  tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .stock-bajo {
+    @apply text-destructive font-semibold;
+  }
 }
 
-.btn-secondary {
-  background: transparent;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover {
-  background: #f0f0f0;
-}
-
-input,
-select {
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  font-size: 14px;
-  width: 100%;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--color-panel);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-th,
-td {
-  text-align: left;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border);
-  font-size: 14px;
-}
-
-th {
-  background: #fafafa;
-  color: var(--color-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 12px;
-}
-
-.card {
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 20px;
-}
-
-.stock-bajo {
-  color: var(--color-danger);
-  font-weight: 600;
+/* Cualquier tabla del dashboard queda ancha (min-width: 640px arriba), así
+   que en pantallas chicas su contenedor inmediato debe poder desplazarse
+   horizontalmente en vez de romper el layout. Esto cubre todas las tablas
+   existentes sin tener que envolver cada una manualmente en el JSX. */
+div:has(> table) {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
