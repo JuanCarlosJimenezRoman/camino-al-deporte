@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
 
 interface Sucursal {
   id: number;
@@ -19,7 +20,7 @@ interface Existencia {
     sku: string;
     color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; marca: { nombre: string } };
+    producto: { nombre: string; marca: { nombre: string }; imagenes?: { url: string }[] };
   };
 }
 
@@ -106,6 +107,7 @@ export default function InventarioPage() {
       <table>
         <thead>
           <tr>
+            <th></th>
             <th>SKU</th>
             <th>Producto</th>
             <th>Marca</th>
@@ -117,6 +119,9 @@ export default function InventarioPage() {
         <tbody>
           {existencias.map((e) => (
             <tr key={e.variante.id}>
+              <td>
+                <ProductoThumb url={imagenPrincipal(e.variante.producto)} alt={e.variante.producto?.nombre || ''} />
+              </td>
               <td>{e.variante.sku}</td>
               <td>{e.variante.producto?.nombre}</td>
               <td>{e.variante.producto?.marca?.nombre}</td>
@@ -136,7 +141,7 @@ export default function InventarioPage() {
           ))}
           {existencias.length === 0 && (
             <tr>
-              <td colSpan={puedeEditar ? 6 : 5} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={puedeEditar ? 7 : 6} style={{ color: 'var(--color-muted)' }}>
                 Sin existencias registradas en esta sucursal.
               </td>
             </tr>

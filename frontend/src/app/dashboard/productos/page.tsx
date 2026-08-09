@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { GaleriaFotos, Imagen } from '@/components/GaleriaFotos';
-import { Badge } from '@/components/ui/badge';
 
 interface Existencia {
   stockActual: number;
@@ -68,7 +67,6 @@ export default function ProductosPage() {
   const [cargando, setCargando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [galeriaAbiertaId, setGaleriaAbiertaId] = useState<number | null>(null);
-  const [variantesAbiertasId, setVariantesAbiertasId] = useState<number | null>(null);
 
   // Catálogos para el formulario de alta
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -183,10 +181,10 @@ export default function ProductosPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-        <h1 className="text-xl sm:text-2xl">Productos</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22 }}>Productos</h1>
         {puedeCrear && (
-          <div className="flex flex-wrap gap-2">
+          <div style={{ display: 'flex', gap: 8 }}>
             <Link href="/dashboard/productos/importar" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
               Importar / exportar Excel
             </Link>
@@ -308,7 +306,7 @@ export default function ProductosPage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <input
           placeholder="Buscar por nombre..."
           value={busqueda}
@@ -331,18 +329,13 @@ export default function ProductosPage() {
               <th>Marca</th>
               <th>Categoría</th>
               <th>Precio</th>
-              <th>Variantes</th>
+              <th>Variantes (talla / SKU / stock por sucursal)</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {productos.map((p) => {
               const portada = p.imagenes.find((img) => img.esPrincipal) || p.imagenes[0];
-              const totalStock = p.variantes.reduce(
-                (acc, v) => acc + v.existencias.reduce((a, ex) => a + ex.stockActual, 0),
-                0
-              );
-              const variantesAbiertas = variantesAbiertasId === p.id;
               return (
                 <Fragment key={p.id}>
                   <tr>
@@ -376,79 +369,32 @@ export default function ProductosPage() {
                     <td>{p.categoria?.nombre}</td>
                     <td>${p.precioVenta}</td>
                     <td>
-                      <button
-                        onClick={() => setVariantesAbiertasId(variantesAbiertas ? null : p.id)}
-                        className="flex items-center gap-2 text-sm hover:underline"
-                      >
-                        <span className="font-medium">{p.variantes.length}</span>
-                        <span className="text-muted-foreground">
-                          {p.variantes.length === 1 ? 'variante' : 'variantes'}
-                        </span>
-                        <Badge variant={totalStock > 0 ? 'success' : 'destructive'}>{totalStock} en stock</Badge>
-                      </button>
-                    </td>
-                    <td>
-                      <div className="flex flex-wrap gap-2">
-                        {puedeCrear && (
-                          <button
-                            className="btn-secondary btn"
-                            onClick={() => setGaleriaAbiertaId(galeriaAbiertaId === p.id ? null : p.id)}
-                          >
-                            {galeriaAbiertaId === p.id ? 'Cerrar fotos' : 'Fotos'}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {variantesAbiertas && (
-                    <tr>
-                      <td colSpan={7} className="bg-secondary/40">
-                        <div className="py-2">
-                          {p.variantes.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">Este producto no tiene variantes.</p>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="min-w-[420px]">
-                                <thead>
-                                  <tr>
-                                    <th>Talla</th>
-                                    <th>Color</th>
-                                    <th>SKU</th>
-                                    <th>Stock por sucursal</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {p.variantes.map((v) => (
-                                    <tr key={v.id}>
-                                      <td>{v.talla?.valor ?? '—'}</td>
-                                      <td>{v.color ?? '—'}</td>
-                                      <td className="font-mono text-xs">{v.sku}</td>
-                                      <td>
-                                        {v.existencias.length === 0 ? (
-                                          <span className="text-muted-foreground">Sin existencias</span>
-                                        ) : (
-                                          <div className="flex flex-wrap gap-1.5">
-                                            {v.existencias.map((ex) => (
-                                              <Badge
-                                                key={ex.sucursal.id}
-                                                variant={ex.stockActual > 0 ? 'secondary' : 'destructive'}
-                                              >
-                                                {ex.sucursal.nombre}: {ex.stockActual}
-                                              </Badge>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                      {p.variantes.map((v) => (
+                        <div key={v.id} style={{ fontSize: 12, marginBottom: 4 }}>
+                          {v.talla?.valor ?? '—'} · {v.sku}
+                          {v.existencias.length > 0 && (
+                            <>
+                              {' '}
+                              ·{' '}
+                              {v.existencias
+                                .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
+                                .join(', ')}
+                            </>
                           )}
                         </div>
-                      </td>
-                    </tr>
-                  )}
+                      ))}
+                    </td>
+                    <td>
+                      {puedeCrear && (
+                        <button
+                          className="btn-secondary btn"
+                          onClick={() => setGaleriaAbiertaId(galeriaAbiertaId === p.id ? null : p.id)}
+                        >
+                          {galeriaAbiertaId === p.id ? 'Cerrar fotos' : 'Fotos'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
                   {galeriaAbiertaId === p.id && (
                     <tr>
                       <td colSpan={7} style={{ background: '#fafafa' }}>

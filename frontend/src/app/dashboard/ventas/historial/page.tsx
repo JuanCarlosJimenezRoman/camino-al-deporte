@@ -4,16 +4,18 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
-import { Badge } from '@/components/ui/badge';
-
-const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'secondary'> = {
-  COMPLETADA: 'success',
-  CANCELADA: 'destructive',
-};
+import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
 
 interface Sucursal {
   id: number;
   nombre: string;
+}
+
+interface VentaItem {
+  variante: {
+    talla: { valor: string } | null;
+    producto: { nombre: string; imagenes?: { url: string }[] };
+  };
 }
 
 interface Venta {
@@ -27,6 +29,7 @@ interface Venta {
   usuario: { nombre: string };
   sucursal: { nombre: string };
   cuentaTransferencia: { nombre: string } | null;
+  items: VentaItem[];
 }
 
 interface Historial {
@@ -77,8 +80,8 @@ export default function HistorialVentasPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-        <h1 className="text-xl sm:text-2xl">Historial de ventas</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22 }}>Historial de ventas</h1>
         <Link href="/dashboard/ventas" className="btn-secondary btn">
           Volver a ventas
         </Link>
@@ -141,7 +144,9 @@ export default function HistorialVentasPage() {
           <table>
             <thead>
               <tr>
+                <th></th>
                 <th>Folio</th>
+                <th>Producto</th>
                 <th>Sucursal</th>
                 <th>Cliente</th>
                 <th>Total</th>
@@ -152,26 +157,36 @@ export default function HistorialVentasPage() {
               </tr>
             </thead>
             <tbody>
-              {historial.ventas.map((v) => (
-                <tr key={v.id}>
-                  <td>{v.folio}</td>
-                  <td>{v.sucursal?.nombre}</td>
-                  <td>{v.cliente || '—'}</td>
-                  <td>${v.total}</td>
-                  <td>
-                    {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
-                    {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
-                  </td>
-                  <td>
-                    <Badge variant={ESTADO_VARIANT[v.estado] || 'secondary'}>{v.estado}</Badge>
-                  </td>
-                  <td>{v.usuario?.nombre}</td>
-                  <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
-                </tr>
-              ))}
+              {historial.ventas.map((v) => {
+                const primerItem = v.items?.[0];
+                return (
+                  <tr key={v.id}>
+                    <td>
+                      <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto)} alt={primerItem?.variante.producto.nombre || ''} />
+                    </td>
+                    <td>{v.folio}</td>
+                    <td>
+                      {primerItem
+                        ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                        : '—'}
+                      {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
+                    </td>
+                    <td>{v.sucursal?.nombre}</td>
+                    <td>{v.cliente || '—'}</td>
+                    <td>${v.total}</td>
+                    <td>
+                      {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
+                      {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
+                    </td>
+                    <td>{v.estado}</td>
+                    <td>{v.usuario?.nombre}</td>
+                    <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+                  </tr>
+                );
+              })}
               {historial.ventas.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ color: 'var(--color-muted)' }}>
+                  <td colSpan={10} style={{ color: 'var(--color-muted)' }}>
                     Sin ventas en el periodo.
                   </td>
                 </tr>

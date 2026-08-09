@@ -2,13 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { Badge } from '@/components/ui/badge';
-
-const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'warning' | 'secondary'> = {
-  SOLICITADA: 'warning',
-  RECIBIDA: 'success',
-  CANCELADA: 'destructive',
-};
 
 interface Sucursal {
   id: number;
@@ -190,9 +183,7 @@ export default function TransferenciasPage() {
               <td>
                 {t.sucursalOrigen.nombre} → {t.sucursalDestino.nombre}
               </td>
-              <td>
-                <Badge variant={ESTADO_VARIANT[t.estado] || 'secondary'}>{t.estado}</Badge>
-              </td>
+              <td>{t.estado}</td>
               <td>{t.solicitadoPor?.nombre}</td>
               <td style={{ display: 'flex', gap: 6 }}>
                 {t.estado === 'SOLICITADA' && (

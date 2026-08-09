@@ -3,13 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Badge } from '@/components/ui/badge';
-
-const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'warning' | 'secondary'> = {
-  ACTIVO: 'warning',
-  LIQUIDADO: 'success',
-  CANCELADO: 'destructive',
-};
+import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
 
 interface Sucursal {
   id: number;
@@ -36,7 +30,7 @@ interface Existencia {
     id: number;
     sku: string;
     talla: { valor: string } | null;
-    producto: { nombre: string; precioVenta: string };
+    producto: { nombre: string; precioVenta: string; imagenes?: { url: string }[] };
   };
 }
 
@@ -45,6 +39,7 @@ interface ItemCarrito {
   sucursalStockId: number;
   sucursalStockNombre: string;
   descripcion: string;
+  imagenUrl: string | null;
   cantidad: number;
   precioUnitario: number;
 }
@@ -67,7 +62,7 @@ interface ApartadoItem {
   variante: {
     sku: string;
     talla: { valor: string } | null;
-    producto: { nombre: string };
+    producto: { nombre: string; imagenes?: { url: string }[] };
   };
   sucursalStock?: { nombre: string };
 }
@@ -137,8 +132,8 @@ export default function ApartadosPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-        <h1 className="text-xl sm:text-2xl">Apartados</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22 }}>Apartados</h1>
         <button className="btn" onClick={() => setMostrarForm((v) => !v)}>
           {mostrarForm ? 'Cerrar formulario' : '+ Nuevo apartado'}
         </button>
@@ -317,9 +312,7 @@ function ApartadoFila({
         <td>${apartado.total}</td>
         <td>${apartado.pagado.toFixed(2)}</td>
         <td>${apartado.saldoPendiente.toFixed(2)}</td>
-        <td>
-          <Badge variant={ESTADO_VARIANT[apartado.estado] || 'secondary'}>{apartado.estado}</Badge>
-        </td>
+        <td>{apartado.estado}</td>
         <td>{apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : '—'}</td>
         <td>
           <button className="btn-secondary btn" onClick={onToggle}>
@@ -335,6 +328,7 @@ function ApartadoFila({
               <table style={{ marginBottom: 12 }}>
                 <thead>
                   <tr>
+                    <th></th>
                     <th>SKU</th>
                     <th>Producto</th>
                     <th>Talla</th>
@@ -347,6 +341,9 @@ function ApartadoFila({
                 <tbody>
                   {apartado.items.map((it) => (
                     <tr key={it.id}>
+                      <td>
+                        <ProductoThumb url={imagenPrincipal(it.variante.producto)} alt={it.variante.producto.nombre} />
+                      </td>
                       <td>{it.variante.sku}</td>
                       <td>{it.variante.producto.nombre}</td>
                       <td>{it.variante.talla?.valor ?? '—'}</td>
@@ -548,6 +545,7 @@ function NuevoApartadoForm({
         descripcion: `${existencia.variante.producto.nombre} ${
           existencia.variante.talla ? `(${existencia.variante.talla.valor})` : ''
         } — ${existencia.variante.sku}`,
+        imagenUrl: imagenPrincipal(existencia.variante.producto),
         cantidad,
         precioUnitario: Number(existencia.variante.producto.precioVenta),
       },
@@ -642,7 +640,7 @@ function NuevoApartadoForm({
         </>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-4">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
         <div>
           <h3 style={{ fontSize: 13, marginBottom: 6 }}>Cliente</h3>
           {clienteSeleccionado ? (
@@ -734,14 +732,23 @@ function NuevoApartadoForm({
         </div>
         <div>
           <label style={{ fontSize: 12, display: 'block' }}>Producto</label>
-          <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ maxWidth: 260 }}>
-            <option value="">Selecciona...</option>
-            {existencias.map((e) => (
-              <option key={e.variante.id} value={e.variante.id}>
-                {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} — stock: {e.stockActual}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {varianteId && (
+              <ProductoThumb
+                url={imagenPrincipal(existencias.find((e) => String(e.variante.id) === varianteId)?.variante.producto)}
+                alt=""
+                size={32}
+              />
+            )}
+            <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ maxWidth: 260 }}>
+              <option value="">Selecciona...</option>
+              {existencias.map((e) => (
+                <option key={e.variante.id} value={e.variante.id}>
+                  {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} — stock: {e.stockActual}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div>
           <label style={{ fontSize: 12, display: 'block' }}>Cantidad</label>
@@ -756,6 +763,7 @@ function NuevoApartadoForm({
         <table style={{ marginBottom: 12 }}>
           <thead>
             <tr>
+              <th></th>
               <th>Artículo</th>
               <th>Sucursal</th>
               <th>Cant.</th>
@@ -767,6 +775,9 @@ function NuevoApartadoForm({
           <tbody>
             {carrito.map((it, idx) => (
               <tr key={idx}>
+                <td>
+                  <ProductoThumb url={it.imagenUrl} alt={it.descripcion} />
+                </td>
                 <td>{it.descripcion}</td>
                 <td>{it.sucursalStockNombre}</td>
                 <td>{it.cantidad}</td>

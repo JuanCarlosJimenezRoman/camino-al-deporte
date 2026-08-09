@@ -4,12 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
-import { Badge } from '@/components/ui/badge';
-
-const ESTADO_VARIANT: Record<string, 'success' | 'destructive' | 'secondary'> = {
-  COMPLETADA: 'success',
-  CANCELADA: 'destructive',
-};
+import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
 
 interface Sucursal {
   id: number;
@@ -20,6 +15,16 @@ interface CuentaTransferencia {
   id: number;
   nombre: string;
   banco: string | null;
+}
+
+interface VentaItem {
+  id: number;
+  cantidad: number;
+  variante: {
+    sku: string;
+    talla: { valor: string } | null;
+    producto: { nombre: string; imagenes?: { url: string }[] };
+  };
 }
 
 interface Venta {
@@ -34,6 +39,7 @@ interface Venta {
   createdAt: string;
   usuario: { nombre: string };
   sucursal: { nombre: string };
+  items: VentaItem[];
 }
 
 interface Existencia {
@@ -43,7 +49,7 @@ interface Existencia {
     id: number;
     sku: string;
     talla: { valor: string } | null;
-    producto: { nombre: string; precioVenta: string };
+    producto: { nombre: string; precioVenta: string; imagenes?: { url: string }[] };
   };
 }
 
@@ -149,9 +155,9 @@ export default function VentasPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-        <h1 className="text-xl sm:text-2xl">Ventas</h1>
-        <div className="flex flex-wrap gap-2">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22 }}>Ventas</h1>
+        <div style={{ display: 'flex', gap: 8 }}>
           {puedeVer('apartados', usuario?.rol) && (
             <Link href="/dashboard/apartados" className="btn-secondary btn">
               Apartados
@@ -194,15 +200,24 @@ export default function VentasPage() {
         )}
 
         <label style={{ fontSize: 13 }}>Producto / SKU</label>
-        <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ marginBottom: 10 }}>
-          <option value="">Selecciona...</option>
-          {existencias.map((e) => (
-            <option key={e.variante.id} value={e.variante.id}>
-              {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
-              {e.variante.sku} — stock: {e.stockActual}
-            </option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+          {varianteId && (
+            <ProductoThumb
+              url={imagenPrincipal(existencias.find((e) => String(e.variante.id) === varianteId)?.variante.producto)}
+              alt=""
+              size={40}
+            />
+          )}
+          <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ flex: 1 }}>
+            <option value="">Selecciona...</option>
+            {existencias.map((e) => (
+              <option key={e.variante.id} value={e.variante.id}>
+                {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
+                {e.variante.sku} — stock: {e.stockActual}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <label style={{ fontSize: 13 }}>Cantidad</label>
         <div style={{ marginBottom: 10 }}>
@@ -269,7 +284,9 @@ export default function VentasPage() {
       <table>
         <thead>
           <tr>
+            <th></th>
             <th>Folio</th>
+            <th>Producto</th>
             <th>Sucursal</th>
             <th>Cliente</th>
             <th>Total</th>
@@ -280,34 +297,44 @@ export default function VentasPage() {
           </tr>
         </thead>
         <tbody>
-          {ventas.map((v) => (
-            <tr key={v.id}>
-              <td>{v.folio}</td>
-              <td>{v.sucursal?.nombre}</td>
-              <td>{v.cliente || '—'}</td>
-              <td>${v.total}</td>
-              <td>
-                {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
-                {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
-                {v.comprobanteUrl && (
-                  <>
-                    {' '}
-                    <a href={v.comprobanteUrl} target="_blank" rel="noreferrer">
-                      ver comprobante
-                    </a>
-                  </>
-                )}
-              </td>
-              <td>
-                <Badge variant={ESTADO_VARIANT[v.estado] || 'secondary'}>{v.estado}</Badge>
-              </td>
-              <td>{v.usuario?.nombre}</td>
-              <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
-            </tr>
-          ))}
+          {ventas.map((v) => {
+            const primerItem = v.items?.[0];
+            return (
+              <tr key={v.id}>
+                <td>
+                  <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto)} alt={primerItem?.variante.producto.nombre || ''} />
+                </td>
+                <td>{v.folio}</td>
+                <td>
+                  {primerItem
+                    ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                    : '—'}
+                  {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
+                </td>
+                <td>{v.sucursal?.nombre}</td>
+                <td>{v.cliente || '—'}</td>
+                <td>${v.total}</td>
+                <td>
+                  {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
+                  {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
+                  {v.comprobanteUrl && (
+                    <>
+                      {' '}
+                      <a href={v.comprobanteUrl} target="_blank" rel="noreferrer">
+                        ver comprobante
+                      </a>
+                    </>
+                  )}
+                </td>
+                <td>{v.estado}</td>
+                <td>{v.usuario?.nombre}</td>
+                <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+              </tr>
+            );
+          })}
           {ventas.length === 0 && (
             <tr>
-              <td colSpan={8} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={10} style={{ color: 'var(--color-muted)' }}>
                 Sin ventas registradas.
               </td>
             </tr>

@@ -71,8 +71,8 @@ export default function CorteDelDiaPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-        <h1 className="text-xl sm:text-2xl">Corte del día</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22 }}>Corte del día</h1>
         <Link href="/dashboard/ventas" className="btn-secondary btn">
           Volver a ventas
         </Link>
@@ -100,7 +100,7 @@ export default function CorteDelDiaPage() {
 
       {corte && !cargando && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
             <div className="card">
               <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>Ventas del día</div>
               <div style={{ fontSize: 22, fontWeight: 700 }}>{corte.totalVentas}</div>

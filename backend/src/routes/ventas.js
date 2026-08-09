@@ -12,6 +12,13 @@ const router = express.Router();
 const ROLES_VENTAS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 const ROLES_ADMIN = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
 
+// Solo la foto principal del producto (o la primera si no hay ninguna
+// marcada como principal), para mostrar una miniatura en las listas de
+// ventas sin mandar la galería completa.
+const IMAGEN_PRINCIPAL_INCLUDE = {
+  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+};
+
 function esAdmin(rol) {
   return ROLES_ADMIN.includes(rol);
 }
@@ -48,7 +55,7 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
       ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
     },
     include: {
-      items: { include: { variante: { include: { producto: true, talla: true } } } },
+      items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
       usuario: { select: { nombre: true } },
       sucursal: { select: { nombre: true } },
       cuentaTransferencia: { select: { nombre: true } },
@@ -160,7 +167,7 @@ router.get(
     const ventas = await prisma.venta.findMany({
       where,
       include: {
-        items: { include: { variante: { include: { producto: true, talla: true } } } },
+        items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
         usuario: { select: { nombre: true } },
         sucursal: { select: { nombre: true } },
         cuentaTransferencia: { select: { nombre: true } },

@@ -3,9 +3,6 @@
 import { useState, FormEvent } from 'react';
 import { useAuth } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -28,61 +25,50 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-sm">
-        <CardContent className="p-6 sm:p-8">
-          <div className="flex flex-col items-center text-center mb-6">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo-camino-al-deporte.jpg"
-              alt="Camino al Deporte"
-              className="w-16 h-16 rounded-xl object-cover border border-border mb-4"
-            />
-            <h1 className="text-xl font-semibold">Camino al Deporte</h1>
-            <p className="text-sm text-muted-foreground mt-1">Inicia sesión para continuar</p>
-          </div>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <form onSubmit={handleSubmit} className="card" style={{ width: 320 }}>
+        <h1 style={{ fontSize: 20, marginBottom: 4 }}>Camino al Deporte</h1>
+        <p style={{ color: 'var(--color-muted)', fontSize: 14, marginBottom: 20 }}>
+          Inicia sesión para continuar
+        </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="block">
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="tu@correo.com"
-                autoComplete="email"
-              />
-            </div>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>Email</label>
+        <div style={{ marginBottom: 12, marginTop: 4 }}>
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@correo.com"
+          />
+        </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="password" className="block">
-                Contraseña
-              </label>
-              <Input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-              />
-            </div>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>Contraseña</label>
+        <div style={{ marginBottom: 16, marginTop: 4 }}>
+          <input
+            type="password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
+        </div>
 
-            {error && (
-              <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{error}</p>
-            )}
+        {error && (
+          <p style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>{error}</p>
+        )}
 
-            <Button type="submit" className="w-full" disabled={enviando}>
-              {enviando ? 'Entrando...' : 'Entrar'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+        <button type="submit" className="btn" style={{ width: '100%' }} disabled={enviando}>
+          {enviando ? 'Entrando...' : 'Entrar'}
+        </button>
+      </form>
     </div>
   );
 }

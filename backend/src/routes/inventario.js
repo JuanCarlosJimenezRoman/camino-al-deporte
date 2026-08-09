@@ -9,6 +9,13 @@ const router = express.Router();
 
 const ROLES_INVENTARIO = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
 
+// Solo la foto principal (o la primera si no hay ninguna marcada como
+// principal), para no mandar la galería completa en listados donde solo se
+// necesita una miniatura.
+const IMAGEN_PRINCIPAL_INCLUDE = {
+  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+};
+
 // GET /inventario/existencias?sucursalId= - consulta de stock de esa sucursal.
 //
 // Importante: esto se arma a partir de TODAS las variantes activas (no solo
@@ -36,7 +43,7 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
         : {}),
     },
     include: {
-      producto: { include: { marca: true, categoria: true } },
+      producto: { include: { marca: true, categoria: true, ...IMAGEN_PRINCIPAL_INCLUDE } },
       talla: true,
       existencias: { where: { sucursalId: Number(sucursalId) } },
     },
@@ -66,7 +73,7 @@ router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
   const variantes = await prisma.productoVariante.findMany({
     where: { activo: true, producto: { activo: true } },
     include: {
-      producto: true,
+      producto: { include: IMAGEN_PRINCIPAL_INCLUDE },
       talla: true,
       existencias: { where: { sucursalId: Number(sucursalId) } },
     },

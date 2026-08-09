@@ -46,7 +46,7 @@ export default function CatalogosPage() {
         aparecen de inmediato en el formulario de "Nuevo producto".
       </p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
         <MarcasCard />
         <CategoriasCard />
         <ModelosCard />
@@ -132,7 +132,7 @@ function CuentasTransferenciaCard() {
   }
 
   return (
-    <div className="card lg:col-span-2">
+    <div className="card" style={{ gridColumn: '1 / -1' }}>
       <h2 style={{ fontSize: 15, marginBottom: 4 }}>Cuentas de transferencia</h2>
       <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 12 }}>
         Cuentas propias donde llegan los pagos por transferencia. Aparecen como opción al registrar una

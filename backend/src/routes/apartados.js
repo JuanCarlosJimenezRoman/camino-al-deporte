@@ -11,6 +11,13 @@ const router = express.Router();
 
 const ROLES_APARTADOS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 
+// Solo la foto principal del producto (o la primera si no hay ninguna
+// marcada como principal), para mostrar una miniatura sin mandar la
+// galería completa.
+const IMAGEN_PRINCIPAL_INCLUDE = {
+  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+};
+
 function esAdmin(rol) {
   return ['ADMIN_PRINCIPAL', 'DESARROLLO'].includes(rol);
 }
@@ -52,7 +59,7 @@ router.get('/', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(async
     include: {
       cliente: true,
       sucursalVenta: { select: { nombre: true } },
-      items: { include: { variante: { include: { producto: true, talla: true } }, sucursalStock: { select: { nombre: true } } } },
+      items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } }, sucursalStock: { select: { nombre: true } } } },
       pagos: true,
       creadoPor: { select: { nombre: true } },
     },
@@ -69,7 +76,7 @@ router.get('/:id', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(as
     include: {
       cliente: true,
       sucursalVenta: { select: { nombre: true } },
-      items: { include: { variante: { include: { producto: true, talla: true } }, sucursalStock: { select: { nombre: true } } } },
+      items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } }, sucursalStock: { select: { nombre: true } } } },
       pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
       creadoPor: { select: { nombre: true } },
     },
@@ -264,7 +271,7 @@ router.post(
           },
           include: {
             cliente: true,
-            items: { include: { variante: { include: { producto: true, talla: true } } } },
+            items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
             pagos: true,
           },
         });
@@ -367,7 +374,7 @@ router.post(
         where: { id: apartadoId },
         include: {
           cliente: true,
-          items: { include: { variante: { include: { producto: true, talla: true } } } },
+          items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
           pagos: true,
         },
       });
