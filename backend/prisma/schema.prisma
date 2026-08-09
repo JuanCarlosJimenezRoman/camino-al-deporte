@@ -55,6 +55,8 @@ model Usuario {
   ventas       Venta[]
   transferenciasSolicitadas TransferenciaInventario[] @relation("TransferenciasSolicitadas")
   transferenciasRecibidas   TransferenciaInventario[] @relation("TransferenciasRecibidas")
+  apartadosCreados          Apartado[]      @relation("ApartadosCreados")
+  pagosApartadoRegistrados  ApartadoPago[]  @relation("PagosApartadoRegistrados")
 
   @@map("usuarios")
 }
@@ -79,6 +81,8 @@ model Sucursal {
   ventas          Venta[]
   transferenciasOrigen  TransferenciaInventario[] @relation("TransferenciaOrigen")
   transferenciasDestino TransferenciaInventario[] @relation("TransferenciaDestino")
+  apartadosStock  ApartadoItem[] @relation("ApartadoStock")
+  apartadosVenta  Apartado[]     @relation("ApartadoVenta")
 
   @@map("sucursales")
 }
@@ -209,6 +213,7 @@ model ProductoVariante {
   movimientos   MovimientoInventario[]
   ventaItems    VentaItem[]
   transferencias TransferenciaInventario[]
+  apartadoItems ApartadoItem[]
 
   @@unique([productoId, tallaId, color])
   @@map("producto_variantes")
@@ -226,6 +231,7 @@ enum TipoMovimiento {
   DEVOLUCION
   TRANSFERENCIA_SALIDA
   TRANSFERENCIA_ENTRADA
+  APARTADO
 }
 
 model MovimientoInventario {
@@ -284,6 +290,35 @@ model TransferenciaInventario {
 }
 
 // ---------------------------------------------------------------------------
+// Pagos: método de pago y cuentas donde se reciben transferencias
+// ---------------------------------------------------------------------------
+
+enum MetodoPago {
+  EFECTIVO
+  TARJETA
+  TRANSFERENCIA
+}
+
+// Catálogo de cuentas bancarias propias donde se reciben transferencias
+// (ej. "BBVA Tienda", "Santander Sucursal Centro"). Es del negocio en
+// general, no de una sucursal en particular, porque normalmente unas pocas
+// cuentas se comparten entre todas las sucursales.
+model CuentaTransferencia {
+  id           Int      @id @default(autoincrement())
+  nombre       String   // etiqueta visible, ej. "BBVA Tienda"
+  banco        String?
+  titular      String?
+  numeroCuenta String?  @map("numero_cuenta") // CLABE o número de cuenta/tarjeta
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  ventas       Venta[]
+  pagosApartado ApartadoPago[]
+
+  @@map("cuentas_transferencia")
+}
+
+// ---------------------------------------------------------------------------
 // Ventas
 // ---------------------------------------------------------------------------
 
@@ -302,7 +337,14 @@ model Venta {
   usuario     Usuario     @relation(fields: [usuarioId], references: [id])
   cliente     String?
   total       Decimal     @default(0) @db.Decimal(10, 2)
-  metodoPago  String?     @map("metodo_pago")
+
+  metodoPago  MetodoPago  @default(EFECTIVO) @map("metodo_pago")
+  // Solo aplica cuando metodoPago = TRANSFERENCIA
+  cuentaTransferenciaId Int? @map("cuenta_transferencia_id")
+  cuentaTransferencia   CuentaTransferencia? @relation(fields: [cuentaTransferenciaId], references: [id])
+  comprobanteUrl        String? @map("comprobante_url")
+  comprobantePublicId   String? @map("comprobante_public_id")
+
   estado      EstadoVenta @default(COMPLETADA)
   items       VentaItem[]
   createdAt   DateTime    @default(now()) @map("created_at")
@@ -351,4 +393,98 @@ model CampoPersonalizado {
 
   @@unique([entidad, clave])
   @@map("campos_personalizados")
+}
+
+// ---------------------------------------------------------------------------
+// Clientes y apartados (layaway)
+// ---------------------------------------------------------------------------
+
+model Cliente {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  telefono  String   @unique // clave natural para buscar/evitar duplicar clientes
+  email     String?
+  notas     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  apartados Apartado[]
+
+  @@map("clientes")
+}
+
+enum EstadoApartado {
+  ACTIVO     // tiene saldo pendiente, stock ya reservado
+  LIQUIDADO  // ya se pagó completo (pendiente de entregar o ya entregado)
+  CANCELADO  // se canceló, stock devuelto a la sucursal de origen
+}
+
+// Un apartado puede incluir varios productos (ApartadoItem), cada uno
+// reservado desde la sucursal donde físicamente está ese stock — no
+// necesariamente la misma sucursal donde el cliente está apartando.
+model Apartado {
+  id              Int            @id @default(autoincrement())
+  folio           String         @unique
+  clienteId       Int            @map("cliente_id")
+  cliente         Cliente        @relation(fields: [clienteId], references: [id])
+
+  // Sucursal/vendedor que atiende al cliente y hace el apartado (no
+  // necesariamente donde está el stock de cada artículo, ver ApartadoItem).
+  sucursalVentaId Int            @map("sucursal_venta_id")
+  sucursalVenta   Sucursal       @relation("ApartadoVenta", fields: [sucursalVentaId], references: [id])
+
+  total           Decimal        @default(0) @db.Decimal(10, 2)
+  estado          EstadoApartado @default(ACTIVO)
+  fechaLimite     DateTime?      @map("fecha_limite")
+  notas           String?
+
+  creadoPorId     Int            @map("creado_por_id")
+  creadoPor       Usuario        @relation("ApartadosCreados", fields: [creadoPorId], references: [id])
+
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  items           ApartadoItem[]
+  pagos           ApartadoPago[]
+
+  @@map("apartados")
+}
+
+model ApartadoItem {
+  id              Int              @id @default(autoincrement())
+  apartadoId      Int              @map("apartado_id")
+  apartado        Apartado         @relation(fields: [apartadoId], references: [id])
+  varianteId      Int              @map("variante_id")
+  variante        ProductoVariante @relation(fields: [varianteId], references: [id])
+
+  // Sucursal de donde se descontó el stock al crear el apartado.
+  sucursalStockId Int              @map("sucursal_stock_id")
+  sucursalStock   Sucursal         @relation("ApartadoStock", fields: [sucursalStockId], references: [id])
+
+  cantidad        Int
+  precioUnitario  Decimal          @map("precio_unitario") @db.Decimal(10, 2)
+  subtotal        Decimal          @db.Decimal(10, 2)
+
+  @@map("apartado_items")
+}
+
+// Abonos del cliente hacia un apartado. saldo pendiente = apartado.total -
+// suma(monto) de estos pagos — se calcula al vuelo, no se guarda cacheado.
+model ApartadoPago {
+  id                    Int      @id @default(autoincrement())
+  apartadoId            Int      @map("apartado_id")
+  apartado              Apartado @relation(fields: [apartadoId], references: [id])
+  monto                 Decimal  @db.Decimal(10, 2)
+
+  metodoPago            MetodoPago @default(EFECTIVO) @map("metodo_pago")
+  cuentaTransferenciaId Int?     @map("cuenta_transferencia_id")
+  cuentaTransferencia   CuentaTransferencia? @relation(fields: [cuentaTransferenciaId], references: [id])
+  comprobanteUrl        String?  @map("comprobante_url")
+  comprobantePublicId   String?  @map("comprobante_public_id")
+
+  registradoPorId       Int      @map("registrado_por_id")
+  registradoPor         Usuario  @relation("PagosApartadoRegistrados", fields: [registradoPorId], references: [id])
+
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@map("apartado_pagos")
 }
