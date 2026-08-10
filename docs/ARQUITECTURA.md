@@ -104,7 +104,7 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 - `roles`, `usuarios` (con `sucursal_id` opcional)
 - `sucursales`
 - `marcas`, `modelos`, `categorias`, `tallas`
-- `productos`, `producto_variantes` (catálogo global: variante = talla/color + SKU)
+- `productos`, `producto_variantes` (catálogo global: variante = talla/color + SKU de fábrica + código interno único — ver sección "SKU de fábrica vs. código interno")
 - `existencias` (stock por sucursal + variante + **proveedor**: un mismo talla/sucursal puede tener varios renglones, uno por cada proveedor que la ha surtido — ver sección de Proveedores)
 - `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones, transferencias, apartados)
 - `transferencias_inventario` (mover mercancía entre sucursales)
@@ -379,6 +379,30 @@ lugar.
 cancelar) son los mismos roles que ya operan ventas/apartados:
 ADMIN_PRINCIPAL, DESARROLLO, VENTAS.
 
+## SKU de fábrica vs. código interno
+
+El SKU que traen los productos de fábrica —sobre todo en calzado— no es un
+identificador por talla: viene por **lote de tallas** (ej. un SKU cubre del
+23 al 25.5 cm y otro del 26 al 32 cm), así que el mismo texto se repite a
+propósito entre varias variantes del mismo producto. Por eso
+`producto_variantes.sku` **no es único** en la base de datos — nunca lo tuvo
+que ser para que el sistema funcione, porque cada variante ya se identifica
+sin ambigüedad por su `id` interno, y esa es la clave que usan de verdad
+`movimientos_inventario`, `venta_items`, `apartado_items`, etc. (nunca el
+texto del SKU).
+
+Para tener también un identificador legible y garantizado único por talla
+(útil si más adelante quieres etiquetar o escanear cada talla por separado
+en bodega), cada variante recibe automáticamente un
+**`codigoInterno`** al crearse — este sí es único de verdad
+(`@unique`) — generado a partir de `SKU-TALLA-COLOR` en mayúsculas y sin
+espacios (`backend/src/utils/codigoInterno.js`), con un sufijo numérico
+(`-2`, `-3`...) si ese mismo texto ya existiera. Una vez asignado no cambia
+aunque después se edite el SKU/talla de la variante — es un identificador
+estable, no una vista calculada. Se genera en los tres lugares donde se crea
+una variante: alta de producto, "+ Agregar talla" y la importación por
+Excel.
+
 ## Importar/exportar productos por Excel
 
 En Productos → "Importar / exportar Excel". Cada fila del Excel es una
@@ -392,18 +416,30 @@ propio registro en `movimientos_inventario`; el Excel es solo para
 registrar productos rápido, no para llevar el control fino del stock.
 
 Comportamiento al importar:
-- Si el SKU de una fila ya existe en el sistema, esa fila se omite (no se
-  sobreescribe nada).
+- La fila que se omite por duplicada ya **no** se decide por el SKU (el
+  mismo SKU de fábrica puede repetirse legítimamente entre varias filas del
+  mismo producto — ver sección anterior). Se omite cuando la combinación
+  real **producto (nombre+marca) + talla + color** ya existe, sea porque ya
+  estaba en el sistema de antes o porque se repite dentro del mismo archivo.
+  El motivo mostrado en la vista previa distingue ambos casos.
 - Si la marca/categoría/talla que trae la fila no existen todavía, se crean
   solas.
 - Si el nombre+marca de una fila coincide con un producto que ya existe, no
   se duplica: se le agrega la variante nueva (por ejemplo, para dar de alta
-  una talla nueva de un producto que ya tenías).
+  una talla nueva de un producto que ya tenías, aunque comparta SKU con otra
+  talla ya existente).
 - Antes de escribir nada en la base de datos hay una vista previa
   (`POST /productos/importar-excel/vista-previa`) que valida todo el
   archivo y muestra fila por fila qué se va a crear, qué se omite y por qué.
   Solo al confirmar (eligiendo la sucursal donde cargar el stock inicial) se
   escribe de verdad (`POST /productos/importar-excel/confirmar`).
+
+*Nota:* si importaste productos con este sistema **antes** de este cambio,
+es posible que algunas tallas se hayan omitido por error (el sistema viejo
+sí trataba el SKU repetido como duplicado). Vale la pena revisar tus
+productos de calzado en Productos → "Ver variantes" y usar "+ Agregar talla"
+para completar las que falten, o volver a correr el Excel: ahora sí las
+agregará en vez de saltárselas.
 
 ## Por qué esta pila tecnológica
 

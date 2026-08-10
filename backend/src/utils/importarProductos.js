@@ -1,4 +1,5 @@
 const prisma = require('../db');
+const { generarCodigoInterno } = require('./codigoInterno');
 
 // Estos 4 campos son los únicos obligatorios para poder registrar un
 // producto por Excel. Todo lo demás (modelo, descripción, precios, talla,
@@ -56,23 +57,52 @@ function normalizarFilas(filasCrudas) {
   });
 }
 
+// Identifica una variante (talla/color dentro de un producto) para detectar
+// duplicados. Ya NO se usa el SKU para esto: en calzado el SKU de fábrica
+// viene por lote y se repite a propósito entre varias tallas del mismo
+// producto (ver docs/ARQUITECTURA.md), así que dos filas con el mismo SKU
+// pero distinta talla son dos variantes válidas, no un duplicado. Lo que sí
+// identifica una variante de verdad es producto (nombre+marca) + talla +
+// color, que es exactamente lo que exige el modelo de datos.
+function claveVariante(claveProducto, talla, tipoTalla, color) {
+  const tallaKey = talla ? `${talla.toLowerCase()}__${tipoTalla.toLowerCase()}` : '';
+  const colorKey = (color || '').toLowerCase();
+  return `${claveProducto}::${tallaKey}::${colorKey}`;
+}
+
 /**
  * Valida las filas sin escribir nada en la base de datos: para la vista
  * previa antes de confirmar la importación.
  */
 async function analizarImportacion(filasCrudas) {
   const filas = normalizarFilas(filasCrudas);
+  const filasConDatos = filas.filter((f) => f.faltantes.length === 0);
 
-  const skusDelArchivo = filas.map((f) => f.sku).filter(Boolean);
-  const existentes = skusDelArchivo.length
-    ? await prisma.productoVariante.findMany({
-        where: { sku: { in: skusDelArchivo } },
-        select: { sku: true },
+  // Trae productos existentes que coincidan por nombre+marca (con sus
+  // variantes y tallas) para saber qué talla/color de esos productos ya
+  // están dados de alta y no se dupliquen.
+  const productosExistentes = filasConDatos.length
+    ? await prisma.producto.findMany({
+        where: {
+          activo: true,
+          OR: filasConDatos.map((f) => ({
+            nombre: { equals: f.nombre, mode: 'insensitive' },
+            marca: { nombre: { equals: f.marca, mode: 'insensitive' } },
+          })),
+        },
+        include: { variantes: { include: { talla: true } }, marca: true },
       })
     : [];
-  const skusExistentesDB = new Set(existentes.map((v) => v.sku));
 
-  const skusVistosEnArchivo = new Map(); // sku -> primera fila donde apareció
+  const clavesVariantesDB = new Set();
+  for (const p of productosExistentes) {
+    const claveProducto = claveGrupo(p.nombre, p.marca.nombre);
+    for (const v of p.variantes) {
+      clavesVariantesDB.add(claveVariante(claveProducto, v.talla?.valor ?? null, v.talla?.tipo ?? '', v.color));
+    }
+  }
+
+  const vistosEnArchivo = new Map(); // claveVariante -> primera fila donde apareció
   const resultado = [];
 
   for (const f of filas) {
@@ -80,19 +110,22 @@ async function analizarImportacion(filasCrudas) {
       resultado.push({ ...f, estado: 'error', motivo: `Faltan campos obligatorios: ${f.faltantes.join(', ')}` });
       continue;
     }
-    if (skusExistentesDB.has(f.sku)) {
-      resultado.push({ ...f, estado: 'omitida', motivo: 'El SKU ya existe en el sistema' });
+    const claveProducto = claveGrupo(f.nombre, f.marca);
+    const clave = claveVariante(claveProducto, f.talla, f.tipoTalla, f.color);
+
+    if (clavesVariantesDB.has(clave)) {
+      resultado.push({ ...f, estado: 'omitida', motivo: 'Esa talla/color de este producto ya existe en el sistema' });
       continue;
     }
-    if (skusVistosEnArchivo.has(f.sku)) {
+    if (vistosEnArchivo.has(clave)) {
       resultado.push({
         ...f,
         estado: 'omitida',
-        motivo: `SKU repetido dentro del archivo (ya apareció en la fila ${skusVistosEnArchivo.get(f.sku)})`,
+        motivo: `Talla/color repetido dentro del archivo para este producto (ya apareció en la fila ${vistosEnArchivo.get(clave)})`,
       });
       continue;
     }
-    skusVistosEnArchivo.set(f.sku, f.fila);
+    vistosEnArchivo.set(clave, f.fila);
     resultado.push({ ...f, estado: 'ok' });
   }
 
@@ -203,8 +236,9 @@ async function ejecutarImportacion(filasCrudas, { sucursalId, usuarioId }) {
           tallaId = talla.id;
         }
 
+        const codigoInterno = await generarCodigoInterno(tx, { sku: f.sku, tallaValor: f.talla || null, color: f.color });
         const variante = await tx.productoVariante.create({
-          data: { productoId, tallaId, color: f.color, sku: f.sku },
+          data: { productoId, tallaId, color: f.color, sku: f.sku, codigoInterno },
         });
         stats.variantesCreadas++;
 

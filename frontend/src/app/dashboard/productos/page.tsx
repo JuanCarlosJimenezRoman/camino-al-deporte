@@ -14,6 +14,10 @@ interface Existencia {
 interface Variante {
   id: number;
   sku: string;
+  // Código propio del sistema, único de verdad (a diferencia del SKU de
+  // fábrica, que en calzado se repite a propósito entre tallas del mismo
+  // lote — ver docs/ARQUITECTURA.md).
+  codigoInterno: string;
   color: string | null;
   talla: { valor: string } | null;
   proveedor: { id: number; nombre: string } | null;
@@ -342,6 +346,11 @@ export default function ProductosPage() {
           </div>
 
           <label style={{ fontSize: 13, fontWeight: 600 }}>Variantes (talla / color / SKU / stock inicial)</label>
+          <p style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2, marginBottom: 4 }}>
+            El SKU es el código de fábrica: en calzado puede repetirse entre varias tallas del mismo lote (ej. 26-32
+            cm comparten SKU) — no hace falta inventar uno distinto por talla, el sistema genera un código interno
+            propio para cada una.
+          </p>
           {variantesForm.map((v, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
               <select
@@ -363,7 +372,7 @@ export default function ProductosPage() {
                 style={{ maxWidth: 100 }}
               />
               <input
-                placeholder="SKU"
+                placeholder="SKU de fábrica"
                 value={v.sku}
                 onChange={(e) => actualizarVariante(i, { sku: e.target.value })}
                 style={{ maxWidth: 140 }}
@@ -518,7 +527,8 @@ export default function ProductosPage() {
                             <tr>
                               <th>Talla</th>
                               <th>Color</th>
-                              <th>SKU</th>
+                              <th>SKU (fábrica)</th>
+                              <th>Código interno</th>
                               <th style={{ whiteSpace: 'normal' }}>Stock por sucursal</th>
                               <th>Proveedor</th>
                             </tr>
@@ -529,6 +539,7 @@ export default function ProductosPage() {
                                 <td>{v.talla?.valor ?? '—'}</td>
                                 <td>{v.color ?? '—'}</td>
                                 <td>{v.sku}</td>
+                                <td style={{ fontSize: 12, color: 'var(--color-muted)' }}>{v.codigoInterno}</td>
                                 <td style={{ whiteSpace: 'normal' }}>
                                   {v.existencias.length > 0
                                     ? v.existencias
@@ -582,7 +593,7 @@ export default function ProductosPage() {
                                   style={{ maxWidth: 100 }}
                                 />
                                 <input
-                                  placeholder="SKU"
+                                  placeholder="SKU de fábrica"
                                   value={nuevaTallaForm.sku}
                                   onChange={(e) => setNuevaTallaForm((f) => ({ ...f, sku: e.target.value }))}
                                   style={{ maxWidth: 140 }}

@@ -6,6 +6,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { subirImagen, borrarImagen } = require('../config/cloudinary');
+const { generarCodigoInterno } = require('../utils/codigoInterno');
 
 const router = express.Router();
 
@@ -125,8 +126,14 @@ router.post('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async 
 
     for (const v of variantes || []) {
       const { existencias, ...varianteData } = v;
+      const talla = varianteData.tallaId ? await tx.talla.findUnique({ where: { id: varianteData.tallaId } }) : null;
+      const codigoInterno = await generarCodigoInterno(tx, {
+        sku: varianteData.sku,
+        tallaValor: talla?.valor ?? null,
+        color: varianteData.color,
+      });
       const variante = await tx.productoVariante.create({
-        data: { ...varianteData, productoId: creado.id },
+        data: { ...varianteData, codigoInterno, productoId: creado.id },
       });
       // El stock inicial se carga al bucket del proveedor que se le acaba de
       // asignar a la variante (o "sin proveedor" si no se indicó uno).
@@ -188,8 +195,14 @@ router.post(
     const { existencias, ...varianteData } = parsed.data;
 
     const variante = await prisma.$transaction(async (tx) => {
+      const talla = varianteData.tallaId ? await tx.talla.findUnique({ where: { id: varianteData.tallaId } }) : null;
+      const codigoInterno = await generarCodigoInterno(tx, {
+        sku: varianteData.sku,
+        tallaValor: talla?.valor ?? null,
+        color: varianteData.color,
+      });
       const creada = await tx.productoVariante.create({
-        data: { ...varianteData, productoId: Number(req.params.id) },
+        data: { ...varianteData, codigoInterno, productoId: Number(req.params.id) },
       });
       for (const ex of existencias || []) {
         await tx.existencia.create({

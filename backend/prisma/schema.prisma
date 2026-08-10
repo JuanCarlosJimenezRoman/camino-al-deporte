@@ -218,7 +218,18 @@ model ProductoVariante {
   tallaId       Int?     @map("talla_id")
   talla         Talla?   @relation(fields: [tallaId], references: [id])
   color         String?
-  sku           String   @unique
+  // Código de fábrica/proveedor tal cual viene en el producto — en calzado
+  // suele venir por LOTE de tallas (ej. un mismo SKU cubre 23-25.5 cm y otro
+  // cubre 26-32 cm), así que el mismo texto se repite legítimamente entre
+  // varias variantes/tallas del mismo producto. NO es único: la variante ya
+  // se identifica de forma única por su id/codigoInterno, no por este campo.
+  sku           String
+  // Código propio del sistema, único de verdad, generado automáticamente al
+  // crear la variante (ver utils/codigoInterno.js) a partir de sku+talla+
+  // color con un sufijo si llegara a colisionar. Una vez asignado no cambia
+  // aunque después se edite el sku/talla — sirve para trazabilidad interna y
+  // para etiquetar/escanear cada talla por separado si hace falta.
+  codigoInterno String   @unique @map("codigo_interno")
   activo        Boolean  @default(true)
 
   // El stock ya no vive aquí: cada variante puede tener stock distinto en
