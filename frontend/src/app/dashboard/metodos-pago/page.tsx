@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 
@@ -12,6 +13,17 @@ interface CuentaTransferencia {
   numeroCuenta: string | null;
   activo: boolean;
   paraVentasOnline: boolean;
+}
+
+interface Proveedor {
+  id: number;
+  nombre: string;
+  contacto: string | null;
+  telefono: string | null;
+  banco: string | null;
+  titular: string | null;
+  numeroCuenta: string | null;
+  activo: boolean;
 }
 
 export default function MetodosPagoPage() {
@@ -34,6 +46,81 @@ export default function MetodosPagoPage() {
       </p>
 
       <CuentasTransferenciaCard />
+
+      {puedeVer('proveedores', usuario?.rol) && (
+        <div style={{ marginTop: 20 }}>
+          <ProveedoresCuentasCard />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Cuentas de proveedores (a dónde transferirles al pagarles) — solo consulta;
+// se administran desde Proveedores, aquí solo se listan para corroborar
+// rápido a qué cuenta transferir cada pago.
+// ---------------------------------------------------------------------------
+
+function ProveedoresCuentasCard() {
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    api<Proveedor[]>('/proveedores?todas=1')
+      .then(setProveedores)
+      .finally(() => setCargando(false));
+  }, []);
+
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+        <h2 style={{ fontSize: 15 }}>Cuentas de proveedores</h2>
+        <Link href="/dashboard/proveedores" className="btn-secondary btn">
+          Administrar / registrar pagos
+        </Link>
+      </div>
+      <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 12 }}>
+        A ellos se les paga directo cada pedido. Como son proveedores internos, se puede corroborar cada
+        transferencia contra la cuenta que aparece aquí. Los datos se jalan de Proveedores — para editarlos o
+        registrar un pago, usa el botón de arriba.
+      </p>
+
+      {cargando ? (
+        <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Cargando...</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Proveedor</th>
+              <th>Contacto</th>
+              <th>Banco</th>
+              <th>Titular</th>
+              <th>Cuenta / CLABE</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {proveedores.map((p) => (
+              <tr key={p.id} style={{ opacity: p.activo ? 1 : 0.5 }}>
+                <td>{p.nombre}</td>
+                <td>{p.contacto || p.telefono || '—'}</td>
+                <td>{p.banco || '—'}</td>
+                <td>{p.titular || '—'}</td>
+                <td>{p.numeroCuenta || '—'}</td>
+                <td>{p.activo ? 'Activo' : 'Inactivo'}</td>
+              </tr>
+            ))}
+            {proveedores.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ color: 'var(--color-muted)' }}>
+                  Sin proveedores registrados todavía.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
