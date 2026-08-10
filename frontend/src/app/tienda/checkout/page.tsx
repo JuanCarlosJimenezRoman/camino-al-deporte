@@ -5,11 +5,15 @@ import { useRouter } from 'next/navigation';
 import { useAuthCliente } from '@/lib/authCliente';
 import { useCarrito } from '@/lib/carrito';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
+import { claseBotonPrimario } from '@/components/tienda/ui';
 
 interface PedidoCreado {
   id: number;
   folio: string;
 }
+
+const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
+const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 export default function CheckoutPage() {
   const { cliente, cargando } = useAuthCliente();
@@ -81,83 +85,97 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 32 }}>
-      <form onSubmit={confirmarPedido}>
-        <h1 style={{ fontSize: 22, marginBottom: 16 }}>Dirección de envío</h1>
+    <div className="grid gap-8 md:grid-cols-[1.3fr_1fr] md:gap-12">
+      <div className="order-2 md:order-1">
+        <h1 className="mb-6 text-2xl font-extrabold uppercase tracking-tight">Dirección de envío</h1>
 
-        <label style={{ fontSize: 13 }}>Nombre de quien recibe</label>
-        <div style={{ marginBottom: 10, marginTop: 4 }}>
-          <input required value={destinatario} onChange={(e) => setDestinatario(e.target.value)} />
-        </div>
-
-        <label style={{ fontSize: 13 }}>Teléfono de contacto</label>
-        <div style={{ marginBottom: 10, marginTop: 4 }}>
-          <input required value={telefonoContacto} onChange={(e) => setTelefonoContacto(e.target.value)} />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+        <form onSubmit={confirmarPedido} className="space-y-4">
           <div>
-            <label style={{ fontSize: 13 }}>Calle</label>
-            <input required value={calle} onChange={(e) => setCalle(e.target.value)} style={{ marginTop: 4 }} />
+            <label className={labelClase}>Nombre de quien recibe</label>
+            <input required value={destinatario} onChange={(e) => setDestinatario(e.target.value)} className={campoClase} />
           </div>
+
           <div>
-            <label style={{ fontSize: 13 }}>No. ext</label>
-            <input required value={numeroExt} onChange={(e) => setNumeroExt(e.target.value)} style={{ marginTop: 4 }} />
+            <label className={labelClase}>Teléfono de contacto</label>
+            <input
+              required
+              value={telefonoContacto}
+              onChange={(e) => setTelefonoContacto(e.target.value)}
+              className={campoClase}
+            />
           </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="col-span-2 sm:col-span-1">
+              <label className={labelClase}>Calle</label>
+              <input required value={calle} onChange={(e) => setCalle(e.target.value)} className={campoClase} />
+            </div>
+            <div>
+              <label className={labelClase}>No. ext</label>
+              <input required value={numeroExt} onChange={(e) => setNumeroExt(e.target.value)} className={campoClase} />
+            </div>
+            <div>
+              <label className={labelClase}>No. int</label>
+              <input value={numeroInt} onChange={(e) => setNumeroInt(e.target.value)} className={campoClase} />
+            </div>
+          </div>
+
           <div>
-            <label style={{ fontSize: 13 }}>No. int</label>
-            <input value={numeroInt} onChange={(e) => setNumeroInt(e.target.value)} style={{ marginTop: 4 }} />
+            <label className={labelClase}>Colonia</label>
+            <input required value={colonia} onChange={(e) => setColonia(e.target.value)} className={campoClase} />
           </div>
-        </div>
 
-        <label style={{ fontSize: 13 }}>Colonia</label>
-        <div style={{ marginBottom: 10, marginTop: 4 }}>
-          <input required value={colonia} onChange={(e) => setColonia(e.target.value)} />
-        </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className={labelClase}>Municipio/Ciudad</label>
+              <input required value={municipio} onChange={(e) => setMunicipio(e.target.value)} className={campoClase} />
+            </div>
+            <div>
+              <label className={labelClase}>Estado</label>
+              <input required value={estadoMx} onChange={(e) => setEstadoMx(e.target.value)} className={campoClase} />
+            </div>
+            <div>
+              <label className={labelClase}>Código postal</label>
+              <input required value={codigoPostal} onChange={(e) => setCodigoPostal(e.target.value)} className={campoClase} />
+            </div>
+          </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
           <div>
-            <label style={{ fontSize: 13 }}>Municipio/Ciudad</label>
-            <input required value={municipio} onChange={(e) => setMunicipio(e.target.value)} style={{ marginTop: 4 }} />
+            <label className={labelClase}>Referencias (opcional)</label>
+            <input
+              value={referencias}
+              onChange={(e) => setReferencias(e.target.value)}
+              placeholder="Entre calles, color de la casa, etc."
+              className={campoClase}
+            />
           </div>
+
           <div>
-            <label style={{ fontSize: 13 }}>Estado</label>
-            <input required value={estadoMx} onChange={(e) => setEstadoMx(e.target.value)} style={{ marginTop: 4 }} />
+            <label className={labelClase}>Notas para tu pedido (opcional)</label>
+            <input value={notas} onChange={(e) => setNotas(e.target.value)} className={campoClase} />
           </div>
-          <div>
-            <label style={{ fontSize: 13 }}>Código postal</label>
-            <input required value={codigoPostal} onChange={(e) => setCodigoPostal(e.target.value)} style={{ marginTop: 4 }} />
-          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+
+          <button type="submit" className={`${claseBotonPrimario} w-full`} disabled={enviando}>
+            {enviando ? 'Creando pedido...' : 'Confirmar pedido y ver forma de pago'}
+          </button>
+        </form>
+      </div>
+
+      <div className="order-1 h-fit rounded-2xl bg-secondary/60 p-5 md:order-2">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide">Resumen</h2>
+        <div className="space-y-3">
+          {items.map((i) => (
+            <div key={i.varianteId} className="flex justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">
+                {i.nombre} {i.talla || i.color ? `(${[i.talla, i.color].filter(Boolean).join(' / ')})` : ''} × {i.cantidad}
+              </span>
+              <span className="whitespace-nowrap font-semibold">${(i.precioVenta * i.cantidad).toFixed(2)}</span>
+            </div>
+          ))}
         </div>
-
-        <label style={{ fontSize: 13 }}>Referencias (opcional)</label>
-        <div style={{ marginBottom: 10, marginTop: 4 }}>
-          <input value={referencias} onChange={(e) => setReferencias(e.target.value)} placeholder="Entre calles, color de la casa, etc." />
-        </div>
-
-        <label style={{ fontSize: 13 }}>Notas para tu pedido (opcional)</label>
-        <div style={{ marginBottom: 16, marginTop: 4 }}>
-          <input value={notas} onChange={(e) => setNotas(e.target.value)} />
-        </div>
-
-        {error && <p style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
-
-        <button type="submit" className="btn" disabled={enviando}>
-          {enviando ? 'Creando pedido...' : 'Confirmar pedido y ver forma de pago'}
-        </button>
-      </form>
-
-      <div className="card" style={{ height: 'fit-content' }}>
-        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Resumen</h2>
-        {items.map((i) => (
-          <div key={i.varianteId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-            <span>
-              {i.nombre} {i.talla || i.color ? `(${[i.talla, i.color].filter(Boolean).join(' / ')})` : ''} × {i.cantidad}
-            </span>
-            <span>${(i.precioVenta * i.cantidad).toFixed(2)}</span>
-          </div>
-        ))}
-        <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 10, paddingTop: 10, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+        <div className="mt-4 flex justify-between border-t border-border pt-4 text-base font-bold">
           <span>Total</span>
           <span>${total.toFixed(2)}</span>
         </div>

@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAuthCliente } from '@/lib/authCliente';
 import { ApiError } from '@/lib/apiTienda';
+import { claseBotonPrimario } from '@/components/tienda/ui';
+
+const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
+const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 export default function TiendaLoginPage() {
   return (
@@ -38,42 +42,51 @@ function TiendaLoginForm() {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}>
-      <form onSubmit={handleSubmit} className="card" style={{ width: 340 }}>
-        <h1 style={{ fontSize: 20, marginBottom: 4 }}>Inicia sesión</h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: 14, marginBottom: 20 }}>
-          Para hacer pedidos y ver tu historial
-        </p>
+    <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center py-8">
+      <h1 className="text-2xl font-extrabold uppercase tracking-tight">Inicia sesión</h1>
+      <p className="mb-8 mt-1 text-sm text-muted-foreground">Para hacer pedidos y ver tu historial</p>
 
-        <label style={{ fontSize: 13, fontWeight: 600 }}>Email</label>
-        <div style={{ marginBottom: 12, marginTop: 4 }}>
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="tu@correo.com" />
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className={labelClase}>Email</label>
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@correo.com"
+            className={campoClase}
+          />
         </div>
 
-        <label style={{ fontSize: 13, fontWeight: 600 }}>Contraseña</label>
-        <div style={{ marginBottom: 16, marginTop: 4 }}>
+        <div>
+          <label className={labelClase}>Contraseña</label>
           <input
             type="password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
+            className={campoClase}
           />
         </div>
 
-        {error && <p style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <button type="submit" className="btn" style={{ width: '100%', marginBottom: 12 }} disabled={enviando}>
+        <button type="submit" className={`${claseBotonPrimario} w-full`} disabled={enviando}>
           {enviando ? 'Entrando...' : 'Entrar'}
         </button>
-
-        <p style={{ fontSize: 13, textAlign: 'center' }}>
-          ¿No tienes cuenta?{' '}
-          <Link href={`/tienda/registro?siguiente=${encodeURIComponent(siguiente)}`} style={{ color: 'var(--color-primary-dark)' }}>
-            Regístrate
-          </Link>
-        </p>
       </form>
+
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        ¿No tienes cuenta?{' '}
+        <Link
+          href={`/tienda/registro?siguiente=${encodeURIComponent(siguiente)}`}
+          className="font-semibold text-foreground underline underline-offset-4"
+        >
+          Regístrate
+        </Link>
+      </p>
     </div>
   );
 }

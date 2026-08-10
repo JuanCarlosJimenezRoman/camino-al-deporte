@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, apiTiendaUpload, ApiError } from '@/lib/apiTienda';
+import { claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
 
 interface PedidoItem {
   id: number;
@@ -126,8 +127,8 @@ export default function PedidoDetallePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargando, cliente, params.id]);
 
-  if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
-  if (!pedido) return <p style={{ color: 'var(--color-muted)' }}>Cargando...</p>;
+  if (error) return <p className="text-sm text-destructive">{error}</p>;
+  if (!pedido) return <p className="text-sm text-muted-foreground">Cargando...</p>;
 
   async function subirComprobante() {
     if (!archivo) return;
@@ -168,92 +169,83 @@ export default function PedidoDetallePage() {
   }
 
   const pasoActual = pedido.estado === 'CANCELADO' ? -1 : PASOS.indexOf(pedido.estado);
+  const linkWhatsapp = pedido.estado === 'PENDIENTE_PAGO' ? construirLinkWhatsapp(pedido) : null;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 32 }}>
+    <div className="grid gap-8 md:grid-cols-[1.3fr_1fr] md:gap-12">
       <div>
-        <h1 style={{ fontSize: 22, marginBottom: 4 }}>Pedido {pedido.folio}</h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 20 }}>
-          {new Date(pedido.createdAt).toLocaleString('es-MX')}
-        </p>
+        <h1 className="text-xl font-extrabold uppercase tracking-tight sm:text-2xl">Pedido {pedido.folio}</h1>
+        <p className="mb-5 mt-1 text-xs text-muted-foreground">{new Date(pedido.createdAt).toLocaleString('es-MX')}</p>
 
         {/* Estado del pedido */}
         {pedido.estado === 'CANCELADO' ? (
-          <p style={{ color: 'var(--color-danger)', fontWeight: 600, marginBottom: 20 }}>Este pedido fue cancelado.</p>
+          <p className="mb-6 font-semibold text-destructive">Este pedido fue cancelado.</p>
         ) : (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+          <div className="mb-6 flex flex-wrap gap-2">
             {PASOS.map((paso, i) => (
-              <div
+              <span
                 key={paso}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 999,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: i <= pasoActual ? 'var(--color-primary)' : 'var(--color-border)',
-                  color: i <= pasoActual ? 'white' : 'var(--color-muted)',
-                }}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                  i <= pasoActual ? 'bg-foreground text-background' : 'bg-secondary text-muted-foreground'
+                }`}
               >
                 {ESTADO_LABEL[paso]}
-              </div>
+              </span>
             ))}
           </div>
         )}
 
         {/* Pago por WhatsApp */}
         {(pedido.estado === 'PENDIENTE_PAGO' || pedido.estado === 'EN_VALIDACION') && (
-          <div className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 12 }}>Pago</h2>
+          <div className="mb-5 rounded-2xl bg-secondary/60 p-5">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide">Pago</h2>
 
             {pedido.comprobanteRechazadoMotivo && pedido.estado === 'PENDIENTE_PAGO' && (
-              <p style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>
+              <p className="mb-3 text-sm text-destructive">
                 Tu comprobante anterior no pudo validarse: {pedido.comprobanteRechazadoMotivo}. Por favor sube uno nuevo.
               </p>
             )}
 
-            <div style={{ fontSize: 14, marginBottom: 4 }}>
-              <strong>Total a pagar:</strong> ${pedido.total}
+            <div className="mb-1 text-sm">
+              <span className="font-semibold">Total a pagar:</span> ${pedido.total}
             </div>
-            <div style={{ fontSize: 14, marginBottom: 12 }}>
-              <strong>Referencia:</strong> {pedido.referenciaPago}
+            <div className="mb-4 text-sm">
+              <span className="font-semibold">Referencia:</span> {pedido.referenciaPago}
             </div>
 
             {pedido.estado === 'PENDIENTE_PAGO' &&
-              (construirLinkWhatsapp(pedido) ? (
-                <a
-                  href={construirLinkWhatsapp(pedido)!}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn"
-                  style={{ display: 'inline-block', marginBottom: 16, textDecoration: 'none' }}
-                >
+              (linkWhatsapp ? (
+                <a href={linkWhatsapp} target="_blank" rel="noreferrer" className={`${claseBotonPrimario} mb-5 w-full sm:w-auto`}>
                   Continuar por WhatsApp
                 </a>
               ) : (
-                <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 16 }}>
-                  Contáctanos para recibir los datos de pago de tu pedido.
-                </p>
+                <p className="mb-5 text-sm text-muted-foreground">Contáctanos para recibir los datos de pago de tu pedido.</p>
               ))}
 
             {pedido.estado === 'EN_VALIDACION' ? (
-              <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>
+              <p className="text-sm text-muted-foreground">
                 Ya recibimos tu comprobante y lo estamos revisando. Te avisaremos en cuanto se confirme el pago.
               </p>
             ) : (
-              <>
-                <label style={{ fontSize: 13, fontWeight: 600 }}>Sube tu comprobante de pago</label>
-                <div style={{ margin: '4px 0 10px' }}>
-                  <input type="file" accept="image/*" onChange={(e) => setArchivo(e.target.files?.[0] || null)} />
-                </div>
-                <button className="btn" disabled={!archivo || subiendo} onClick={subirComprobante}>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Sube tu comprobante de pago
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setArchivo(e.target.files?.[0] || null)}
+                  className="mb-3 block w-full text-sm"
+                />
+                <button className={`${claseBotonSecundario} w-full sm:w-auto`} disabled={!archivo || subiendo} onClick={subirComprobante}>
                   {subiendo ? 'Subiendo...' : 'Subir comprobante'}
                 </button>
-              </>
+              </div>
             )}
 
             {pedido.estado === 'PENDIENTE_PAGO' && (
-              <div style={{ marginTop: 16 }}>
-                <button className="btn-secondary btn" onClick={cancelarPedido}>
+              <div className="mt-5 border-t border-border pt-4">
+                <button onClick={cancelarPedido} className="text-sm font-medium text-muted-foreground underline-offset-4 hover:underline">
                   Cancelar pedido
                 </button>
               </div>
@@ -262,70 +254,61 @@ export default function PedidoDetallePage() {
         )}
 
         {pedido.estado === 'PAGADO' && (
-          <p className="card" style={{ marginBottom: 20 }}>
+          <p className="mb-5 rounded-2xl bg-secondary/60 p-5 text-sm">
             Tu pago fue confirmado. Estamos preparando tu pedido para enviarlo.
           </p>
         )}
 
         {pedido.estado === 'ENVIADO' && (
-          <div className="card" style={{ marginBottom: 20 }}>
-            <p style={{ marginBottom: 12 }}>Tu pedido ya salió hacia la dirección de envío.</p>
+          <div className="mb-5 rounded-2xl bg-secondary/60 p-5">
+            <p className="mb-3 text-sm">Tu pedido ya salió hacia la dirección de envío.</p>
             {pedido.paqueteria && (
-              <div style={{ fontSize: 14 }}>
-                <strong>Paquetería:</strong> {pedido.paqueteria}
+              <div className="text-sm">
+                <span className="font-semibold">Paquetería:</span> {pedido.paqueteria}
               </div>
             )}
             {pedido.numeroGuia && (
-              <div style={{ fontSize: 14, marginBottom: 12 }}>
-                <strong>Número de guía:</strong> {pedido.numeroGuia}
+              <div className="mb-4 text-sm">
+                <span className="font-semibold">Número de guía:</span> {pedido.numeroGuia}
               </div>
             )}
-            <button className="btn" onClick={confirmarRecibido}>
+            <button className={`${claseBotonPrimario} w-full sm:w-auto`} onClick={confirmarRecibido}>
               Ya recibí mi pedido
             </button>
           </div>
         )}
 
         {pedido.estado === 'RECIBIDO' && (
-          <p className="card" style={{ marginBottom: 20 }}>
-            Pedido entregado. ¡Gracias por tu compra!
-          </p>
+          <p className="mb-5 rounded-2xl bg-secondary/60 p-5 text-sm">Pedido entregado. ¡Gracias por tu compra!</p>
         )}
 
-        {mensaje && <p style={{ fontSize: 13, marginBottom: 12 }}>{mensaje}</p>}
+        {mensaje && <p className="mb-4 text-sm">{mensaje}</p>}
 
-        <h2 style={{ fontSize: 16, marginBottom: 8 }}>Dirección de envío</h2>
-        <p style={{ fontSize: 14, color: 'var(--color-muted)', marginBottom: 24 }}>
+        <h2 className="mb-2 text-sm font-bold uppercase tracking-wide">Dirección de envío</h2>
+        <p className="text-sm text-muted-foreground">
           {pedido.destinatario} — {pedido.calle} {pedido.numeroExt}
           {pedido.numeroInt ? ` Int. ${pedido.numeroInt}` : ''}, {pedido.colonia}, {pedido.municipio}, {pedido.estadoMx}, CP{' '}
           {pedido.codigoPostal}
         </p>
       </div>
 
-      <div className="card" style={{ height: 'fit-content' }}>
-        <h2 style={{ fontSize: 16, marginBottom: 12 }}>Artículos</h2>
-        {pedido.items.map((it) => (
-          <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
-            <span>
-              {it.variante.producto.nombre}
-              {it.variante.talla || it.variante.color
-                ? ` (${[it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ')})`
-                : ''}{' '}
-              × {it.cantidad}
-            </span>
-            <span>${it.subtotal}</span>
-          </div>
-        ))}
-        <div
-          style={{
-            borderTop: '1px solid var(--color-border)',
-            marginTop: 10,
-            paddingTop: 10,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontWeight: 700,
-          }}
-        >
+      <div className="h-fit rounded-2xl bg-secondary/60 p-5">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide">Artículos</h2>
+        <div className="space-y-3">
+          {pedido.items.map((it) => (
+            <div key={it.id} className="flex justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">
+                {it.variante.producto.nombre}
+                {it.variante.talla || it.variante.color
+                  ? ` (${[it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ')})`
+                  : ''}{' '}
+                × {it.cantidad}
+              </span>
+              <span className="whitespace-nowrap font-semibold">${it.subtotal}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 flex justify-between border-t border-border pt-4 text-base font-bold">
           <span>Total</span>
           <span>${pedido.total}</span>
         </div>

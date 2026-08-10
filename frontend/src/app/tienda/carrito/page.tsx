@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Trash2 } from 'lucide-react';
 import { useCarrito } from '@/lib/carrito';
 import { useAuthCliente } from '@/lib/authCliente';
+import { Stepper, claseBotonPrimario } from '@/components/tienda/ui';
 
 export default function CarritoPage() {
   const { items, actualizarCantidad, quitar, total } = useCarrito();
@@ -20,73 +22,69 @@ export default function CarritoPage() {
 
   if (items.length === 0) {
     return (
-      <div>
-        <h1 style={{ fontSize: 22, marginBottom: 16 }}>Carrito</h1>
-        <p style={{ color: 'var(--color-muted)' }}>
-          Tu carrito está vacío.{' '}
-          <Link href="/tienda" style={{ color: 'var(--color-primary-dark)' }}>
-            Ver catálogo
-          </Link>
-        </p>
+      <div className="py-16 text-center">
+        <h1 className="text-xl font-extrabold uppercase tracking-tight">Tu bolsa está vacía</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Explora el catálogo y encuentra tu próximo par.</p>
+        <Link href="/tienda" className={`${claseBotonPrimario} mt-6 inline-flex`}>
+          Ver catálogo
+        </Link>
       </div>
     );
   }
 
   return (
-    <div>
-      <h1 style={{ fontSize: 22, marginBottom: 16 }}>Carrito</h1>
+    <div className="pb-32 md:pb-0">
+      <h1 className="mb-6 text-2xl font-extrabold uppercase tracking-tight">Bolsa ({items.length})</h1>
 
-      <table style={{ marginBottom: 20 }}>
-        <thead>
-          <tr>
-            <th></th>
-            <th>Producto</th>
-            <th>Precio</th>
-            <th>Cantidad</th>
-            <th>Subtotal</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((i) => (
-            <tr key={i.varianteId}>
-              <td>
-                <div style={{ width: 40, height: 40, borderRadius: 6, background: 'var(--color-border)', overflow: 'hidden' }}>
-                  {i.imagenUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={i.imagenUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <div className="divide-y divide-border">
+        {items.map((i) => (
+          <div key={i.varianteId} className="flex gap-4 py-5">
+            <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-secondary sm:h-28 sm:w-28">
+              {i.imagenUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={i.imagenUrl} alt="" className="h-full w-full object-cover" />
+              )}
+            </div>
+            <div className="flex flex-1 flex-col justify-between">
+              <div className="flex justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold leading-tight">{i.nombre}</p>
+                  {(i.talla || i.color) && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{[i.talla, i.color].filter(Boolean).join(' / ')}</p>
                   )}
                 </div>
-              </td>
-              <td>
-                {i.nombre}
-                {i.talla || i.color ? ` (${[i.talla, i.color].filter(Boolean).join(' / ')})` : ''}
-              </td>
-              <td>${i.precioVenta.toFixed(2)}</td>
-              <td>
-                <input
-                  type="number"
-                  min={1}
-                  max={i.stockDisponible}
-                  value={i.cantidad}
-                  onChange={(e) => actualizarCantidad(i.varianteId, Number(e.target.value))}
-                  style={{ width: 70 }}
-                />
-              </td>
-              <td>${(i.precioVenta * i.cantidad).toFixed(2)}</td>
-              <td>
-                <button className="btn-secondary btn" onClick={() => quitar(i.varianteId)}>
-                  Quitar
+                <p className="whitespace-nowrap text-sm font-bold">${(i.precioVenta * i.cantidad).toFixed(2)}</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <Stepper cantidad={i.cantidad} max={i.stockDisponible} onChange={(n) => actualizarCantidad(i.varianteId, n)} />
+                <button
+                  onClick={() => quitar(i.varianteId)}
+                  className="p-2 text-muted-foreground hover:text-destructive"
+                  aria-label="Quitar del carrito"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 24, alignItems: 'center' }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Total: ${total.toFixed(2)}</div>
-        <button className="btn" disabled={cargando} onClick={irACheckout}>
+      {/* Resumen en escritorio, en el flujo normal */}
+      <div className="mt-6 hidden items-center justify-end gap-6 md:flex">
+        <p className="text-lg font-bold">Total: ${total.toFixed(2)}</p>
+        <button className={claseBotonPrimario} disabled={cargando} onClick={irACheckout}>
+          Continuar con el pedido
+        </button>
+      </div>
+
+      {/* Barra fija en móvil */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background p-4 md:hidden">
+        <div className="mb-3 flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Total</span>
+          <span className="text-base font-bold">${total.toFixed(2)}</span>
+        </div>
+        <button className={`${claseBotonPrimario} w-full`} disabled={cargando} onClick={irACheckout}>
           Continuar con el pedido
         </button>
       </div>

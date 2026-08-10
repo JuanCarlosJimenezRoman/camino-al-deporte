@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ChevronRight } from 'lucide-react';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
+import { claseBotonPrimario } from '@/components/tienda/ui';
 
 interface Pedido {
   id: number;
@@ -22,6 +24,15 @@ const ESTADO_LABEL: Record<string, string> = {
   ENVIADO: 'Enviado',
   RECIBIDO: 'Recibido',
   CANCELADO: 'Cancelado',
+};
+
+const ESTADO_ESTILO: Record<string, string> = {
+  PENDIENTE_PAGO: 'bg-warning/15 text-warning',
+  EN_VALIDACION: 'bg-warning/15 text-warning',
+  PAGADO: 'bg-success/15 text-success',
+  ENVIADO: 'bg-primary/15 text-primary',
+  RECIBIDO: 'bg-success/15 text-success',
+  CANCELADO: 'bg-destructive/15 text-destructive',
 };
 
 export default function MisPedidosPage() {
@@ -42,50 +53,46 @@ export default function MisPedidosPage() {
   }, [cargando, cliente, router]);
 
   if (cargando || !cliente) return null;
-  if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
+  if (error) return <p className="text-sm text-destructive">{error}</p>;
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, marginBottom: 16 }}>Mis pedidos</h1>
+      <h1 className="mb-6 text-2xl font-extrabold uppercase tracking-tight">Mis pedidos</h1>
 
-      {pedidos === null && <p style={{ color: 'var(--color-muted)' }}>Cargando...</p>}
+      {pedidos === null && <p className="text-sm text-muted-foreground">Cargando...</p>}
+
       {pedidos && pedidos.length === 0 && (
-        <p style={{ color: 'var(--color-muted)' }}>
-          Todavía no tienes pedidos.{' '}
-          <Link href="/tienda" style={{ color: 'var(--color-primary-dark)' }}>
+        <div className="py-16 text-center">
+          <p className="text-sm text-muted-foreground">Todavía no tienes pedidos.</p>
+          <Link href="/tienda" className={`${claseBotonPrimario} mt-6 inline-flex`}>
             Ver catálogo
           </Link>
-        </p>
+        </div>
       )}
 
-      <table>
-        <thead>
-          <tr>
-            <th>Folio</th>
-            <th>Fecha</th>
-            <th>Artículos</th>
-            <th>Total</th>
-            <th>Estado</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {pedidos?.map((p) => (
-            <tr key={p.id}>
-              <td>{p.folio}</td>
-              <td>{new Date(p.createdAt).toLocaleDateString('es-MX')}</td>
-              <td>{p.items.length} artículo(s)</td>
-              <td>${p.total}</td>
-              <td>{ESTADO_LABEL[p.estado] || p.estado}</td>
-              <td>
-                <Link href={`/tienda/pedidos/${p.id}`} className="btn-secondary btn">
-                  Ver
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="divide-y divide-border">
+        {pedidos?.map((p) => (
+          <Link key={p.id} href={`/tienda/pedidos/${p.id}`} className="flex items-center gap-4 py-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold">{p.folio}</p>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    ESTADO_ESTILO[p.estado] || 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  {ESTADO_LABEL[p.estado] || p.estado}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {new Date(p.createdAt).toLocaleDateString('es-MX')} · {p.items.length} artículo(s)
+              </p>
+            </div>
+            <p className="whitespace-nowrap text-sm font-bold">${p.total}</p>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
