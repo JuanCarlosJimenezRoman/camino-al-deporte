@@ -76,23 +76,19 @@ function claveVariante(claveProducto, talla, tipoTalla, color) {
  */
 async function analizarImportacion(filasCrudas) {
   const filas = normalizarFilas(filasCrudas);
-  const filasConDatos = filas.filter((f) => f.faltantes.length === 0);
 
-  // Trae productos existentes que coincidan por nombre+marca (con sus
-  // variantes y tallas) para saber qué talla/color de esos productos ya
-  // están dados de alta y no se dupliquen.
-  const productosExistentes = filasConDatos.length
-    ? await prisma.producto.findMany({
-        where: {
-          activo: true,
-          OR: filasConDatos.map((f) => ({
-            nombre: { equals: f.nombre, mode: 'insensitive' },
-            marca: { nombre: { equals: f.marca, mode: 'insensitive' } },
-          })),
-        },
-        include: { variantes: { include: { talla: true } }, marca: true },
-      })
-    : [];
+  // Antes esto armaba un WHERE con un OR de una condición por cada fila del
+  // archivo (cada una comparando nombre + la marca relacionada, sin importar
+  // mayúsculas). Con un archivo chico no se notaba, pero con ~600 filas esa
+  // consulta se volvía tan pesada (600 ramas, cada una con un filtro sobre
+  // una tabla relacionada) que tumbaba la base de datos en el plan básico de
+  // Render. En vez de eso, se trae UNA sola vez todo el catálogo activo — es
+  // un query barato y de tamaño fijo (depende del catálogo, no del archivo
+  // que estás subiendo) — y el cruce nombre+marca se hace en memoria.
+  const productosExistentes = await prisma.producto.findMany({
+    where: { activo: true },
+    include: { variantes: { include: { talla: true } }, marca: true },
+  });
 
   const clavesVariantesDB = new Set();
   for (const p of productosExistentes) {
