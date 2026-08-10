@@ -15,12 +15,40 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
 const PEDIDO_INCLUDE = {
   items: {
     include: {
-      variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+      variante: {
+        include: {
+          producto: { include: IMAGEN_PRINCIPAL_INCLUDE },
+          talla: true,
+          proveedor: { select: { id: true, nombre: true, telefono: true } },
+        },
+      },
       sucursalStock: { select: { nombre: true } },
     },
   },
   cuentaTransferencia: true,
 };
+
+// El pago ya no se cobra directo en la página (los clientes no se sentían
+// seguros viendo la cuenta a transferir ahí mismo): en vez de eso se manda al
+// cliente por WhatsApp con el proveedor. Si el pedido trae artículos de más
+// de un proveedor, se junta todo en una sola conversación con el proveedor
+// que más $ representa en ese pedido — no se reparte en varios chats.
+function conProveedorPago(pedido) {
+  if (!pedido) return pedido;
+  const totales = new Map();
+  for (const item of pedido.items || []) {
+    const proveedor = item.variante?.proveedor;
+    if (!proveedor) continue;
+    const acumulado = totales.get(proveedor.id) || { proveedor, monto: 0 };
+    acumulado.monto += Number(item.subtotal);
+    totales.set(proveedor.id, acumulado);
+  }
+  let mejor = null;
+  for (const t of totales.values()) {
+    if (!mejor || t.monto > mejor.monto) mejor = t;
+  }
+  return { ...pedido, proveedorPago: mejor ? mejor.proveedor : null };
+}
 
 // GET /tienda/pedidos - pedidos del cliente autenticado
 router.get('/', requireClienteAuth, asyncHandler(async (req, res) => {
@@ -29,7 +57,7 @@ router.get('/', requireClienteAuth, asyncHandler(async (req, res) => {
     include: PEDIDO_INCLUDE,
     orderBy: { createdAt: 'desc' },
   });
-  res.json(pedidos);
+  res.json(pedidos.map(conProveedorPago));
 }));
 
 // GET /tienda/pedidos/:id - detalle, solo si es del cliente autenticado
@@ -41,7 +69,7 @@ router.get('/:id', requireClienteAuth, asyncHandler(async (req, res) => {
   if (!pedido || pedido.clienteId !== req.cliente.id) {
     return res.status(404).json({ error: 'Pedido no encontrado.' });
   }
-  res.json(pedido);
+  res.json(conProveedorPago(pedido));
 }));
 
 const itemSchema = z.object({
@@ -157,7 +185,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
       return nuevo;
     });
 
-    res.status(201).json(pedido);
+    res.status(201).json(conProveedorPago(pedido));
   } catch (err) {
     if (err.message === 'SIN_CUENTA_ONLINE') {
       return res.status(503).json({ error: 'La tienda en línea no tiene una cuenta de pago configurada todavía. Intenta más tarde.' });
@@ -204,7 +232,7 @@ router.post(
       include: PEDIDO_INCLUDE,
     });
 
-    res.json(actualizado);
+    res.json(conProveedorPago(actualizado));
   })
 );
 
@@ -224,7 +252,7 @@ router.post('/:id/confirmar-recibido', requireClienteAuth, asyncHandler(async (r
     data: { estado: 'RECIBIDO', recibidoAt: new Date() },
     include: PEDIDO_INCLUDE,
   });
-  res.json(actualizado);
+  res.json(conProveedorPago(actualizado));
 }));
 
 // POST /tienda/pedidos/:id/cancelar - el cliente cancela mientras siga
@@ -271,7 +299,7 @@ router.post('/:id/cancelar', requireClienteAuth, asyncHandler(async (req, res) =
     return tx.pedido.update({ where: { id: pedido.id }, data: { estado: 'CANCELADO' }, include: PEDIDO_INCLUDE });
   });
 
-  res.json(actualizado);
+  res.json(conProveedorPago(actualizado));
 }));
 
 module.exports = router;

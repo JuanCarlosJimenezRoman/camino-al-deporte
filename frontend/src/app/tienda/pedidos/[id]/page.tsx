@@ -32,6 +32,7 @@ interface Pedido {
   estadoMx: string;
   codigoPostal: string;
   cuentaTransferencia: { nombre: string; banco: string | null; titular: string | null; numeroCuenta: string | null } | null;
+  proveedorPago: { id: number; nombre: string; telefono: string | null } | null;
   referenciaPago: string;
   comprobanteUrl: string | null;
   comprobanteRechazadoMotivo: string | null;
@@ -51,6 +52,49 @@ const ESTADO_LABEL: Record<Pedido['estado'], string> = {
 };
 
 const PASOS: Pedido['estado'][] = ['PENDIENTE_PAGO', 'EN_VALIDACION', 'PAGADO', 'ENVIADO', 'RECIBIDO'];
+
+// El pago ya no se muestra directo en la página (cuenta/CLABE en frío no le
+// daba confianza al cliente). En vez de eso se le manda por WhatsApp al
+// proveedor que corresponde a su pedido, quien le pasa los datos de pago por
+// chat. Si el pedido trae artículos de varios proveedores, ya viene resuelto
+// desde el backend: proveedorPago es el que más $ representa en ese pedido.
+function formatearTelefonoWhatsapp(telefono: string): string {
+  let digitos = telefono.replace(/\D/g, '');
+  if (digitos.length === 10) digitos = '52' + digitos; // sin código de país -> asumimos México
+  return digitos;
+}
+
+function construirMensajeWhatsapp(pedido: Pedido): string {
+  const articulos = pedido.items
+    .map((it) => {
+      const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
+      return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${it.subtotal}`;
+    })
+    .join('\n');
+  const direccion = `${pedido.destinatario} — ${pedido.calle} ${pedido.numeroExt}${
+    pedido.numeroInt ? ` Int. ${pedido.numeroInt}` : ''
+  }, ${pedido.colonia}, ${pedido.municipio}, ${pedido.estadoMx}, CP ${pedido.codigoPostal}`;
+
+  return [
+    `Hola, quiero pagar mi pedido ${pedido.folio}.`,
+    '',
+    'Artículos:',
+    articulos,
+    '',
+    `Total: $${pedido.total}`,
+    `Referencia: ${pedido.referenciaPago}`,
+    '',
+    'Dirección de envío:',
+    direccion,
+  ].join('\n');
+}
+
+function construirLinkWhatsapp(pedido: Pedido): string | null {
+  if (!pedido.proveedorPago?.telefono) return null;
+  const numero = formatearTelefonoWhatsapp(pedido.proveedorPago.telefono);
+  if (!numero) return null;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(construirMensajeWhatsapp(pedido))}`;
+}
 
 export default function PedidoDetallePage() {
   const params = useParams<{ id: string }>();
@@ -156,10 +200,10 @@ export default function PedidoDetallePage() {
           </div>
         )}
 
-        {/* Pago SPEI */}
+        {/* Pago por WhatsApp */}
         {(pedido.estado === 'PENDIENTE_PAGO' || pedido.estado === 'EN_VALIDACION') && (
           <div className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 12 }}>Pago por SPEI</h2>
+            <h2 style={{ fontSize: 15, marginBottom: 12 }}>Pago</h2>
 
             {pedido.comprobanteRechazadoMotivo && pedido.estado === 'PENDIENTE_PAGO' && (
               <p style={{ color: 'var(--color-danger)', fontSize: 13, marginBottom: 12 }}>
@@ -170,24 +214,26 @@ export default function PedidoDetallePage() {
             <div style={{ fontSize: 14, marginBottom: 4 }}>
               <strong>Total a pagar:</strong> ${pedido.total}
             </div>
-            {pedido.cuentaTransferencia && (
-              <>
-                <div style={{ fontSize: 14, marginBottom: 4 }}>
-                  <strong>Banco:</strong> {pedido.cuentaTransferencia.banco || pedido.cuentaTransferencia.nombre}
-                </div>
-                <div style={{ fontSize: 14, marginBottom: 4 }}>
-                  <strong>CLABE / cuenta destino:</strong> {pedido.cuentaTransferencia.numeroCuenta || '—'}
-                </div>
-                {pedido.cuentaTransferencia.titular && (
-                  <div style={{ fontSize: 14, marginBottom: 4 }}>
-                    <strong>Titular:</strong> {pedido.cuentaTransferencia.titular}
-                  </div>
-                )}
-              </>
-            )}
             <div style={{ fontSize: 14, marginBottom: 12 }}>
-              <strong>Referencia / concepto:</strong> {pedido.referenciaPago}
+              <strong>Referencia:</strong> {pedido.referenciaPago}
             </div>
+
+            {pedido.estado === 'PENDIENTE_PAGO' &&
+              (construirLinkWhatsapp(pedido) ? (
+                <a
+                  href={construirLinkWhatsapp(pedido)!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn"
+                  style={{ display: 'inline-block', marginBottom: 16, textDecoration: 'none' }}
+                >
+                  Continuar por WhatsApp
+                </a>
+              ) : (
+                <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 16 }}>
+                  Contáctanos para recibir los datos de pago de tu pedido.
+                </p>
+              ))}
 
             {pedido.estado === 'EN_VALIDACION' ? (
               <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>

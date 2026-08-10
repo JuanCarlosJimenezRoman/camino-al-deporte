@@ -249,18 +249,35 @@ busca automáticamente una sucursal con existencia suficiente (prefiriendo la
 bodega central) y descuenta ahí. El cliente no elige sucursal. Si ninguna
 sucursal por sí sola tiene suficiente para un renglón, el pedido se rechaza
 (v1 no reparte un mismo renglón entre varias sucursales). Al crearse, el
-pedido queda en `PENDIENTE_PAGO` con una `referenciaPago` (para el concepto
-del SPEI) y la cuenta bancaria a la que debe pagar — la primera cuenta activa
-marcada `paraVentasOnline` en Catálogos → Cuentas de transferencia. Si no hay
-ninguna marcada así, la creación del pedido falla con un mensaje claro (hay
-que configurar al menos una cuenta con ese flag antes de operar la tienda).
+pedido queda en `PENDIENTE_PAGO` con una `referenciaPago` y, internamente,
+sigue guardando la cuenta bancaria propia (`cuentaTransferencia`, la primera
+cuenta activa marcada `paraVentasOnline`) por si se necesita como referencia
+administrativa — pero **ya no se le muestra al cliente en la página**.
+
+**Pago por WhatsApp, no por cuenta en frío.** Mostrarle al cliente la CLABE
+directo en la página no generaba confianza, así que en vez de eso el detalle
+del pedido (`frontend/src/app/tienda/pedidos/[id]/page.tsx`) ofrece un botón
+"Continuar por WhatsApp" que abre un chat pre-cargado (artículos, total,
+referencia y dirección de envío) con el **proveedor** correspondiente al
+pedido — es él quien le pasa los datos de pago por chat, lo cual también deja
+rastro de la conversación. El backend calcula a qué proveedor mandarlo: cada
+`PedidoItem.variante` ya trae su `proveedor` (mismo campo que usa Inventario);
+`GET/POST /tienda/pedidos*` devuelve un campo calculado `proveedorPago` con el
+proveedor cuya suma de subtotales es la mayor en ese pedido — si todos los
+artículos son del mismo proveedor no hay ambigüedad, y si el pedido mezcla
+varios, se manda un solo chat con el que más peso tiene en $ (no se reparte en
+varias conversaciones). El número se toma de `Proveedor.telefono`; si son 10
+dígitos sin código de país se asume México y se antepone `52` para el enlace
+`wa.me`. Si ningún artículo tiene proveedor asignado, no hay botón y se le
+pide al cliente que contacte a la tienda directamente.
 
 **Verificación del pago — manual en v1.** El mockup original de este
 proyecto contemplaba un match automático contra el banco (monto, cuenta,
 fecha). Eso requeriría contratar una integración bancaria (por ejemplo STP,
 Belvo o Fintoc) que hoy no existe, así que v1 usa revisión manual: el cliente
 sube su comprobante (`POST /tienda/pedidos/:id/comprobante`, pasa a
-`EN_VALIDACION`) y alguien de VENTAS/ADMIN lo compara contra el estado de
+`EN_VALIDACION`) — típicamente después de que el proveedor se lo pide por el
+mismo WhatsApp — y alguien de VENTAS/ADMIN lo compara contra el estado de
 cuenta real y lo aprueba (`POST /pedidos-online/:id/validar-pago` → `PAGADO`)
 o lo rechaza con motivo (`POST /pedidos-online/:id/rechazar-comprobante` →
 vuelve a `PENDIENTE_PAGO` para que el cliente suba uno correcto; el stock
