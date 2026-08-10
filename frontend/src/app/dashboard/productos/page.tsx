@@ -74,6 +74,10 @@ export default function ProductosPage() {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [galeriaAbiertaId, setGaleriaAbiertaId] = useState<number | null>(null);
   const [variantesAbiertasId, setVariantesAbiertasId] = useState<number | null>(null);
+  const [nuevaTallaAbiertaId, setNuevaTallaAbiertaId] = useState<number | null>(null);
+  const [nuevaTallaForm, setNuevaTallaForm] = useState<VarianteForm>(nuevaVarianteForm());
+  const [nuevaTallaSucursalId, setNuevaTallaSucursalId] = useState('');
+  const [guardandoTalla, setGuardandoTalla] = useState(false);
 
   // Catálogos para el formulario de alta
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -151,6 +155,63 @@ export default function ProductosPage() {
       cargarProductos();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al asignar el proveedor.');
+    }
+  }
+
+  // Dar de alta una talla/color nueva en un producto que ya existe (por
+  // ejemplo, llegó una talla que no se había registrado). Antes solo se podía
+  // definir variantes al crear el producto o re-subiendo un Excel; el
+  // backend ya tenía la ruta, solo faltaba conectarla aquí.
+  async function abrirNuevaTalla(productoId: number) {
+    if (tallas.length === 0 || sucursales.length === 0) {
+      const [t, s] = await Promise.all([
+        api<Talla[]>('/catalogos/tallas'),
+        api<Sucursal[]>('/sucursales'),
+      ]);
+      setTallas(t);
+      setSucursales(s);
+      setNuevaTallaSucursalId(usuario?.sucursalId ? String(usuario.sucursalId) : s[0] ? String(s[0].id) : '');
+    } else if (!nuevaTallaSucursalId) {
+      setNuevaTallaSucursalId(usuario?.sucursalId ? String(usuario.sucursalId) : sucursales[0] ? String(sucursales[0].id) : '');
+    }
+    setNuevaTallaForm(nuevaVarianteForm());
+    setMensaje(null);
+    setNuevaTallaAbiertaId(productoId);
+  }
+
+  async function guardarNuevaTalla(productoId: number) {
+    if (!nuevaTallaForm.sku.trim()) {
+      setMensaje('La talla nueva necesita un SKU.');
+      return;
+    }
+    setGuardandoTalla(true);
+    setMensaje(null);
+    try {
+      await api(`/productos/${productoId}/variantes`, {
+        method: 'POST',
+        body: JSON.stringify({
+          tallaId: nuevaTallaForm.tallaId ? Number(nuevaTallaForm.tallaId) : undefined,
+          color: nuevaTallaForm.color || undefined,
+          sku: nuevaTallaForm.sku.trim(),
+          proveedorId: nuevaTallaForm.proveedorId ? Number(nuevaTallaForm.proveedorId) : undefined,
+          existencias: nuevaTallaSucursalId
+            ? [
+                {
+                  sucursalId: Number(nuevaTallaSucursalId),
+                  stockActual: Number(nuevaTallaForm.stockInicial) || 0,
+                },
+              ]
+            : [],
+        }),
+      });
+      setNuevaTallaAbiertaId(null);
+      setNuevaTallaForm(nuevaVarianteForm());
+      setMensaje('Talla agregada.');
+      cargarProductos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al agregar la talla.');
+    } finally {
+      setGuardandoTalla(false);
     }
   }
 
@@ -497,6 +558,79 @@ export default function ProductosPage() {
                             ))}
                           </tbody>
                         </table>
+
+                        {puedeCrear && (
+                          <div style={{ marginTop: 10 }}>
+                            {nuevaTallaAbiertaId === p.id ? (
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <select
+                                  value={nuevaTallaForm.tallaId}
+                                  onChange={(e) => setNuevaTallaForm((f) => ({ ...f, tallaId: e.target.value }))}
+                                  style={{ maxWidth: 120 }}
+                                >
+                                  <option value="">Sin talla</option>
+                                  {tallas.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.tipo}: {t.valor}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  placeholder="Color"
+                                  value={nuevaTallaForm.color}
+                                  onChange={(e) => setNuevaTallaForm((f) => ({ ...f, color: e.target.value }))}
+                                  style={{ maxWidth: 100 }}
+                                />
+                                <input
+                                  placeholder="SKU"
+                                  value={nuevaTallaForm.sku}
+                                  onChange={(e) => setNuevaTallaForm((f) => ({ ...f, sku: e.target.value }))}
+                                  style={{ maxWidth: 140 }}
+                                />
+                                <select
+                                  value={nuevaTallaSucursalId}
+                                  onChange={(e) => setNuevaTallaSucursalId(e.target.value)}
+                                  style={{ maxWidth: 150 }}
+                                >
+                                  {sucursales.map((s) => (
+                                    <option key={s.id} value={s.id}>
+                                      {s.nombre}
+                                    </option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  placeholder="Stock inicial"
+                                  value={nuevaTallaForm.stockInicial}
+                                  onChange={(e) => setNuevaTallaForm((f) => ({ ...f, stockInicial: e.target.value }))}
+                                  style={{ maxWidth: 100 }}
+                                />
+                                <select
+                                  value={nuevaTallaForm.proveedorId}
+                                  onChange={(e) => setNuevaTallaForm((f) => ({ ...f, proveedorId: e.target.value }))}
+                                  style={{ maxWidth: 140 }}
+                                >
+                                  <option value="">Sin proveedor</option>
+                                  {proveedores.map((prov) => (
+                                    <option key={prov.id} value={prov.id}>
+                                      {prov.nombre}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button className="btn" onClick={() => guardarNuevaTalla(p.id)} disabled={guardandoTalla}>
+                                  {guardandoTalla ? 'Guardando...' : 'Guardar talla'}
+                                </button>
+                                <button className="btn-secondary btn" onClick={() => setNuevaTallaAbiertaId(null)}>
+                                  Cancelar
+                                </button>
+                              </div>
+                            ) : (
+                              <button className="btn-secondary btn" onClick={() => abrirNuevaTalla(p.id)}>
+                                + Agregar talla
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
