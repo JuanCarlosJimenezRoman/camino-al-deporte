@@ -73,6 +73,7 @@ export default function ProductosPage() {
   const [cargando, setCargando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [galeriaAbiertaId, setGaleriaAbiertaId] = useState<number | null>(null);
+  const [variantesAbiertasId, setVariantesAbiertasId] = useState<number | null>(null);
 
   // Catálogos para el formulario de alta
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -132,6 +133,13 @@ export default function ProductosPage() {
 
   function quitarVariante(i: number) {
     setVariantesForm((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function stockTotal(p: Producto) {
+    return p.variantes.reduce(
+      (total, v) => total + v.existencias.reduce((s, ex) => s + ex.stockActual, 0),
+      0
+    );
   }
 
   async function cambiarProveedorVariante(productoId: number, varianteId: number, proveedorId: string) {
@@ -362,7 +370,7 @@ export default function ProductosPage() {
               <th>Marca</th>
               <th>Categoría</th>
               <th>Precio</th>
-              <th>Variantes (talla / SKU / stock por sucursal)</th>
+              <th>Variantes</th>
               <th></th>
             </tr>
           </thead>
@@ -402,38 +410,33 @@ export default function ProductosPage() {
                     <td>{p.categoria?.nombre}</td>
                     <td>${p.precioVenta}</td>
                     <td>
-                      {p.variantes.map((v) => (
-                        <div key={v.id} style={{ fontSize: 12, marginBottom: 4 }}>
-                          {v.talla?.valor ?? '—'} · {v.sku}
-                          {v.existencias.length > 0 && (
-                            <>
-                              {' '}
-                              ·{' '}
-                              {v.existencias
-                                .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
-                                .join(', ')}
-                            </>
-                          )}
-                          {puedeCrear ? (
-                            <select
-                              value={v.proveedor?.id ?? ''}
-                              onChange={(e) => cambiarProveedorVariante(p.id, v.id, e.target.value)}
-                              style={{ fontSize: 11, marginLeft: 6, maxWidth: 130 }}
-                            >
-                              <option value="">Sin proveedor</option>
-                              {proveedores.map((prov) => (
-                                <option key={prov.id} value={prov.id}>
-                                  {prov.nombre}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            v.proveedor && (
-                              <span style={{ color: 'var(--color-muted)' }}> · {v.proveedor.nombre}</span>
-                            )
-                          )}
-                        </div>
-                      ))}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: 'var(--color-bg)',
+                            border: '1px solid var(--color-border)',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {p.variantes.length} {p.variantes.length === 1 ? 'variante' : 'variantes'}
+                        </span>
+                        <span style={{ fontSize: 12, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
+                          stock: {stockTotal(p)}
+                        </span>
+                        <button
+                          className="btn-secondary btn"
+                          style={{ fontSize: 11, padding: '3px 10px' }}
+                          onClick={() =>
+                            setVariantesAbiertasId(variantesAbiertasId === p.id ? null : p.id)
+                          }
+                        >
+                          {variantesAbiertasId === p.id ? 'Ocultar' : 'Ver'}
+                        </button>
+                      </div>
                     </td>
                     <td>
                       {puedeCrear && (
@@ -446,6 +449,57 @@ export default function ProductosPage() {
                       )}
                     </td>
                   </tr>
+                  {variantesAbiertasId === p.id && (
+                    <tr>
+                      <td colSpan={7} style={{ background: '#fafafa' }}>
+                        <table style={{ minWidth: 0 }}>
+                          <thead>
+                            <tr>
+                              <th>Talla</th>
+                              <th>Color</th>
+                              <th>SKU</th>
+                              <th style={{ whiteSpace: 'normal' }}>Stock por sucursal</th>
+                              <th>Proveedor</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {p.variantes.map((v) => (
+                              <tr key={v.id}>
+                                <td>{v.talla?.valor ?? '—'}</td>
+                                <td>{v.color ?? '—'}</td>
+                                <td>{v.sku}</td>
+                                <td style={{ whiteSpace: 'normal' }}>
+                                  {v.existencias.length > 0
+                                    ? v.existencias
+                                        .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
+                                        .join(', ')
+                                    : '—'}
+                                </td>
+                                <td>
+                                  {puedeCrear ? (
+                                    <select
+                                      value={v.proveedor?.id ?? ''}
+                                      onChange={(e) => cambiarProveedorVariante(p.id, v.id, e.target.value)}
+                                      style={{ fontSize: 12, maxWidth: 160 }}
+                                    >
+                                      <option value="">Sin proveedor</option>
+                                      {proveedores.map((prov) => (
+                                        <option key={prov.id} value={prov.id}>
+                                          {prov.nombre}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    v.proveedor?.nombre ?? '—'
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
                   {galeriaAbiertaId === p.id && (
                     <tr>
                       <td colSpan={7} style={{ background: '#fafafa' }}>
