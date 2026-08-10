@@ -10,7 +10,7 @@ interface Variante {
   id: number;
   sku: string;
   color: string | null;
-  talla: { valor: string } | null;
+  talla: { valor: string; tipo?: string; orden?: number } | null;
   stockTotal: number;
 }
 
@@ -38,6 +38,7 @@ export default function ProductoDetallePage() {
   const [cantidad, setCantidad] = useState(1);
   const [imagenActiva, setImagenActiva] = useState(0);
   const [mensaje, setMensaje] = useState<string | null>(null);
+  const [guiaAbierta, setGuiaAbierta] = useState(false);
 
   useEffect(() => {
     apiTienda<ProductoDetalle>(`/tienda/productos/${params.id}`)
@@ -54,6 +55,7 @@ export default function ProductoDetallePage() {
 
   const variante = producto.variantes.find((v) => String(v.id) === varianteId);
   const disponible = !!variante && variante.stockTotal > 0;
+  const esCalzado = producto.variantes.some((v) => v.talla?.tipo === 'calzado');
 
   function agregarAlCarrito() {
     if (!producto || !variante) return;
@@ -148,7 +150,18 @@ export default function ProductoDetallePage() {
           )}
 
           <div className="mt-6">
-            <p className="mb-2 text-sm font-semibold">Selecciona talla</p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-semibold">Selecciona talla</p>
+              {esCalzado && (
+                <button
+                  type="button"
+                  onClick={() => setGuiaAbierta(true)}
+                  className="text-xs font-semibold text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                >
+                  Guía de tallas
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
               {producto.variantes.map((v) => {
                 const seleccionada = String(v.id) === varianteId;
@@ -215,6 +228,50 @@ export default function ProductoDetallePage() {
           </button>
         </div>
       </div>
+
+      {/* Guía de tallas: hoja deslizante desde abajo en móvil, modal centrado en escritorio */}
+      {guiaAbierta && (
+        <div className="fixed inset-0 z-[70]">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setGuiaAbierta(false)} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-background p-6 sm:inset-0 sm:m-auto sm:h-fit sm:max-h-[80vh] sm:w-full sm:max-w-md sm:rounded-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-base font-bold uppercase tracking-wide">Guía de tallas</h2>
+              <button onClick={() => setGuiaAbierta(false)} className="rounded-md p-1 text-muted-foreground hover:text-foreground" aria-label="Cerrar">
+                ✕
+              </button>
+            </div>
+
+            <p className="mb-4 text-sm text-muted-foreground">
+              Para elegir mejor tu talla, mide tu pie y compáralo con las opciones disponibles de este producto:
+            </p>
+
+            <ol className="mb-5 list-decimal space-y-1.5 pl-4 text-sm text-muted-foreground">
+              <li>Párate sobre una hoja de papel, con el talón pegado a una pared.</li>
+              <li>Marca el punto más largo de tu pie (puede ser el dedo gordo o el segundo dedo).</li>
+              <li>Mide la distancia desde la pared hasta la marca, en centímetros.</li>
+              <li>Si tu medida queda entre dos tallas, elige la más grande.</li>
+            </ol>
+
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Tallas disponibles en este producto
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {producto.variantes
+                .filter((v) => v.talla?.tipo === 'calzado')
+                .sort((a, b) => (a.talla?.orden ?? 0) - (b.talla?.orden ?? 0))
+                .map((v) => (
+                  <span key={v.id} className="rounded-lg border border-border px-3 py-1.5 text-sm">
+                    {v.talla?.valor}
+                  </span>
+                ))}
+            </div>
+
+            <p className="mt-5 text-xs text-muted-foreground">
+              El calce puede variar un poco según el modelo. Si tienes dudas sobre tu talla, contáctanos antes de comprar.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
