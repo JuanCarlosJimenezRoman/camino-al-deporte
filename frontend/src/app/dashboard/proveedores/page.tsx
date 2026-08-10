@@ -132,7 +132,7 @@ export default function ProveedoresPage() {
       }
       setMostrarForm(false);
       cargar();
-      if (editandoId === expandidoId) cargarDetalle(editandoId);
+      if (editandoId !== null && editandoId === expandidoId) cargarDetalle(editandoId);
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al guardar el proveedor.');
     } finally {
