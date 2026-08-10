@@ -19,7 +19,7 @@ interface Variante {
   // lote — ver docs/ARQUITECTURA.md).
   codigoInterno: string;
   color: string | null;
-  talla: { valor: string } | null;
+  talla: { id: number; valor: string } | null;
   proveedor: { id: number; nombre: string } | null;
   existencias: Existencia[];
 }
@@ -68,6 +68,12 @@ function nuevaVarianteForm(): VarianteForm {
   return { tallaId: '', color: '', sku: '', stockInicial: '0', proveedorId: '' };
 }
 
+interface EditVarianteForm {
+  tallaId: string;
+  color: string;
+  sku: string;
+}
+
 export default function ProductosPage() {
   const { usuario } = useAuth();
   const puedeCrear = usuario ? puedeVer('inventario', usuario.rol) : false;
@@ -82,6 +88,11 @@ export default function ProductosPage() {
   const [nuevaTallaForm, setNuevaTallaForm] = useState<VarianteForm>(nuevaVarianteForm());
   const [nuevaTallaSucursalId, setNuevaTallaSucursalId] = useState('');
   const [guardandoTalla, setGuardandoTalla] = useState(false);
+  // Edición de una variante ya existente (corregir talla/color/SKU cuando se
+  // cargó mal al registrar stock — ver docs/ARQUITECTURA.md).
+  const [editandoVarianteId, setEditandoVarianteId] = useState<number | null>(null);
+  const [editVarianteForm, setEditVarianteForm] = useState<EditVarianteForm>({ tallaId: '', color: '', sku: '' });
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
   // Catálogos para el formulario de alta
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -159,6 +170,54 @@ export default function ProductosPage() {
       cargarProductos();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al asignar el proveedor.');
+    }
+  }
+
+  // Corregir talla/color/SKU de una variante ya existente — para cuando se
+  // cargó mal al registrar stock y no queda forma de arreglarlo salvo dar de
+  // baja y recrear. El backend ya soportaba esto (PUT variantes/:varianteId),
+  // solo faltaba conectarlo aquí.
+  async function abrirEditarVariante(v: Variante) {
+    if (tallas.length === 0) {
+      const t = await api<Talla[]>('/catalogos/tallas');
+      setTallas(t);
+    }
+    setEditVarianteForm({
+      tallaId: v.talla ? String(v.talla.id) : '',
+      color: v.color ?? '',
+      sku: v.sku,
+    });
+    setMensaje(null);
+    setEditandoVarianteId(v.id);
+  }
+
+  function cancelarEdicionVariante() {
+    setEditandoVarianteId(null);
+  }
+
+  async function guardarEdicionVariante(productoId: number, varianteId: number) {
+    if (!editVarianteForm.sku.trim()) {
+      setMensaje('El SKU no puede quedar vacío.');
+      return;
+    }
+    setGuardandoEdicion(true);
+    setMensaje(null);
+    try {
+      await api(`/productos/${productoId}/variantes/${varianteId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          tallaId: editVarianteForm.tallaId ? Number(editVarianteForm.tallaId) : null,
+          color: editVarianteForm.color || null,
+          sku: editVarianteForm.sku.trim(),
+        }),
+      });
+      setEditandoVarianteId(null);
+      setMensaje('Variante actualizada.');
+      cargarProductos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar la variante.');
+    } finally {
+      setGuardandoEdicion(false);
     }
   }
 
@@ -531,42 +590,115 @@ export default function ProductosPage() {
                               <th>Código interno</th>
                               <th style={{ whiteSpace: 'normal' }}>Stock por sucursal</th>
                               <th>Proveedor</th>
+                              {puedeCrear && <th></th>}
                             </tr>
                           </thead>
                           <tbody>
-                            {p.variantes.map((v) => (
-                              <tr key={v.id}>
-                                <td>{v.talla?.valor ?? '—'}</td>
-                                <td>{v.color ?? '—'}</td>
-                                <td>{v.sku}</td>
-                                <td style={{ fontSize: 12, color: 'var(--color-muted)' }}>{v.codigoInterno}</td>
-                                <td style={{ whiteSpace: 'normal' }}>
-                                  {v.existencias.length > 0
-                                    ? v.existencias
-                                        .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
-                                        .join(', ')
-                                    : '—'}
-                                </td>
-                                <td>
-                                  {puedeCrear ? (
+                            {p.variantes.map((v) =>
+                              editandoVarianteId === v.id ? (
+                                <tr key={v.id}>
+                                  <td>
                                     <select
-                                      value={v.proveedor?.id ?? ''}
-                                      onChange={(e) => cambiarProveedorVariante(p.id, v.id, e.target.value)}
-                                      style={{ fontSize: 12, maxWidth: 160 }}
+                                      value={editVarianteForm.tallaId}
+                                      onChange={(e) => setEditVarianteForm((f) => ({ ...f, tallaId: e.target.value }))}
+                                      style={{ fontSize: 12, maxWidth: 110 }}
                                     >
-                                      <option value="">Sin proveedor</option>
-                                      {proveedores.map((prov) => (
-                                        <option key={prov.id} value={prov.id}>
-                                          {prov.nombre}
+                                      <option value="">Sin talla</option>
+                                      {tallas.map((t) => (
+                                        <option key={t.id} value={t.id}>
+                                          {t.tipo}: {t.valor}
                                         </option>
                                       ))}
                                     </select>
-                                  ) : (
-                                    v.proveedor?.nombre ?? '—'
+                                  </td>
+                                  <td>
+                                    <input
+                                      value={editVarianteForm.color}
+                                      onChange={(e) => setEditVarianteForm((f) => ({ ...f, color: e.target.value }))}
+                                      placeholder="Color"
+                                      style={{ fontSize: 12, maxWidth: 90 }}
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      value={editVarianteForm.sku}
+                                      onChange={(e) => setEditVarianteForm((f) => ({ ...f, sku: e.target.value }))}
+                                      placeholder="SKU de fábrica"
+                                      style={{ fontSize: 12, maxWidth: 130 }}
+                                    />
+                                  </td>
+                                  <td style={{ fontSize: 12, color: 'var(--color-muted)' }}>{v.codigoInterno}</td>
+                                  <td style={{ whiteSpace: 'normal' }}>
+                                    {v.existencias.length > 0
+                                      ? v.existencias
+                                          .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
+                                          .join(', ')
+                                      : '—'}
+                                  </td>
+                                  <td>{v.proveedor?.nombre ?? '—'}</td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>
+                                    <button
+                                      className="btn"
+                                      style={{ fontSize: 11, padding: '3px 10px', marginRight: 4 }}
+                                      onClick={() => guardarEdicionVariante(p.id, v.id)}
+                                      disabled={guardandoEdicion}
+                                    >
+                                      {guardandoEdicion ? '...' : 'Guardar'}
+                                    </button>
+                                    <button
+                                      className="btn-secondary btn"
+                                      style={{ fontSize: 11, padding: '3px 10px' }}
+                                      onClick={cancelarEdicionVariante}
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr key={v.id}>
+                                  <td>{v.talla?.valor ?? '—'}</td>
+                                  <td>{v.color ?? '—'}</td>
+                                  <td>{v.sku}</td>
+                                  <td style={{ fontSize: 12, color: 'var(--color-muted)' }}>{v.codigoInterno}</td>
+                                  <td style={{ whiteSpace: 'normal' }}>
+                                    {v.existencias.length > 0
+                                      ? v.existencias
+                                          .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
+                                          .join(', ')
+                                      : '—'}
+                                  </td>
+                                  <td>
+                                    {puedeCrear ? (
+                                      <select
+                                        value={v.proveedor?.id ?? ''}
+                                        onChange={(e) => cambiarProveedorVariante(p.id, v.id, e.target.value)}
+                                        style={{ fontSize: 12, maxWidth: 160 }}
+                                      >
+                                        <option value="">Sin proveedor</option>
+                                        {proveedores.map((prov) => (
+                                          <option key={prov.id} value={prov.id}>
+                                            {prov.nombre}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      v.proveedor?.nombre ?? '—'
+                                    )}
+                                  </td>
+                                  {puedeCrear && (
+                                    <td>
+                                      <button
+                                        className="btn-secondary btn"
+                                        style={{ fontSize: 11, padding: '3px 10px' }}
+                                        onClick={() => abrirEditarVariante(v)}
+                                      >
+                                        Editar
+                                      </button>
+                                    </td>
                                   )}
-                                </td>
-                              </tr>
-                            ))}
+                                </tr>
+                              )
+                            )}
                           </tbody>
                         </table>
 
