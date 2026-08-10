@@ -55,7 +55,12 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
       ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
     },
     include: {
-      items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
+      items: {
+        include: {
+          variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+          proveedor: { select: { id: true, nombre: true } },
+        },
+      },
       usuario: { select: { nombre: true } },
       sucursal: { select: { nombre: true } },
       cuentaTransferencia: { select: { nombre: true } },
@@ -167,7 +172,12 @@ router.get(
     const ventas = await prisma.venta.findMany({
       where,
       include: {
-        items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
+        items: {
+        include: {
+          variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+          proveedor: { select: { id: true, nombre: true } },
+        },
+      },
         usuario: { select: { nombre: true } },
         sucursal: { select: { nombre: true } },
         cuentaTransferencia: { select: { nombre: true } },
@@ -198,6 +208,11 @@ const ventaItemSchema = z.object({
   varianteId: z.number().int(),
   cantidad: z.number().int().positive(),
   precioUnitario: z.number().nonnegative(),
+  // De qué proveedor sale el stock vendido (null = bucket "sin proveedor").
+  // Es obligatorio mandarlo explícitamente: como el stock ahora se separa
+  // por proveedor, el punto de venta debe decir siempre de cuál se descuenta
+  // cuando una talla tiene stock de más de uno.
+  proveedorId: z.number().int().nullable(),
 });
 
 const ventaSchema = z
@@ -281,8 +296,8 @@ router.post(
         const itemsData = [];
 
         for (const item of items) {
-          const existencia = await tx.existencia.findUnique({
-            where: { sucursalId_varianteId: { sucursalId, varianteId: item.varianteId } },
+          const existencia = await tx.existencia.findFirst({
+            where: { sucursalId, varianteId: item.varianteId, proveedorId: item.proveedorId },
             include: { variante: true },
           });
           if (!existencia) throw new Error(`SIN_EXISTENCIA:${item.varianteId}`);
@@ -306,6 +321,7 @@ router.post(
               cantidad: -item.cantidad,
               motivo: 'Venta',
               usuarioId: req.usuario.id,
+              proveedorId: item.proveedorId,
             },
           });
 
@@ -359,16 +375,25 @@ router.post(
         if (v.estado === 'CANCELADA') return v;
 
         for (const item of v.items) {
-          await tx.existencia.upsert({
-            where: { sucursalId_varianteId: { sucursalId: v.sucursalId, varianteId: item.varianteId } },
-            update: { stockActual: { increment: item.cantidad } },
-            create: {
-              sucursalId: v.sucursalId,
-              varianteId: item.varianteId,
-              stockActual: item.cantidad,
-              stockMinimo: 0,
-            },
+          const existencia = await tx.existencia.findFirst({
+            where: { sucursalId: v.sucursalId, varianteId: item.varianteId, proveedorId: item.proveedorId },
           });
+          if (existencia) {
+            await tx.existencia.update({
+              where: { id: existencia.id },
+              data: { stockActual: { increment: item.cantidad } },
+            });
+          } else {
+            await tx.existencia.create({
+              data: {
+                sucursalId: v.sucursalId,
+                varianteId: item.varianteId,
+                proveedorId: item.proveedorId,
+                stockActual: item.cantidad,
+                stockMinimo: 0,
+              },
+            });
+          }
           await tx.movimientoInventario.create({
             data: {
               sucursalId: v.sucursalId,
@@ -377,6 +402,7 @@ router.post(
               cantidad: item.cantidad,
               motivo: `Cancelación venta ${v.folio}`,
               usuarioId: req.usuario.id,
+              proveedorId: item.proveedorId,
             },
           });
         }

@@ -105,7 +105,7 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 - `sucursales`
 - `marcas`, `modelos`, `categorias`, `tallas`
 - `productos`, `producto_variantes` (catálogo global: variante = talla/color + SKU)
-- `existencias` (stock por sucursal + variante)
+- `existencias` (stock por sucursal + variante + **proveedor**: un mismo talla/sucursal puede tener varios renglones, uno por cada proveedor que la ha surtido — ver sección de Proveedores)
 - `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones, transferencias, apartados)
 - `transferencias_inventario` (mover mercancía entre sucursales)
 - `ventas`, `venta_items` (atadas a una sucursal; con método de pago y comprobante)
@@ -165,31 +165,82 @@ de total por sucursal además del listado detallado.
 - La pantalla de Apartados también muestra un resumen de "clientes con
   adeudo" (suma del saldo pendiente de sus apartados activos).
 
-## Proveedores: clasificación de mercancía y pagos
+## Proveedores: clasificación de mercancía, stock separado y pagos
 
 El negocio compra a varios proveedores (hoy 3) que en ocasiones surten el
-mismo producto, a veces en una talla distinta y a veces en la misma. Para
-poder rastrear "quién surtió qué" sin construir un sistema completo de lotes
-(FIFO), el proveedor se rastrea en dos niveles independientes:
+mismo producto, a veces en una talla distinta y a veces en la misma talla en
+ocasiones distintas. El proveedor se rastrea en tres niveles:
 
 - **`producto_variantes.proveedor_id`**: proveedor "principal" o por defecto
-  de ese SKU — el que normalmente lo surte. Se asigna al crear/editar el
-  producto (formulario de Productos) o inline en la tabla de Productos y en
-  Inventario.
-- **`movimientos_inventario.proveedor_id`**: proveedor real de cada entrada
-  puntual de stock (`tipo: ENTRADA`). Solo tiene sentido en entradas — no se
-  guarda en salidas, ventas ni ajustes. Esto permite que, si en una ocasión
-  llegó de un proveedor distinto al habitual para esa variante, quede
-  registrado en ese movimiento específico sin cambiar el proveedor "de
-  catálogo" de la variante.
+  de ese SKU — el que normalmente lo surte. Se asigna al crear el producto,
+  al agregar una talla nueva, o inline en la tabla de Productos/Inventario.
+  Es solo clasificación/referencia; no es de aquí de donde sale el stock al
+  vender.
+- **`existencias.proveedor_id`** — **el stock en sí está separado por
+  proveedor.** Antes había un solo número de stock por talla+sucursal; ahora
+  cada proveedor que ha surtido esa talla en esa sucursal tiene su propio
+  renglón con su propio `stockActual` (`@@unique([sucursalId, varianteId,
+  proveedorId])`). Si Proveedor A y Proveedor B surten la talla 26 del mismo
+  modelo en la misma sucursal, son dos renglones de `existencias`, no uno
+  solo — nunca se suman entre sí a nivel de base de datos (si acaso, se
+  suman al vuelo para mostrar un total en pantalla). `proveedor_id` puede ser
+  `NULL`: es el bucket "sin clasificar" (stock cargado antes de esta función,
+  o conteos donde no importa el origen). Como Postgres no trata dos `NULL`
+  como iguales en un índice único normal, hay dos índices parciales
+  (`existencias_sucursal_variante_proveedor_key` para buckets clasificados,
+  `existencias_sucursal_variante_sin_proveedor_key` para el bucket sin
+  proveedor) en vez de uno solo — ver
+  `prisma/migrations/20260813090000_stock_por_proveedor`.
+- **`movimientos_inventario.proveedor_id`**: de qué bucket salió/entró cada
+  movimiento puntual (entrada, salida, ajuste, venta, apartado, transferencia,
+  pedido en línea, devolución). Ya no es opcional-solo-en-ENTRADA como al
+  principio: como el stock vive partido por proveedor, todo movimiento tiene
+  que decir explícitamente a qué bucket toca (puede ser `null` = bucket sin
+  proveedor, pero el campo se manda siempre).
 
-Ambos campos son opcionales (`ON DELETE SET NULL`): no es obligatorio
-clasificar todo por proveedor desde el día uno, y borrar un proveedor no
-borra el historial de productos/movimientos, solo desasocia la referencia.
+Los tres campos son opcionales a nivel de FK (`ON DELETE SET NULL`): borrar
+un proveedor no borra el historial, solo desasocia la referencia.
 
-**Rutas** (`backend/src/routes/proveedores.js`, roles ADMIN_PRINCIPAL/
-DESARROLLO/INVENTARIO para crear, editar y registrar pagos; cualquier rol
-autenticado puede listar):
+**De cuál bucket se descuenta al vender/apartar/transferir.** Cuando una
+talla tiene stock de un solo proveedor, no hay nada que decidir. Cuando tiene
+de más de uno, la regla depende de si hay una persona operando o no:
+
+- **Ventas, Apartados, Transferencias e Inventario (entrada/salida manual)**:
+  selección manual. El selector de producto en cada pantalla no lista un
+  renglón por talla, sino un renglón por **(talla, proveedor)** — por
+  ejemplo "Tenis Runner (27) — SKU-123 — Distribuidora Uno — stock: 4" y
+  "Tenis Runner (27) — SKU-123 — Distribuidora Dos — stock: 2" aparecen como
+  dos opciones distintas. Quien vende/aparta/transfiere elige el renglón
+  correcto y ese `proveedorId` viaja con la operación (`venta_items`,
+  `apartado_items` y `transferencias_inventario` ahora tienen su propio
+  `proveedor_id`, independiente del proveedor "principal" de la variante).
+  Si se cancela una venta/apartado/transferencia, el stock regresa al mismo
+  bucket de donde salió.
+- **Tienda en línea (`POST /tienda/pedidos`)**: regla automática, porque ahí
+  no hay un cajero decidiendo — compra el cliente solo. Se descuenta primero
+  del bucket del proveedor "principal" de la variante; si no alcanza, del
+  bucket con más stock disponible (dentro de eso, se sigue prefiriendo la
+  bodega central, igual que antes). v1 sigue sin repartir un mismo renglón
+  entre dos buckets o dos sucursales: uno solo tiene que alcanzar. El
+  proveedor asignado a cada `pedido_items` con esta regla es también el que
+  se usa para decidir a qué número de WhatsApp se manda el pedido a pagar
+  (ver sección de Tienda en línea) — es más preciso que el proveedor
+  "principal" de la variante porque refleja de dónde salió el stock de
+  verdad, no solo la clasificación general del SKU.
+
+**Consultar el stock por proveedor.** `GET /inventario/existencias` ya no
+regresa un renglón por variante: regresa un renglón por (variante,
+proveedor). Una variante que todavía no tiene ningún movimiento en esa
+sucursal sigue apareciendo con un renglón placeholder en 0 (sin proveedor),
+para poder cargarle el primer stock. `GET /inventario/bajo-stock` sí suma
+todos los buckets de una variante — el mínimo de reorden es una política por
+talla+sucursal, no por proveedor — y compara el total contra el mínimo más
+alto que tenga cualquiera de sus buckets (`PUT /inventario/minimo` aplica el
+mismo mínimo a todos los buckets existentes de esa talla+sucursal).
+
+**Rutas de catálogo de proveedores** (`backend/src/routes/proveedores.js`,
+roles ADMIN_PRINCIPAL/DESARROLLO/INVENTARIO para crear, editar y registrar
+pagos; cualquier rol autenticado puede listar):
 
 - `GET /proveedores` (`?todas=1` incluye inactivos), `POST /proveedores`,
   `PUT /proveedores/:id` — catálogo del proveedor: nombre, contacto,
@@ -205,20 +256,25 @@ autenticado puede listar):
   archivo opcional `comprobante`, subido a Cloudinary
   (`camino-al-deporte/comprobantes`).
 - `PUT /productos/:id/variantes/:varianteId` — permite cambiar el proveedor
-  (u otros campos) de una variante ya creada sin tener que editar todo el
-  producto.
+  "principal" (u otros campos) de una variante ya creada, y
+  `POST /productos/:id/variantes` para agregar una talla nueva a un producto
+  que ya existe, sin tener que recrearlo ni pasar por el importador de Excel.
 
 **Dónde se ve en el frontend:**
 
 - Catálogos → **Proveedores**: alta/edición del proveedor y sus datos
   bancarios, lista de variantes que surte, historial de pagos y un
   mini-formulario para registrar un pago nuevo.
-- **Productos**: selector de proveedor al crear variantes nuevas, y un
-  selector inline por variante ya existente en la tabla de productos.
-- **Inventario**: filtro por proveedor en la consulta de existencias, y al
-  registrar una entrada (`+ Entrada`) se pide opcionalmente el proveedor de
-  ese lote — si no se indica, la entrada se registra igual pero sin
-  proveedor asociado a ese movimiento puntual.
+- **Productos**: selector de proveedor "principal" al crear variantes
+  nuevas, selector inline por variante ya existente, y botón "+ Agregar
+  talla" en la vista de variantes de cada producto.
+- **Inventario**: filtro por proveedor, desglose de stock por proveedor
+  dentro de cada talla, mini-formulario de proveedor al registrar una
+  entrada, y selector de proveedor al registrar una salida cuando la talla
+  tiene stock de más de uno (obligatorio en ese caso).
+- **Ventas, Apartados, Transferencias**: el selector de producto muestra un
+  renglón por (talla, proveedor) en vez de uno por talla, para poder elegir
+  de cuál bucket sale la mercancía.
 
 ## Tienda en línea: catálogo público, cuentas de cliente y pedidos por SPEI
 
@@ -260,16 +316,20 @@ del pedido (`frontend/src/app/tienda/pedidos/[id]/page.tsx`) ofrece un botón
 "Continuar por WhatsApp" que abre un chat pre-cargado (artículos, total,
 referencia y dirección de envío) con el **proveedor** correspondiente al
 pedido — es él quien le pasa los datos de pago por chat, lo cual también deja
-rastro de la conversación. El backend calcula a qué proveedor mandarlo: cada
-`PedidoItem.variante` ya trae su `proveedor` (mismo campo que usa Inventario);
-`GET/POST /tienda/pedidos*` devuelve un campo calculado `proveedorPago` con el
-proveedor cuya suma de subtotales es la mayor en ese pedido — si todos los
-artículos son del mismo proveedor no hay ambigüedad, y si el pedido mezcla
-varios, se manda un solo chat con el que más peso tiene en $ (no se reparte en
-varias conversaciones). El número se toma de `Proveedor.telefono`; si son 10
-dígitos sin código de país se asume México y se antepone `52` para el enlace
-`wa.me`. Si ningún artículo tiene proveedor asignado, no hay botón y se le
-pide al cliente que contacte a la tienda directamente.
+rastro de la conversación. El backend calcula a qué proveedor mandarlo a
+partir de `PedidoItem.proveedorId` — el proveedor del bucket de stock del que
+realmente se descontó cada renglón (ver regla automática en la sección de
+Proveedores), no el proveedor "principal" de la variante, para que sea exacto
+incluso si ese SKU normalmente lo surte alguien más pero este pedido en
+particular se surtió de otro bucket. `GET/POST /tienda/pedidos*` devuelve un
+campo calculado `proveedorPago` con el proveedor cuya suma de subtotales es
+la mayor en ese pedido — si todos los artículos son del mismo proveedor no
+hay ambigüedad, y si el pedido mezcla varios, se manda un solo chat con el
+que más peso tiene en $ (no se reparte en varias conversaciones). El número
+se toma de `Proveedor.telefono`; si son 10 dígitos sin código de país se
+asume México y se antepone `52` para el enlace `wa.me`. Si ningún artículo
+tiene proveedor asignado, no hay botón y se le pide al cliente que contacte a
+la tienda directamente.
 
 **Verificación del pago — manual en v1.** El mockup original de este
 proyecto contemplaba un match automático contra el banco (monto, cuenta,

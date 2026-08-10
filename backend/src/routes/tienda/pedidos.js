@@ -19,9 +19,13 @@ const PEDIDO_INCLUDE = {
         include: {
           producto: { include: IMAGEN_PRINCIPAL_INCLUDE },
           talla: true,
-          proveedor: { select: { id: true, nombre: true, telefono: true } },
         },
       },
+      // Proveedor REAL del bucket del que se descontó este renglón (no el
+      // proveedor "por defecto" de la variante) — aquí no hay cajero
+      // eligiendo, se asigna con una regla automática al crear el pedido
+      // (ver POST / más abajo), pero una vez asignado es el dato exacto.
+      proveedor: { select: { id: true, nombre: true, telefono: true } },
       sucursalStock: { select: { nombre: true } },
     },
   },
@@ -37,7 +41,7 @@ function conProveedorPago(pedido) {
   if (!pedido) return pedido;
   const totales = new Map();
   for (const item of pedido.items || []) {
-    const proveedor = item.variante?.proveedor;
+    const proveedor = item.proveedor;
     if (!proveedor) continue;
     const acumulado = totales.get(proveedor.id) || { proveedor, monto: 0 };
     acumulado.monto += Number(item.subtotal);
@@ -122,16 +126,29 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
           where: { id: item.varianteId },
           include: {
             producto: true,
-            existencias: { include: { sucursal: true }, orderBy: { stockActual: 'desc' } },
+            existencias: { include: { sucursal: true } },
           },
         });
         if (!variante || !variante.activo || !variante.producto.activo) {
           throw new Error(`VARIANTE_NO_DISPONIBLE:${item.varianteId}`);
         }
 
+        // No hay un cajero eligiendo aquí (el cliente compra solo), así que
+        // el bucket de proveedor se asigna con una regla automática: primero
+        // el proveedor "principal" de la variante, luego bodega central,
+        // luego el que tenga más stock. v1 no reparte un mismo renglón entre
+        // dos buckets/sucursales: un solo bucket tiene que alcanzar solo.
         const candidatas = variante.existencias
           .filter((e) => e.stockActual >= item.cantidad)
-          .sort((a, b) => (b.sucursal.esBodegaCentral ? 1 : 0) - (a.sucursal.esBodegaCentral ? 1 : 0) || b.stockActual - a.stockActual);
+          .sort((a, b) => {
+            const aPrincipal = a.proveedorId === variante.proveedorId ? 1 : 0;
+            const bPrincipal = b.proveedorId === variante.proveedorId ? 1 : 0;
+            if (aPrincipal !== bPrincipal) return bPrincipal - aPrincipal;
+            const aCentral = a.sucursal.esBodegaCentral ? 1 : 0;
+            const bCentral = b.sucursal.esBodegaCentral ? 1 : 0;
+            if (aCentral !== bCentral) return bCentral - aCentral;
+            return b.stockActual - a.stockActual;
+          });
         if (candidatas.length === 0) throw new Error(`STOCK_INSUFICIENTE:${variante.sku}`);
         const elegida = candidatas[0];
 
@@ -147,6 +164,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
         itemsData.push({
           varianteId: item.varianteId,
           sucursalStockId: elegida.sucursalId,
+          proveedorId: elegida.proveedorId,
           cantidad: item.cantidad,
           precioUnitario,
           subtotal,
@@ -178,6 +196,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
             cantidad: -it.cantidad,
             motivo: `Pedido en línea ${folio}`,
             pedidoId: nuevo.id,
+            proveedorId: it.proveedorId,
           },
         });
       }
@@ -274,16 +293,25 @@ router.post('/:id/cancelar', requireClienteAuth, asyncHandler(async (req, res) =
 
   const actualizado = await prisma.$transaction(async (tx) => {
     for (const item of pedido.items) {
-      await tx.existencia.upsert({
-        where: { sucursalId_varianteId: { sucursalId: item.sucursalStockId, varianteId: item.varianteId } },
-        update: { stockActual: { increment: item.cantidad } },
-        create: {
-          sucursalId: item.sucursalStockId,
-          varianteId: item.varianteId,
-          stockActual: item.cantidad,
-          stockMinimo: 0,
-        },
+      const existencia = await tx.existencia.findFirst({
+        where: { sucursalId: item.sucursalStockId, varianteId: item.varianteId, proveedorId: item.proveedorId },
       });
+      if (existencia) {
+        await tx.existencia.update({
+          where: { id: existencia.id },
+          data: { stockActual: { increment: item.cantidad } },
+        });
+      } else {
+        await tx.existencia.create({
+          data: {
+            sucursalId: item.sucursalStockId,
+            varianteId: item.varianteId,
+            proveedorId: item.proveedorId,
+            stockActual: item.cantidad,
+            stockMinimo: 0,
+          },
+        });
+      }
       await tx.movimientoInventario.create({
         data: {
           sucursalId: item.sucursalStockId,
@@ -292,6 +320,7 @@ router.post('/:id/cancelar', requireClienteAuth, asyncHandler(async (req, res) =
           cantidad: item.cantidad,
           motivo: `Cancelación pedido ${pedido.folio} (por el cliente)`,
           pedidoId: pedido.id,
+          proveedorId: item.proveedorId,
         },
       });
     }

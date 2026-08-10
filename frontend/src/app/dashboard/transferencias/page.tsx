@@ -8,11 +8,21 @@ interface Sucursal {
   nombre: string;
 }
 
+// Un renglón por (variante, proveedor): la misma talla puede aparecer varias
+// veces si más de un proveedor tiene stock de ella en esa sucursal.
 interface Existencia {
   id: number | null;
   sucursalId: number;
+  proveedorId: number | null;
+  proveedor: { id: number; nombre: string } | null;
   stockActual: number;
   variante: { id: number; sku: string; talla: { valor: string } | null; producto: { nombre: string } };
+}
+
+// Identifica un bucket concreto (variante + proveedor) para usarlo como
+// value de <option>, ya que un mismo varianteId puede repetirse.
+function claveExistencia(e: Existencia) {
+  return `${e.variante.id}:${e.proveedorId ?? 'null'}`;
 }
 
 interface Transferencia {
@@ -34,7 +44,7 @@ export default function TransferenciasPage() {
 
   const [sucursalOrigenId, setSucursalOrigenId] = useState('');
   const [sucursalDestinoId, setSucursalDestinoId] = useState('');
-  const [varianteId, setVarianteId] = useState('');
+  const [existenciaKey, setExistenciaKey] = useState('');
   const [cantidad, setCantidad] = useState(1);
   const [mensaje, setMensaje] = useState<string | null>(null);
 
@@ -60,19 +70,22 @@ export default function TransferenciasPage() {
   }, [sucursalOrigenId]);
 
   async function crearTransferencia() {
-    if (!sucursalOrigenId || !sucursalDestinoId || !varianteId) return;
+    if (!sucursalOrigenId || !sucursalDestinoId || !existenciaKey) return;
+    const existencia = existenciasOrigen.find((e) => claveExistencia(e) === existenciaKey);
+    if (!existencia) return;
     try {
       await api('/transferencias', {
         method: 'POST',
         body: JSON.stringify({
-          varianteId: Number(varianteId),
+          varianteId: existencia.variante.id,
+          proveedorId: existencia.proveedorId,
           cantidad,
           sucursalOrigenId: Number(sucursalOrigenId),
           sucursalDestinoId: Number(sucursalDestinoId),
         }),
       });
       setMensaje('Transferencia creada. El stock ya se descontó del origen.');
-      setVarianteId('');
+      setExistenciaKey('');
       setCantidad(1);
       cargar();
     } catch (err) {
@@ -111,7 +124,7 @@ export default function TransferenciasPage() {
           value={sucursalOrigenId}
           onChange={(e) => {
             setSucursalOrigenId(e.target.value);
-            setVarianteId('');
+            setExistenciaKey('');
           }}
           style={{ marginBottom: 10 }}
         >
@@ -136,14 +149,14 @@ export default function TransferenciasPage() {
         </select>
 
         <label style={{ fontSize: 13 }}>Producto / SKU (stock disponible en origen)</label>
-        <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ marginBottom: 10 }}>
+        <select value={existenciaKey} onChange={(e) => setExistenciaKey(e.target.value)} style={{ marginBottom: 10 }}>
           <option value="">Selecciona...</option>
           {existenciasOrigen
             .filter((e) => e.stockActual > 0)
             .map((e) => (
-              <option key={e.variante.id} value={e.variante.id}>
+              <option key={claveExistencia(e)} value={claveExistencia(e)}>
                 {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
-                {e.variante.sku} — disponible: {e.stockActual}
+                {e.variante.sku} — {e.proveedor?.nombre ?? 'sin proveedor'} — disponible: {e.stockActual}
               </option>
             ))}
         </select>
@@ -155,7 +168,7 @@ export default function TransferenciasPage() {
 
         {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
 
-        <button className="btn" onClick={crearTransferencia} disabled={!sucursalOrigenId || !sucursalDestinoId || !varianteId}>
+        <button className="btn" onClick={crearTransferencia} disabled={!sucursalOrigenId || !sucursalDestinoId || !existenciaKey}>
           Enviar
         </button>
       </div>

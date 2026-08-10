@@ -49,7 +49,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
         include: {
           talla: true,
           proveedor: { select: { id: true, nombre: true } },
-          existencias: { include: { sucursal: true } },
+          existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
         },
       },
       ...IMAGENES_INCLUDE,
@@ -71,7 +71,7 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
         include: {
           talla: true,
           proveedor: { select: { id: true, nombre: true } },
-          existencias: { include: { sucursal: true } },
+          existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
         },
       },
       ...IMAGENES_INCLUDE,
@@ -128,9 +128,11 @@ router.post('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async 
       const variante = await tx.productoVariante.create({
         data: { ...varianteData, productoId: creado.id },
       });
+      // El stock inicial se carga al bucket del proveedor que se le acaba de
+      // asignar a la variante (o "sin proveedor" si no se indicó uno).
       for (const ex of existencias || []) {
         await tx.existencia.create({
-          data: { ...ex, varianteId: variante.id },
+          data: { ...ex, varianteId: variante.id, proveedorId: varianteData.proveedorId ?? null },
         });
       }
     }
@@ -190,7 +192,9 @@ router.post(
         data: { ...varianteData, productoId: Number(req.params.id) },
       });
       for (const ex of existencias || []) {
-        await tx.existencia.create({ data: { ...ex, varianteId: creada.id } });
+        await tx.existencia.create({
+          data: { ...ex, varianteId: creada.id, proveedorId: varianteData.proveedorId ?? null },
+        });
       }
       return tx.productoVariante.findUnique({
         where: { id: creada.id },
@@ -230,7 +234,7 @@ router.put(
         include: {
           talla: true,
           proveedor: { select: { id: true, nombre: true } },
-          existencias: { include: { sucursal: true } },
+          existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
         },
       });
       res.json(variante);

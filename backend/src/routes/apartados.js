@@ -59,7 +59,13 @@ router.get('/', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(async
     include: {
       cliente: true,
       sucursalVenta: { select: { nombre: true } },
-      items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } }, sucursalStock: { select: { nombre: true } } } },
+      items: {
+        include: {
+          variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+          sucursalStock: { select: { nombre: true } },
+          proveedor: { select: { id: true, nombre: true } },
+        },
+      },
       pagos: true,
       creadoPor: { select: { nombre: true } },
     },
@@ -76,7 +82,13 @@ router.get('/:id', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(as
     include: {
       cliente: true,
       sucursalVenta: { select: { nombre: true } },
-      items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } }, sucursalStock: { select: { nombre: true } } } },
+      items: {
+        include: {
+          variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+          sucursalStock: { select: { nombre: true } },
+          proveedor: { select: { id: true, nombre: true } },
+        },
+      },
       pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
       creadoPor: { select: { nombre: true } },
     },
@@ -94,6 +106,9 @@ const apartadoItemSchema = z.object({
   sucursalStockId: z.number().int(),
   cantidad: z.number().int().positive(),
   precioUnitario: z.number().nonnegative(),
+  // De qué proveedor se reserva el stock (null = bucket "sin proveedor"),
+  // obligatorio por la misma razón que en Ventas.
+  proveedorId: z.number().int().nullable(),
 });
 
 const anticipoSchema = z.object({
@@ -208,8 +223,8 @@ router.post(
         const itemsData = [];
 
         for (const item of items) {
-          const existencia = await tx.existencia.findUnique({
-            where: { sucursalId_varianteId: { sucursalId: item.sucursalStockId, varianteId: item.varianteId } },
+          const existencia = await tx.existencia.findFirst({
+            where: { sucursalId: item.sucursalStockId, varianteId: item.varianteId, proveedorId: item.proveedorId },
             include: { variante: true },
           });
           if (!existencia) throw new Error(`SIN_EXISTENCIA:${item.varianteId}`);
@@ -233,6 +248,7 @@ router.post(
               cantidad: -item.cantidad,
               motivo: 'Apartado de cliente',
               usuarioId: req.usuario.id,
+              proveedorId: item.proveedorId,
             },
           });
 
@@ -271,7 +287,12 @@ router.post(
           },
           include: {
             cliente: true,
-            items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
+            items: {
+              include: {
+                variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+                proveedor: { select: { id: true, nombre: true } },
+              },
+            },
             pagos: true,
           },
         });
@@ -406,16 +427,25 @@ router.post(
 
     const actualizado = await prisma.$transaction(async (tx) => {
       for (const item of apartado.items) {
-        await tx.existencia.upsert({
-          where: { sucursalId_varianteId: { sucursalId: item.sucursalStockId, varianteId: item.varianteId } },
-          update: { stockActual: { increment: item.cantidad } },
-          create: {
-            sucursalId: item.sucursalStockId,
-            varianteId: item.varianteId,
-            stockActual: item.cantidad,
-            stockMinimo: 0,
-          },
+        const existencia = await tx.existencia.findFirst({
+          where: { sucursalId: item.sucursalStockId, varianteId: item.varianteId, proveedorId: item.proveedorId },
         });
+        if (existencia) {
+          await tx.existencia.update({
+            where: { id: existencia.id },
+            data: { stockActual: { increment: item.cantidad } },
+          });
+        } else {
+          await tx.existencia.create({
+            data: {
+              sucursalId: item.sucursalStockId,
+              varianteId: item.varianteId,
+              proveedorId: item.proveedorId,
+              stockActual: item.cantidad,
+              stockMinimo: 0,
+            },
+          });
+        }
         await tx.movimientoInventario.create({
           data: {
             sucursalId: item.sucursalStockId,
@@ -424,6 +454,7 @@ router.post(
             cantidad: item.cantidad,
             motivo: `Cancelación apartado ${apartado.folio}`,
             usuarioId: req.usuario.id,
+            proveedorId: item.proveedorId,
           },
         });
       }

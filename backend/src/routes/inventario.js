@@ -16,15 +16,27 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
   imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
 };
 
-// GET /inventario/existencias?sucursalId= - consulta de stock de esa sucursal.
+// GET /inventario/existencias?sucursalId=&proveedorId= - consulta de stock
+// de esa sucursal.
+//
+// Desde que el stock se separó por proveedor, esto ya NO es un renglón por
+// variante: es un renglón por (variante, proveedor) — si dos proveedores
+// surten la misma talla en la misma sucursal, aparecen dos renglones, cada
+// uno con su propio stockActual. proveedorId puede ser null en un renglón
+// (bucket "sin clasificar").
 //
 // Importante: esto se arma a partir de TODAS las variantes activas (no solo
-// las que ya tienen una fila en "existencias"). Una variante puede no tener
-// todavía fila de existencia en una sucursal (por ejemplo, si se importó por
-// Excel con stock 0, o si se creó en otra sucursal) — en ese caso aparece
-// aquí igual, con stock 0, para que se pueda editar. Si no se hiciera así,
-// un producto recién creado con stock 0 "desaparecería" de Inventario y no
+// las que ya tienen alguna fila en "existencias"). Una variante puede no
+// tener todavía ninguna fila de existencia en una sucursal (por ejemplo, si
+// se importó por Excel con stock 0, o si se creó en otra sucursal) — en ese
+// caso aparece aquí igual, con un renglón placeholder en 0 sin proveedor,
+// para que se pueda cargar el primer stock. Si no se hiciera así, un
+// producto recién creado con stock 0 "desaparecería" de Inventario y no
 // habría forma de cargarle stock.
+//
+// ?proveedorId= filtra los renglones a los que YA tiene stock ese proveedor
+// en esta sucursal (no el proveedor "por defecto" de la variante — para eso
+// existe /productos?proveedorId=).
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
   const { skuOProducto, sucursalId, proveedorId } = req.query;
   if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
@@ -33,7 +45,6 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
     where: {
       activo: true,
       producto: { activo: true },
-      ...(proveedorId ? { proveedorId: Number(proveedorId) } : {}),
       ...(skuOProducto
         ? {
             OR: [
@@ -47,27 +58,59 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
       producto: { include: { marca: true, categoria: true, ...IMAGEN_PRINCIPAL_INCLUDE } },
       talla: true,
       proveedor: { select: { id: true, nombre: true } },
-      existencias: { where: { sucursalId: Number(sucursalId) } },
+      existencias: {
+        where: { sucursalId: Number(sucursalId) },
+        include: { proveedor: { select: { id: true, nombre: true } } },
+      },
     },
     orderBy: { sku: 'asc' },
   });
 
-  const resultado = variantes.map((v) => {
+  const resultado = [];
+  for (const v of variantes) {
     const { existencias, ...variante } = v;
-    const ex = existencias[0];
-    return {
-      id: ex ? ex.id : null,
-      sucursalId: Number(sucursalId),
-      stockActual: ex ? ex.stockActual : 0,
-      stockMinimo: ex ? ex.stockMinimo : 0,
-      variante,
-    };
-  });
+    const buckets = proveedorId
+      ? existencias.filter((ex) => ex.proveedorId === Number(proveedorId))
+      : existencias;
+
+    if (buckets.length === 0) {
+      // Si se está filtrando por proveedor y esta variante no tiene ese
+      // bucket en esta sucursal, no tiene caso mostrarla en 0.
+      if (proveedorId) continue;
+      resultado.push({
+        id: null,
+        sucursalId: Number(sucursalId),
+        proveedorId: null,
+        proveedor: null,
+        stockActual: 0,
+        stockMinimo: 0,
+        variante,
+      });
+      continue;
+    }
+
+    for (const ex of buckets) {
+      resultado.push({
+        id: ex.id,
+        sucursalId: Number(sucursalId),
+        proveedorId: ex.proveedorId,
+        proveedor: ex.proveedor,
+        stockActual: ex.stockActual,
+        stockMinimo: ex.stockMinimo,
+        variante,
+      });
+    }
+  }
 
   res.json(resultado);
 }));
 
-// GET /inventario/bajo-stock?sucursalId= - variantes en o por debajo del mínimo en esa sucursal
+// GET /inventario/bajo-stock?sucursalId= - variantes en o por debajo del
+// mínimo en esa sucursal. Aquí SÍ se suma el stock de todos los proveedores
+// de una misma variante (el mínimo es una política de reorden por talla, no
+// por proveedor) — se compara el total contra el mínimo más alto que tenga
+// registrado cualquiera de sus buckets (normalmente todos comparten el mismo
+// valor, ver PUT /minimo).
 router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
   const { sucursalId } = req.query;
   if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
@@ -78,19 +121,27 @@ router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
       producto: { include: IMAGEN_PRINCIPAL_INCLUDE },
       talla: true,
       proveedor: { select: { id: true, nombre: true } },
-      existencias: { where: { sucursalId: Number(sucursalId) } },
+      existencias: {
+        where: { sucursalId: Number(sucursalId) },
+        include: { proveedor: { select: { id: true, nombre: true } } },
+      },
     },
   });
 
   const bajoStock = variantes
     .map((v) => {
       const { existencias, ...variante } = v;
-      const ex = existencias[0];
+      const stockActual = existencias.reduce((s, ex) => s + ex.stockActual, 0);
+      const stockMinimo = existencias.reduce((max, ex) => Math.max(max, ex.stockMinimo), 0);
       return {
-        id: ex ? ex.id : null,
         sucursalId: Number(sucursalId),
-        stockActual: ex ? ex.stockActual : 0,
-        stockMinimo: ex ? ex.stockMinimo : 0,
+        stockActual,
+        stockMinimo,
+        buckets: existencias.map((ex) => ({
+          proveedorId: ex.proveedorId,
+          proveedor: ex.proveedor,
+          stockActual: ex.stockActual,
+        })),
         variante,
       };
     })
@@ -100,7 +151,13 @@ router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
   res.json(bajoStock);
 }));
 
-// POST /inventario/movimientos - registrar entrada/salida/ajuste de stock en una sucursal
+// POST /inventario/movimientos - registrar entrada/salida/ajuste de stock en
+// una sucursal.
+//
+// proveedorId ya no es opcional: como el stock se separa por proveedor, cada
+// movimiento tiene que decir de qué bucket suma/resta. Puede ser null (el
+// bucket "sin proveedor"), pero el campo debe mandarse explícitamente — así
+// nunca se mezcla sin querer con el bucket de otro proveedor.
 router.post(
   '/movimientos',
   requireAuth,
@@ -112,10 +169,7 @@ router.post(
       tipo: z.enum(['ENTRADA', 'SALIDA', 'AJUSTE']),
       cantidad: z.number().int(),
       motivo: z.string().optional(),
-      // Solo tiene sentido en ENTRADA: de qué proveedor vino este lote. Se
-      // acepta en cualquier tipo por simplicidad, pero el frontend solo lo
-      // pide al registrar una entrada.
-      proveedorId: z.number().int().optional(),
+      proveedorId: z.number().int().nullable(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
@@ -128,19 +182,19 @@ router.post(
 
     const resultado = await prisma
       .$transaction(async (tx) => {
-        const existencia = await tx.existencia.findUnique({
-          where: { sucursalId_varianteId: { sucursalId, varianteId } },
+        const existencia = await tx.existencia.findFirst({
+          where: { sucursalId, varianteId, proveedorId },
         });
 
         const stockPrevio = existencia ? existencia.stockActual : 0;
         const nuevoStock = stockPrevio + delta;
         if (nuevoStock < 0) throw new Error('STOCK_INSUFICIENTE');
 
-        const actualizada = await tx.existencia.upsert({
-          where: { sucursalId_varianteId: { sucursalId, varianteId } },
-          update: { stockActual: nuevoStock },
-          create: { sucursalId, varianteId, stockActual: nuevoStock, stockMinimo: 0 },
-        });
+        const actualizada = existencia
+          ? await tx.existencia.update({ where: { id: existencia.id }, data: { stockActual: nuevoStock } })
+          : await tx.existencia.create({
+              data: { sucursalId, varianteId, proveedorId, stockActual: nuevoStock, stockMinimo: 0 },
+            });
 
         const movimiento = await tx.movimientoInventario.create({
           data: {
@@ -150,7 +204,7 @@ router.post(
             cantidad: delta,
             motivo,
             usuarioId: req.usuario.id,
-            proveedorId: tipo === 'ENTRADA' ? proveedorId : undefined,
+            proveedorId,
           },
         });
 
@@ -183,7 +237,11 @@ router.get('/movimientos/:varianteId', requireAuth, asyncHandler(async (req, res
   res.json(movimientos);
 }));
 
-// PUT /inventario/minimo - fija el stock mínimo de una variante en una sucursal
+// PUT /inventario/minimo - fija el stock mínimo de una variante en una
+// sucursal. El mínimo es una política de reorden por talla+sucursal, no por
+// proveedor, así que se aplica por igual a TODOS los buckets que ya existan
+// (ver GET /bajo-stock, que compara el mínimo contra el total sumado). Si
+// todavía no hay ningún bucket, se crea uno "sin proveedor" para guardarlo.
 router.put(
   '/minimo',
   requireAuth,
@@ -200,13 +258,21 @@ router.put(
     }
     const { sucursalId, varianteId, stockMinimo } = parsed.data;
 
-    const existencia = await prisma.existencia.upsert({
-      where: { sucursalId_varianteId: { sucursalId, varianteId } },
-      update: { stockMinimo },
-      create: { sucursalId, varianteId, stockMinimo, stockActual: 0 },
-    });
+    const existentes = await prisma.existencia.findMany({ where: { sucursalId, varianteId } });
 
-    res.json(existencia);
+    if (existentes.length === 0) {
+      const creada = await prisma.existencia.create({
+        data: { sucursalId, varianteId, proveedorId: null, stockMinimo, stockActual: 0 },
+      });
+      return res.json([creada]);
+    }
+
+    await prisma.existencia.updateMany({ where: { sucursalId, varianteId }, data: { stockMinimo } });
+    const actualizadas = await prisma.existencia.findMany({
+      where: { sucursalId, varianteId },
+      include: { proveedor: { select: { id: true, nombre: true } } },
+    });
+    res.json(actualizadas);
   })
 );
 

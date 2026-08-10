@@ -23,8 +23,12 @@ interface Cliente {
   email: string | null;
 }
 
+// Un renglón por (variante, proveedor): la misma talla puede aparecer varias
+// veces si más de un proveedor tiene stock de ella en esa sucursal.
 interface Existencia {
   id: number | null;
+  proveedorId: number | null;
+  proveedor: { id: number; nombre: string } | null;
   stockActual: number;
   variante: {
     id: number;
@@ -34,8 +38,15 @@ interface Existencia {
   };
 }
 
+// Identifica un bucket concreto (variante + proveedor) para usarlo como
+// value de <option>, ya que un mismo varianteId puede repetirse.
+function claveExistencia(e: Existencia) {
+  return `${e.variante.id}:${e.proveedorId ?? 'null'}`;
+}
+
 interface ItemCarrito {
   varianteId: number;
+  proveedorId: number | null;
   sucursalStockId: number;
   sucursalStockNombre: string;
   descripcion: string;
@@ -489,7 +500,7 @@ function NuevoApartadoForm({
   const [sucursalStockId, setSucursalStockId] = useState('');
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [existencias, setExistencias] = useState<Existencia[]>([]);
-  const [varianteId, setVarianteId] = useState('');
+  const [existenciaKey, setExistenciaKey] = useState('');
   const [cantidad, setCantidad] = useState(1);
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
 
@@ -531,8 +542,8 @@ function NuevoApartadoForm({
   const totalCarrito = carrito.reduce((acc, i) => acc + i.cantidad * i.precioUnitario, 0);
 
   function agregarAlCarrito() {
-    if (!varianteId || !sucursalStockId) return;
-    const existencia = existencias.find((e) => String(e.variante.id) === varianteId);
+    if (!existenciaKey || !sucursalStockId) return;
+    const existencia = existencias.find((e) => claveExistencia(e) === existenciaKey);
     if (!existencia) return;
     const sucursal = sucursales.find((s) => String(s.id) === sucursalStockId);
 
@@ -540,17 +551,18 @@ function NuevoApartadoForm({
       ...prev,
       {
         varianteId: existencia.variante.id,
+        proveedorId: existencia.proveedorId,
         sucursalStockId: Number(sucursalStockId),
         sucursalStockNombre: sucursal?.nombre || '',
         descripcion: `${existencia.variante.producto.nombre} ${
           existencia.variante.talla ? `(${existencia.variante.talla.valor})` : ''
-        } — ${existencia.variante.sku}`,
+        } — ${existencia.variante.sku} — ${existencia.proveedor?.nombre ?? 'sin proveedor'}`,
         imagenUrl: imagenPrincipal(existencia.variante.producto),
         cantidad,
         precioUnitario: Number(existencia.variante.producto.precioVenta),
       },
     ]);
-    setVarianteId('');
+    setExistenciaKey('');
     setCantidad(1);
   }
 
@@ -587,6 +599,7 @@ function NuevoApartadoForm({
         notas: notas || undefined,
         items: carrito.map((i) => ({
           varianteId: i.varianteId,
+          proveedorId: i.proveedorId,
           sucursalStockId: i.sucursalStockId,
           cantidad: i.cantidad,
           precioUnitario: i.precioUnitario,
@@ -733,18 +746,19 @@ function NuevoApartadoForm({
         <div>
           <label style={{ fontSize: 12, display: 'block' }}>Producto</label>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {varianteId && (
+            {existenciaKey && (
               <ProductoThumb
-                url={imagenPrincipal(existencias.find((e) => String(e.variante.id) === varianteId)?.variante.producto)}
+                url={imagenPrincipal(existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto)}
                 alt=""
                 size={32}
               />
             )}
-            <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ maxWidth: 260 }}>
+            <select value={existenciaKey} onChange={(e) => setExistenciaKey(e.target.value)} style={{ maxWidth: 260 }}>
               <option value="">Selecciona...</option>
               {existencias.map((e) => (
-                <option key={e.variante.id} value={e.variante.id}>
-                  {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} — stock: {e.stockActual}
+                <option key={claveExistencia(e)} value={claveExistencia(e)}>
+                  {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} —{' '}
+                  {e.proveedor?.nombre ?? 'sin proveedor'} — stock: {e.stockActual}
                 </option>
               ))}
             </select>
@@ -754,7 +768,7 @@ function NuevoApartadoForm({
           <label style={{ fontSize: 12, display: 'block' }}>Cantidad</label>
           <input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} style={{ maxWidth: 80 }} />
         </div>
-        <button className="btn-secondary btn" onClick={agregarAlCarrito} disabled={!varianteId}>
+        <button className="btn-secondary btn" onClick={agregarAlCarrito} disabled={!existenciaKey}>
           Agregar
         </button>
       </div>

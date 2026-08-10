@@ -21,6 +21,7 @@ const PEDIDO_INCLUDE = {
     include: {
       variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
       sucursalStock: { select: { id: true, nombre: true } },
+      proveedor: { select: { id: true, nombre: true, telefono: true } },
     },
   },
   cuentaTransferencia: true,
@@ -175,16 +176,25 @@ router.post(
 
     const actualizado = await prisma.$transaction(async (tx) => {
       for (const item of pedido.items) {
-        await tx.existencia.upsert({
-          where: { sucursalId_varianteId: { sucursalId: item.sucursalStockId, varianteId: item.varianteId } },
-          update: { stockActual: { increment: item.cantidad } },
-          create: {
-            sucursalId: item.sucursalStockId,
-            varianteId: item.varianteId,
-            stockActual: item.cantidad,
-            stockMinimo: 0,
-          },
+        const existencia = await tx.existencia.findFirst({
+          where: { sucursalId: item.sucursalStockId, varianteId: item.varianteId, proveedorId: item.proveedorId },
         });
+        if (existencia) {
+          await tx.existencia.update({
+            where: { id: existencia.id },
+            data: { stockActual: { increment: item.cantidad } },
+          });
+        } else {
+          await tx.existencia.create({
+            data: {
+              sucursalId: item.sucursalStockId,
+              varianteId: item.varianteId,
+              proveedorId: item.proveedorId,
+              stockActual: item.cantidad,
+              stockMinimo: 0,
+            },
+          });
+        }
         await tx.movimientoInventario.create({
           data: {
             sucursalId: item.sucursalStockId,
@@ -194,6 +204,7 @@ router.post(
             motivo: `Cancelación pedido ${pedido.folio}`,
             usuarioId: req.usuario.id,
             pedidoId: pedido.id,
+            proveedorId: item.proveedorId,
           },
         });
       }

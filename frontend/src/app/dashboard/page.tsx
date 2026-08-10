@@ -108,10 +108,12 @@ export default function DashboardHome() {
 
       if (puedeVer('inventario', rol) && usuario?.sucursalId) {
         try {
-          const existencias = await api<{ stockActual: number; stockMinimo: number }[]>(
-            `/inventario/existencias?sucursalId=${usuario.sucursalId}`
-          );
-          const bajas = existencias.filter((e) => e.stockActual <= e.stockMinimo).length;
+          // /bajo-stock ya suma el stock de todos los proveedores de cada
+          // talla y lo compara contra el mínimo (a diferencia de
+          // /existencias, que ahora trae un renglón por proveedor y no debe
+          // usarse para este conteo).
+          const bajoStock = await api<unknown[]>(`/inventario/bajo-stock?sucursalId=${usuario.sucursalId}`);
+          const bajas = bajoStock.length;
           resultado.push({
             titulo: 'Alertas de stock bajo',
             valor: String(bajas),

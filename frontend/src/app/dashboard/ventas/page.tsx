@@ -42,8 +42,12 @@ interface Venta {
   items: VentaItem[];
 }
 
+// Un renglón por (variante, proveedor): la misma talla puede aparecer varias
+// veces si más de un proveedor tiene stock de ella en esta sucursal.
 interface Existencia {
   id: number | null;
+  proveedorId: number | null;
+  proveedor: { id: number; nombre: string } | null;
   stockActual: number;
   variante: {
     id: number;
@@ -51,6 +55,12 @@ interface Existencia {
     talla: { valor: string } | null;
     producto: { nombre: string; precioVenta: string; imagenes?: { url: string }[] };
   };
+}
+
+// Identifica un bucket concreto (variante + proveedor) para usarlo como
+// value de <option>, ya que un mismo varianteId puede repetirse.
+function claveExistencia(e: Existencia) {
+  return `${e.variante.id}:${e.proveedorId ?? 'null'}`;
 }
 
 const METODOS_PAGO = [
@@ -71,7 +81,7 @@ export default function VentasPage() {
   const [cuentas, setCuentas] = useState<CuentaTransferencia[]>([]);
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [existencias, setExistencias] = useState<Existencia[]>([]);
-  const [varianteId, setVarianteId] = useState('');
+  const [existenciaKey, setExistenciaKey] = useState('');
   const [cantidad, setCantidad] = useState(1);
   const [cliente, setCliente] = useState('');
   const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
@@ -105,8 +115,8 @@ export default function VentasPage() {
   }, [sucursalId]);
 
   async function registrarVenta() {
-    if (!varianteId || !sucursalId) return;
-    const existencia = existencias.find((e) => String(e.variante.id) === varianteId);
+    if (!existenciaKey || !sucursalId) return;
+    const existencia = existencias.find((e) => claveExistencia(e) === existenciaKey);
     if (!existencia) return;
     if (metodoPago === 'TRANSFERENCIA' && !cuentaTransferenciaId) {
       setMensaje('Elige a qué cuenta llegó la transferencia.');
@@ -126,9 +136,12 @@ export default function VentasPage() {
         cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? Number(cuentaTransferenciaId) : undefined,
         items: [
           {
-            varianteId: Number(varianteId),
+            varianteId: existencia.variante.id,
             cantidad,
             precioUnitario: Number(existencia.variante.producto.precioVenta),
+            // De qué proveedor sale el stock vendido — ya viene fijo desde
+            // que se eligió el renglón en el selector de producto.
+            proveedorId: existencia.proveedorId,
           },
         ],
       };
@@ -187,7 +200,7 @@ export default function VentasPage() {
             value={sucursalId}
             onChange={(e) => {
               setSucursalId(e.target.value);
-              setVarianteId('');
+              setExistenciaKey('');
             }}
             style={{ marginBottom: 10 }}
           >
@@ -201,21 +214,23 @@ export default function VentasPage() {
 
         <label style={{ fontSize: 13 }}>Producto / SKU</label>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-          {varianteId && (
+          {existenciaKey && (
             <ProductoThumb
-              url={imagenPrincipal(existencias.find((e) => String(e.variante.id) === varianteId)?.variante.producto)}
+              url={imagenPrincipal(existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto)}
               alt=""
               size={40}
             />
           )}
-          <select value={varianteId} onChange={(e) => setVarianteId(e.target.value)} style={{ flex: 1 }}>
+          <select value={existenciaKey} onChange={(e) => setExistenciaKey(e.target.value)} style={{ flex: 1 }}>
             <option value="">Selecciona...</option>
-            {existencias.map((e) => (
-              <option key={e.variante.id} value={e.variante.id}>
-                {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
-                {e.variante.sku} — stock: {e.stockActual}
-              </option>
-            ))}
+            {existencias
+              .filter((e) => e.stockActual > 0)
+              .map((e) => (
+                <option key={claveExistencia(e)} value={claveExistencia(e)}>
+                  {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} —{' '}
+                  {e.variante.sku} — {e.proveedor?.nombre ?? 'sin proveedor'} — stock: {e.stockActual}
+                </option>
+              ))}
           </select>
         </div>
 
@@ -276,7 +291,7 @@ export default function VentasPage() {
 
         {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
 
-        <button className="btn" onClick={registrarVenta} disabled={!varianteId || guardando}>
+        <button className="btn" onClick={registrarVenta} disabled={!existenciaKey || guardando}>
           {guardando ? 'Guardando...' : 'Registrar venta'}
         </button>
       </div>

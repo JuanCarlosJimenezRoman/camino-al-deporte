@@ -30,6 +30,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       variante: { include: { producto: true, talla: true } },
       sucursalOrigen: true,
       sucursalDestino: true,
+      proveedor: { select: { id: true, nombre: true } },
       solicitadoPor: { select: { nombre: true } },
       recibidoPor: { select: { nombre: true } },
     },
@@ -45,6 +46,10 @@ const crearSchema = z.object({
   sucursalOrigenId: z.number().int(),
   sucursalDestinoId: z.number().int(),
   notas: z.string().optional(),
+  // De qué bucket de proveedor sale el stock en el origen (null = "sin
+  // proveedor"). Obligatorio: hay que decir siempre de cuál cuando la talla
+  // tiene stock repartido en más de un proveedor en esa sucursal.
+  proveedorId: z.number().int().nullable(),
 });
 
 // POST /transferencias - solicita el envío: descuenta stock del origen de inmediato
@@ -55,7 +60,7 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { varianteId, cantidad, sucursalOrigenId, sucursalDestinoId, notas } = parsed.data;
+  const { varianteId, cantidad, sucursalOrigenId, sucursalDestinoId, notas, proveedorId } = parsed.data;
 
   if (sucursalOrigenId === sucursalDestinoId) {
     return res.status(400).json({ error: 'La sucursal de origen y destino no pueden ser la misma.' });
@@ -63,8 +68,8 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
 
   try {
     const transferencia = await prisma.$transaction(async (tx) => {
-      const existenciaOrigen = await tx.existencia.findUnique({
-        where: { sucursalId_varianteId: { sucursalId: sucursalOrigenId, varianteId } },
+      const existenciaOrigen = await tx.existencia.findFirst({
+        where: { sucursalId: sucursalOrigenId, varianteId, proveedorId },
       });
       if (!existenciaOrigen || existenciaOrigen.stockActual < cantidad) {
         throw new Error('STOCK_INSUFICIENTE');
@@ -84,6 +89,7 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
           cantidad,
           sucursalOrigenId,
           sucursalDestinoId,
+          proveedorId,
           notas,
           solicitadoPorId: req.usuario.id,
         },
@@ -98,6 +104,7 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
           motivo: `Transferencia ${folio} hacia sucursal ${sucursalDestinoId}`,
           usuarioId: req.usuario.id,
           transferenciaId: nueva.id,
+          proveedorId,
         },
       });
 
@@ -127,21 +134,29 @@ router.post(
         if (!transferencia) throw new Error('NO_ENCONTRADA');
         if (transferencia.estado !== 'SOLICITADA') throw new Error('ESTADO_INVALIDO');
 
-        await tx.existencia.upsert({
+        const existenciaDestino = await tx.existencia.findFirst({
           where: {
-            sucursalId_varianteId: {
-              sucursalId: transferencia.sucursalDestinoId,
-              varianteId: transferencia.varianteId,
-            },
-          },
-          update: { stockActual: { increment: transferencia.cantidad } },
-          create: {
             sucursalId: transferencia.sucursalDestinoId,
             varianteId: transferencia.varianteId,
-            stockActual: transferencia.cantidad,
-            stockMinimo: 0,
+            proveedorId: transferencia.proveedorId,
           },
         });
+        if (existenciaDestino) {
+          await tx.existencia.update({
+            where: { id: existenciaDestino.id },
+            data: { stockActual: { increment: transferencia.cantidad } },
+          });
+        } else {
+          await tx.existencia.create({
+            data: {
+              sucursalId: transferencia.sucursalDestinoId,
+              varianteId: transferencia.varianteId,
+              proveedorId: transferencia.proveedorId,
+              stockActual: transferencia.cantidad,
+              stockMinimo: 0,
+            },
+          });
+        }
 
         await tx.movimientoInventario.create({
           data: {
@@ -152,6 +167,7 @@ router.post(
             motivo: `Recepción transferencia ${transferencia.folio}`,
             usuarioId: req.usuario.id,
             transferenciaId: transferencia.id,
+            proveedorId: transferencia.proveedorId,
           },
         });
 
@@ -189,21 +205,29 @@ router.post(
         if (!transferencia) throw new Error('NO_ENCONTRADA');
         if (transferencia.estado !== 'SOLICITADA') throw new Error('ESTADO_INVALIDO');
 
-        await tx.existencia.upsert({
+        const existenciaOrigen = await tx.existencia.findFirst({
           where: {
-            sucursalId_varianteId: {
-              sucursalId: transferencia.sucursalOrigenId,
-              varianteId: transferencia.varianteId,
-            },
-          },
-          update: { stockActual: { increment: transferencia.cantidad } },
-          create: {
             sucursalId: transferencia.sucursalOrigenId,
             varianteId: transferencia.varianteId,
-            stockActual: transferencia.cantidad,
-            stockMinimo: 0,
+            proveedorId: transferencia.proveedorId,
           },
         });
+        if (existenciaOrigen) {
+          await tx.existencia.update({
+            where: { id: existenciaOrigen.id },
+            data: { stockActual: { increment: transferencia.cantidad } },
+          });
+        } else {
+          await tx.existencia.create({
+            data: {
+              sucursalId: transferencia.sucursalOrigenId,
+              varianteId: transferencia.varianteId,
+              proveedorId: transferencia.proveedorId,
+              stockActual: transferencia.cantidad,
+              stockMinimo: 0,
+            },
+          });
+        }
 
         await tx.movimientoInventario.create({
           data: {
@@ -214,6 +238,7 @@ router.post(
             motivo: `Cancelación transferencia ${transferencia.folio}`,
             usuarioId: req.usuario.id,
             transferenciaId: transferencia.id,
+            proveedorId: transferencia.proveedorId,
           },
         });
 

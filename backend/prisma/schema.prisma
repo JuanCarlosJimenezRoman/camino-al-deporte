@@ -92,16 +92,27 @@ model Sucursal {
 
 // Stock de una variante (talla/color) en una sucursal específica. El
 // catálogo (producto/variante/SKU) es global; el stock es por sucursal.
+//
+// Desde que se separó el stock por proveedor, cada variante puede tener
+// VARIOS renglones de existencia en la misma sucursal — uno por cada
+// proveedor que la ha surtido ahí (antes era un solo número por
+// sucursal+variante). proveedorId puede ser null: es el "renglón sin
+// clasificar" (stock cargado antes de esta función, o conteos donde no se
+// sabe/importa el origen). Ver migración 20260813090000_stock_por_proveedor
+// para el índice único parcial que evita duplicar ese renglón sin proveedor
+// (en Postgres NULL no cuenta como igual a otro NULL en un índice normal).
 model Existencia {
   id          Int              @id @default(autoincrement())
   sucursalId  Int              @map("sucursal_id")
   sucursal    Sucursal         @relation(fields: [sucursalId], references: [id])
   varianteId  Int              @map("variante_id")
   variante    ProductoVariante @relation(fields: [varianteId], references: [id])
+  proveedorId Int?             @map("proveedor_id")
+  proveedor   Proveedor?       @relation(fields: [proveedorId], references: [id])
   stockActual Int              @default(0) @map("stock_actual")
   stockMinimo Int              @default(0) @map("stock_minimo")
 
-  @@unique([sucursalId, varianteId])
+  @@unique([sucursalId, varianteId, proveedorId])
   @@map("existencias")
 }
 
@@ -298,6 +309,11 @@ model TransferenciaInventario {
   folio             String   @unique
   varianteId        Int      @map("variante_id")
   variante          ProductoVariante @relation(fields: [varianteId], references: [id])
+  // De qué bucket de proveedor sale el stock en el origen; llega al mismo
+  // proveedor en el destino (una transferencia no cambia quién surtió la
+  // mercancía, solo la mueve de sucursal).
+  proveedorId       Int?     @map("proveedor_id")
+  proveedor         Proveedor? @relation(fields: [proveedorId], references: [id])
   cantidad          Int
   sucursalOrigenId  Int      @map("sucursal_origen_id")
   sucursalOrigen    Sucursal @relation("TransferenciaOrigen", fields: [sucursalOrigenId], references: [id])
@@ -385,6 +401,11 @@ model Proveedor {
 
   variantes    ProductoVariante[]
   movimientos  MovimientoInventario[]
+  existencias  Existencia[]
+  ventaItems   VentaItem[]
+  apartadoItems ApartadoItem[]
+  pedidoItems  PedidoItem[]
+  transferencias TransferenciaInventario[]
   pagos        PagoProveedor[]
 
   @@map("proveedores")
@@ -454,6 +475,11 @@ model VentaItem {
   venta          Venta            @relation(fields: [ventaId], references: [id])
   varianteId     Int              @map("variante_id")
   variante       ProductoVariante @relation(fields: [varianteId], references: [id])
+  // De qué bucket de proveedor salió el stock vendido (null = renglón sin
+  // clasificar). Se necesita para poder regresar el stock al bucket correcto
+  // si la venta se cancela.
+  proveedorId    Int?             @map("proveedor_id")
+  proveedor      Proveedor?       @relation(fields: [proveedorId], references: [id])
   cantidad       Int
   precioUnitario Decimal          @map("precio_unitario") @db.Decimal(10, 2)
   subtotal       Decimal          @db.Decimal(10, 2)
@@ -567,6 +593,11 @@ model ApartadoItem {
   // Sucursal de donde se descontó el stock al crear el apartado.
   sucursalStockId Int              @map("sucursal_stock_id")
   sucursalStock   Sucursal         @relation("ApartadoStock", fields: [sucursalStockId], references: [id])
+
+  // De qué bucket de proveedor se reservó el stock (null = sin clasificar).
+  // Necesario para regresarlo al bucket correcto si el apartado se cancela.
+  proveedorId     Int?             @map("proveedor_id")
+  proveedor       Proveedor?       @relation(fields: [proveedorId], references: [id])
 
   cantidad        Int
   precioUnitario  Decimal          @map("precio_unitario") @db.Decimal(10, 2)
@@ -694,6 +725,15 @@ model PedidoItem {
   // crear el pedido, ver comentario arriba del modelo Pedido).
   sucursalStockId Int              @map("sucursal_stock_id")
   sucursalStock   Sucursal         @relation("PedidoStock", fields: [sucursalStockId], references: [id])
+
+  // De qué bucket de proveedor se descontó el stock. Aquí no hay un cajero
+  // eligiendo (es el cliente comprando solo en la tienda en línea), así que
+  // se asigna con una regla automática al crear el pedido (ver
+  // routes/tienda/pedidos.js). También es la fuente real para decidir a qué
+  // proveedor se manda el pedido por WhatsApp (más preciso que el proveedor
+  // "por defecto" de la variante).
+  proveedorId    Int?             @map("proveedor_id")
+  proveedor      Proveedor?       @relation(fields: [proveedorId], references: [id])
 
   cantidad       Int
   precioUnitario Decimal @map("precio_unitario") @db.Decimal(10, 2)
