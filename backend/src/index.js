@@ -14,6 +14,7 @@ const sucursalesRoutes = require('./routes/sucursales');
 const transferenciasRoutes = require('./routes/transferencias');
 const clientesRoutes = require('./routes/clientes');
 const apartadosRoutes = require('./routes/apartados');
+const proveedoresRoutes = require('./routes/proveedores');
 const pedidosOnlineRoutes = require('./routes/pedidosOnline');
 const tiendaAuthRoutes = require('./routes/tienda/auth');
 const tiendaCatalogoRoutes = require('./routes/tienda/catalogo');
@@ -43,6 +44,7 @@ app.use('/sucursales', sucursalesRoutes);
 app.use('/transferencias', transferenciasRoutes);
 app.use('/clientes', clientesRoutes);
 app.use('/apartados', apartadosRoutes);
+app.use('/proveedores', proveedoresRoutes);
 app.use('/pedidos-online', pedidosOnlineRoutes);
 
 // Tienda en línea (cara al cliente): catálogo público + cuenta + pedidos.

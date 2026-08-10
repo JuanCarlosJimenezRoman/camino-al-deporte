@@ -12,6 +12,7 @@ import {
   CalendarClock,
   Globe,
   CreditCard,
+  Truck,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -55,6 +56,7 @@ export function AppSidebar({
       items: [
         puedeVer('productos', rol) && { href: '/dashboard/productos', label: 'Productos', icon: Package },
         puedeVer('catalogos', rol) && { href: '/dashboard/catalogos', label: 'Marcas y tallas', icon: Layers },
+        puedeVer('proveedores', rol) && { href: '/dashboard/proveedores', label: 'Proveedores', icon: Truck },
       ].filter(Boolean) as NavLink[],
     },
     {

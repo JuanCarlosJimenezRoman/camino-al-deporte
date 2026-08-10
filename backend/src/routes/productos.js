@@ -45,7 +45,13 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       marca: true,
       modelo: true,
       categoria: true,
-      variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
+      variantes: {
+        include: {
+          talla: true,
+          proveedor: { select: { id: true, nombre: true } },
+          existencias: { include: { sucursal: true } },
+        },
+      },
       ...IMAGENES_INCLUDE,
     },
     orderBy: { nombre: 'asc' },
@@ -61,7 +67,13 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
       marca: true,
       modelo: true,
       categoria: true,
-      variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
+      variantes: {
+        include: {
+          talla: true,
+          proveedor: { select: { id: true, nombre: true } },
+          existencias: { include: { sucursal: true } },
+        },
+      },
       ...IMAGENES_INCLUDE,
     },
   });
@@ -81,6 +93,9 @@ const varianteSchema = z.object({
   tallaId: z.number().int().optional(),
   color: z.string().optional(),
   sku: z.string().min(1),
+  // Proveedor "por defecto" de este SKU específico — una talla del mismo
+  // producto puede venir de un proveedor distinto a otra (ver schema.prisma).
+  proveedorId: z.number().int().optional(),
   existencias: z.array(existenciaInicialSchema).optional(),
 });
 
@@ -184,6 +199,46 @@ router.post(
     });
 
     res.status(201).json(variante);
+  })
+);
+
+// PUT /productos/:id/variantes/:varianteId - editar una variante existente.
+// Pensado sobre todo para poder asignar/cambiar el proveedor de un SKU que
+// ya existe (dar de alta el catálogo y clasificarlo por proveedor son pasos
+// separados en la práctica), pero también permite corregir talla/color/sku.
+router.put(
+  '/:id/variantes/:varianteId',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  asyncHandler(async (req, res) => {
+    const schema = z.object({
+      tallaId: z.number().int().nullable().optional(),
+      color: z.string().nullable().optional(),
+      sku: z.string().min(1).optional(),
+      proveedorId: z.number().int().nullable().optional(),
+      activo: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+
+    try {
+      const variante = await prisma.productoVariante.update({
+        where: { id: Number(req.params.varianteId) },
+        data: parsed.data,
+        include: {
+          talla: true,
+          proveedor: { select: { id: true, nombre: true } },
+          existencias: { include: { sucursal: true } },
+        },
+      });
+      res.json(variante);
+    } catch (err) {
+      if (err.code === 'P2002') return res.status(409).json({ error: 'Ya existe una variante con esos datos.' });
+      if (err.code === 'P2025') return res.status(404).json({ error: 'Variante no encontrada.' });
+      throw err;
+    }
   })
 );
 

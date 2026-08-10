@@ -20,6 +20,7 @@ const TITULOS: Record<string, string> = {
   '/dashboard/productos': 'Productos',
   '/dashboard/productos/importar': 'Importar / exportar productos',
   '/dashboard/catalogos': 'Marcas y tallas',
+  '/dashboard/proveedores': 'Proveedores',
   '/dashboard/inventario': 'Inventario',
   '/dashboard/ventas': 'Ventas',
   '/dashboard/ventas/corte-dia': 'Corte del día',

@@ -16,6 +16,7 @@ interface Variante {
   sku: string;
   color: string | null;
   talla: { valor: string } | null;
+  proveedor: { id: number; nombre: string } | null;
   existencias: Existencia[];
 }
 
@@ -46,16 +47,21 @@ interface Sucursal {
   id: number;
   nombre: string;
 }
+interface Proveedor {
+  id: number;
+  nombre: string;
+}
 
 interface VarianteForm {
   tallaId: string;
   color: string;
   sku: string;
   stockInicial: string;
+  proveedorId: string;
 }
 
 function nuevaVarianteForm(): VarianteForm {
-  return { tallaId: '', color: '', sku: '', stockInicial: '0' };
+  return { tallaId: '', color: '', sku: '', stockInicial: '0', proveedorId: '' };
 }
 
 export default function ProductosPage() {
@@ -73,6 +79,7 @@ export default function ProductosPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tallas, setTallas] = useState<Talla[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
   // Campos del nuevo producto
   const [nombre, setNombre] = useState('');
@@ -94,6 +101,7 @@ export default function ProductosPage() {
 
   useEffect(() => {
     cargarProductos();
+    api<Proveedor[]>('/proveedores').then(setProveedores);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -126,6 +134,18 @@ export default function ProductosPage() {
     setVariantesForm((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  async function cambiarProveedorVariante(productoId: number, varianteId: number, proveedorId: string) {
+    try {
+      await api(`/productos/${productoId}/variantes/${varianteId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ proveedorId: proveedorId ? Number(proveedorId) : null }),
+      });
+      cargarProductos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al asignar el proveedor.');
+    }
+  }
+
   async function guardarProducto() {
     if (!nombre || !marcaId || !categoriaId) {
       setMensaje('Nombre, marca y categoría son obligatorios.');
@@ -152,6 +172,7 @@ export default function ProductosPage() {
             tallaId: v.tallaId ? Number(v.tallaId) : undefined,
             color: v.color || undefined,
             sku: v.sku.trim(),
+            proveedorId: v.proveedorId ? Number(v.proveedorId) : undefined,
             existencias: sucursalStockId
               ? [
                   {
@@ -285,6 +306,18 @@ export default function ProductosPage() {
                 onChange={(e) => actualizarVariante(i, { stockInicial: e.target.value })}
                 style={{ maxWidth: 90 }}
               />
+              <select
+                value={v.proveedorId}
+                onChange={(e) => actualizarVariante(i, { proveedorId: e.target.value })}
+                style={{ maxWidth: 140 }}
+              >
+                <option value="">Sin proveedor</option>
+                {proveedores.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </select>
               {variantesForm.length > 1 && (
                 <button className="btn-secondary btn" onClick={() => quitarVariante(i)}>
                   Quitar
@@ -380,6 +413,24 @@ export default function ProductosPage() {
                                 .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
                                 .join(', ')}
                             </>
+                          )}
+                          {puedeCrear ? (
+                            <select
+                              value={v.proveedor?.id ?? ''}
+                              onChange={(e) => cambiarProveedorVariante(p.id, v.id, e.target.value)}
+                              style={{ fontSize: 11, marginLeft: 6, maxWidth: 130 }}
+                            >
+                              <option value="">Sin proveedor</option>
+                              {proveedores.map((prov) => (
+                                <option key={prov.id} value={prov.id}>
+                                  {prov.nombre}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            v.proveedor && (
+                              <span style={{ color: 'var(--color-muted)' }}> · {v.proveedor.nombre}</span>
+                            )
                           )}
                         </div>
                       ))}

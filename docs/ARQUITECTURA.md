@@ -112,6 +112,7 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 - `cuentas_transferencia` (catálogo de cuentas propias donde se reciben transferencias)
 - `clientes` (también cuentas de la tienda en línea, ver más abajo), `apartados`, `apartado_items`, `apartado_pagos` (layaway)
 - `pedidos`, `pedido_items` (tienda en línea, pago único por SPEI)
+- `proveedores`, `pagos_proveedor` (quién surte cada mercancía y los pagos que se les hace)
 - `campos_personalizados`
 
 El esquema completo y comentado está en `backend/prisma/schema.prisma`.
@@ -163,6 +164,61 @@ de total por sucursal además del listado detallado.
   referencia de cuánto se le debe devolver al cliente si aplica.
 - La pantalla de Apartados también muestra un resumen de "clientes con
   adeudo" (suma del saldo pendiente de sus apartados activos).
+
+## Proveedores: clasificación de mercancía y pagos
+
+El negocio compra a varios proveedores (hoy 3) que en ocasiones surten el
+mismo producto, a veces en una talla distinta y a veces en la misma. Para
+poder rastrear "quién surtió qué" sin construir un sistema completo de lotes
+(FIFO), el proveedor se rastrea en dos niveles independientes:
+
+- **`producto_variantes.proveedor_id`**: proveedor "principal" o por defecto
+  de ese SKU — el que normalmente lo surte. Se asigna al crear/editar el
+  producto (formulario de Productos) o inline en la tabla de Productos y en
+  Inventario.
+- **`movimientos_inventario.proveedor_id`**: proveedor real de cada entrada
+  puntual de stock (`tipo: ENTRADA`). Solo tiene sentido en entradas — no se
+  guarda en salidas, ventas ni ajustes. Esto permite que, si en una ocasión
+  llegó de un proveedor distinto al habitual para esa variante, quede
+  registrado en ese movimiento específico sin cambiar el proveedor "de
+  catálogo" de la variante.
+
+Ambos campos son opcionales (`ON DELETE SET NULL`): no es obligatorio
+clasificar todo por proveedor desde el día uno, y borrar un proveedor no
+borra el historial de productos/movimientos, solo desasocia la referencia.
+
+**Rutas** (`backend/src/routes/proveedores.js`, roles ADMIN_PRINCIPAL/
+DESARROLLO/INVENTARIO para crear, editar y registrar pagos; cualquier rol
+autenticado puede listar):
+
+- `GET /proveedores` (`?todas=1` incluye inactivos), `POST /proveedores`,
+  `PUT /proveedores/:id` — catálogo del proveedor: nombre, contacto,
+  teléfono y **datos bancarios** (`banco`, `titular`, `numeroCuenta`) para
+  saber a qué cuenta transferirle según a quién se le está pagando.
+- `GET /proveedores/:id` — detalle con las variantes que surte y su
+  historial de pagos, más el total pagado acumulado.
+- `GET /proveedores/pagos` — historial global de pagos a proveedores, con
+  filtros por proveedor y rango de fechas.
+- `POST /proveedores/:id/pagos` — registra un pago al proveedor (monto,
+  método de pago, concepto y comprobante si es transferencia). Sigue el
+  mismo patrón multipart que ventas/apartados: campo `datos` (JSON) +
+  archivo opcional `comprobante`, subido a Cloudinary
+  (`camino-al-deporte/comprobantes`).
+- `PUT /productos/:id/variantes/:varianteId` — permite cambiar el proveedor
+  (u otros campos) de una variante ya creada sin tener que editar todo el
+  producto.
+
+**Dónde se ve en el frontend:**
+
+- Catálogos → **Proveedores**: alta/edición del proveedor y sus datos
+  bancarios, lista de variantes que surte, historial de pagos y un
+  mini-formulario para registrar un pago nuevo.
+- **Productos**: selector de proveedor al crear variantes nuevas, y un
+  selector inline por variante ya existente en la tabla de productos.
+- **Inventario**: filtro por proveedor en la consulta de existencias, y al
+  registrar una entrada (`+ Entrada`) se pide opcionalmente el proveedor de
+  ese lote — si no se indica, la entrada se registra igual pero sin
+  proveedor asociado a ese movimiento puntual.
 
 ## Tienda en línea: catálogo público, cuentas de cliente y pedidos por SPEI
 

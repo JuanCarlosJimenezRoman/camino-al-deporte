@@ -26,13 +26,14 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
 // un producto recién creado con stock 0 "desaparecería" de Inventario y no
 // habría forma de cargarle stock.
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
-  const { skuOProducto, sucursalId } = req.query;
+  const { skuOProducto, sucursalId, proveedorId } = req.query;
   if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
 
   const variantes = await prisma.productoVariante.findMany({
     where: {
       activo: true,
       producto: { activo: true },
+      ...(proveedorId ? { proveedorId: Number(proveedorId) } : {}),
       ...(skuOProducto
         ? {
             OR: [
@@ -45,6 +46,7 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
     include: {
       producto: { include: { marca: true, categoria: true, ...IMAGEN_PRINCIPAL_INCLUDE } },
       talla: true,
+      proveedor: { select: { id: true, nombre: true } },
       existencias: { where: { sucursalId: Number(sucursalId) } },
     },
     orderBy: { sku: 'asc' },
@@ -75,6 +77,7 @@ router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
     include: {
       producto: { include: IMAGEN_PRINCIPAL_INCLUDE },
       talla: true,
+      proveedor: { select: { id: true, nombre: true } },
       existencias: { where: { sucursalId: Number(sucursalId) } },
     },
   });
@@ -109,12 +112,16 @@ router.post(
       tipo: z.enum(['ENTRADA', 'SALIDA', 'AJUSTE']),
       cantidad: z.number().int(),
       motivo: z.string().optional(),
+      // Solo tiene sentido en ENTRADA: de qué proveedor vino este lote. Se
+      // acepta en cualquier tipo por simplicidad, pero el frontend solo lo
+      // pide al registrar una entrada.
+      proveedorId: z.number().int().optional(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
-    const { sucursalId, varianteId, tipo, cantidad, motivo } = parsed.data;
+    const { sucursalId, varianteId, tipo, cantidad, motivo, proveedorId } = parsed.data;
 
     // Entradas suman, salidas restan; ajuste usa el signo tal cual se envía.
     const delta = tipo === 'SALIDA' ? -Math.abs(cantidad) : tipo === 'ENTRADA' ? Math.abs(cantidad) : cantidad;
@@ -143,6 +150,7 @@ router.post(
             cantidad: delta,
             motivo,
             usuarioId: req.usuario.id,
+            proveedorId: tipo === 'ENTRADA' ? proveedorId : undefined,
           },
         });
 
@@ -168,6 +176,7 @@ router.get('/movimientos/:varianteId', requireAuth, asyncHandler(async (req, res
     include: {
       usuario: { select: { nombre: true, email: true } },
       sucursal: { select: { nombre: true } },
+      proveedor: { select: { nombre: true } },
     },
     orderBy: { createdAt: 'desc' },
   });

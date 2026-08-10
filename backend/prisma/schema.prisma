@@ -58,6 +58,7 @@ model Usuario {
   apartadosCreados          Apartado[]      @relation("ApartadosCreados")
   pagosApartadoRegistrados  ApartadoPago[]  @relation("PagosApartadoRegistrados")
   pedidosValidados          Pedido[]        @relation("PedidosValidados")
+  pagosProveedorRegistrados PagoProveedor[] @relation("PagosProveedorRegistrados")
 
   @@map("usuarios")
 }
@@ -218,6 +219,14 @@ model ProductoVariante {
   apartadoItems ApartadoItem[]
   pedidoItems   PedidoItem[]
 
+  // Proveedor principal de este SKU específico (una talla/color puede venir
+  // de un proveedor distinto al de otra talla del mismo producto). Es el
+  // proveedor "por defecto" para clasificar/reportar; el proveedor real de
+  // cada reabasto puntual se registra en MovimientoInventario.proveedorId
+  // por si un mismo número a veces lo surte uno u otro.
+  proveedorId   Int?       @map("proveedor_id")
+  proveedor     Proveedor? @relation(fields: [proveedorId], references: [id])
+
   @@unique([productoId, tallaId, color])
   @@map("producto_variantes")
 }
@@ -261,6 +270,13 @@ model MovimientoInventario {
   // Si el movimiento vino de un pedido de la tienda en línea
   pedidoId    Int?             @map("pedido_id")
   pedido      Pedido?          @relation(fields: [pedidoId], references: [id])
+
+  // De qué proveedor vino este lote (normalmente solo se llena en
+  // movimientos tipo ENTRADA). Permite saber exactamente quién surtió cada
+  // reabasto, incluso si en otra ocasión el mismo número lo surtió alguien
+  // más — no depende únicamente del proveedor "por defecto" de la variante.
+  proveedorId Int?             @map("proveedor_id")
+  proveedor   Proveedor?       @relation(fields: [proveedorId], references: [id])
 
   createdAt   DateTime         @default(now()) @map("created_at")
 
@@ -335,6 +351,67 @@ model CuentaTransferencia {
   pedidos      Pedido[]
 
   @@map("cuentas_transferencia")
+}
+
+// ---------------------------------------------------------------------------
+// Proveedores: quién surte la mercancía y los pagos que se les hacen
+// ---------------------------------------------------------------------------
+//
+// Por ahora son solo unos cuantos proveedores y entre todos surten todo el
+// catálogo. Un mismo producto puede venir de distintos proveedores según la
+// talla/color (a veces hasta el mismo número lo surte uno u otro en
+// ocasiones distintas), por eso el proveedor se registra en dos niveles:
+//  - ProductoVariante.proveedorId: proveedor "por defecto" de ese SKU, para
+//    clasificar/filtrar el catálogo y reportar qué se vende de quién.
+//  - MovimientoInventario.proveedorId: proveedor real de cada reabasto
+//    puntual (solo en movimientos ENTRADA), para no perder el dato si un
+//    número específico se surtió de alguien distinto al proveedor de la
+//    variante en esa ocasión.
+model Proveedor {
+  id           Int      @id @default(autoincrement())
+  nombre       String
+  contacto     String?  // nombre de la persona con la que se trata
+  telefono     String?
+
+  // Cuenta bancaria DEL proveedor (a dónde se le transfiere para pagarle).
+  // Es la cuenta de destino de los PagoProveedor por transferencia.
+  banco        String?
+  titular      String?
+  numeroCuenta String?  @map("numero_cuenta")
+
+  notas        String?
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  variantes    ProductoVariante[]
+  movimientos  MovimientoInventario[]
+  pagos        PagoProveedor[]
+
+  @@map("proveedores")
+}
+
+// Pagos que el negocio le hace a un proveedor (dinero que sale, a
+// diferencia de Venta/ApartadoPago que es dinero que entra). No se liga a
+// movimientos de inventario específicos (no se maneja conciliación por
+// factura en v1): es un registro simple de cuánto y cómo se le ha pagado a
+// cada proveedor, con comprobante si fue por transferencia.
+model PagoProveedor {
+  id                  Int        @id @default(autoincrement())
+  proveedorId         Int        @map("proveedor_id")
+  proveedor           Proveedor  @relation(fields: [proveedorId], references: [id])
+
+  monto               Decimal    @db.Decimal(10, 2)
+  metodoPago          MetodoPago @default(EFECTIVO) @map("metodo_pago")
+  comprobanteUrl       String?   @map("comprobante_url")
+  comprobantePublicId  String?   @map("comprobante_public_id")
+  concepto             String?   // ej. "Reabasto de tenis, pedido de agosto"
+
+  registradoPorId      Int       @map("registrado_por_id")
+  registradoPor        Usuario   @relation("PagosProveedorRegistrados", fields: [registradoPorId], references: [id])
+
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@map("pagos_proveedor")
 }
 
 // ---------------------------------------------------------------------------

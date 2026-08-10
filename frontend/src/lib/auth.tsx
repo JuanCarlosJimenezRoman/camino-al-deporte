@@ -91,6 +91,9 @@ export const PERMISOS = {
   apartados: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   historialVentas: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   pedidosOnline: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  // Quién surte cada producto y los pagos que se les hace: mismos roles que
+  // administran inventario/productos.
+  proveedores: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {
