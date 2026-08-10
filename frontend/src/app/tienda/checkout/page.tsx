@@ -30,9 +30,14 @@ export default function CheckoutPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Al crear el pedido vaciamos el carrito, lo que hace que items.length caiga
+  // a 0 mientras el router.push todavía está resolviendo la navegación. Sin
+  // este flag, el efecto de abajo alcanza a mandar de vuelta a /tienda/carrito
+  // (carrito vacío) antes de que termine de navegar al detalle del pedido.
+  const [pedidoCreado, setPedidoCreado] = useState(false);
 
   useEffect(() => {
-    if (cargando) return;
+    if (cargando || pedidoCreado) return;
     if (!cliente) {
       router.replace('/tienda/login?siguiente=/tienda/checkout');
       return;
@@ -40,9 +45,9 @@ export default function CheckoutPage() {
     if (items.length === 0) {
       router.replace('/tienda/carrito');
     }
-  }, [cargando, cliente, items.length, router]);
+  }, [cargando, cliente, items.length, router, pedidoCreado]);
 
-  if (cargando || !cliente || items.length === 0) return null;
+  if (cargando || !cliente || (items.length === 0 && !pedidoCreado)) return null;
 
   async function confirmarPedido(e: FormEvent) {
     e.preventDefault();
@@ -66,11 +71,11 @@ export default function CheckoutPage() {
           items: items.map((i) => ({ varianteId: i.varianteId, cantidad: i.cantidad })),
         }),
       });
+      setPedidoCreado(true);
       vaciar();
       router.push(`/tienda/pedidos/${pedido.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo crear el pedido.');
-    } finally {
       setEnviando(false);
     }
   }
