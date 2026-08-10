@@ -25,6 +25,7 @@ const TITULOS: Record<string, string> = {
   '/dashboard/ventas/corte-dia': 'Corte del día',
   '/dashboard/ventas/historial': 'Historial de ventas',
   '/dashboard/apartados': 'Apartados',
+  '/dashboard/metodos-pago': 'Métodos de pago',
   '/dashboard/transferencias': 'Transferencias',
   '/dashboard/sucursales': 'Sucursales',
   '/dashboard/usuarios': 'Usuarios',

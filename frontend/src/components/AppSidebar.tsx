@@ -11,6 +11,7 @@ import {
   Users,
   CalendarClock,
   Globe,
+  CreditCard,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -78,6 +79,11 @@ export function AppSidebar({
       titulo: 'Organización',
       items: [
         puedeVer('sucursales', rol) && { href: '/dashboard/sucursales', label: 'Sucursales', icon: Store },
+        puedeVer('cuentasTransferencia', rol) && {
+          href: '/dashboard/metodos-pago',
+          label: 'Métodos de pago',
+          icon: CreditCard,
+        },
         puedeVer('usuarios', rol) && { href: '/dashboard/usuarios', label: 'Usuarios', icon: Users },
       ].filter(Boolean) as NavLink[],
     },
