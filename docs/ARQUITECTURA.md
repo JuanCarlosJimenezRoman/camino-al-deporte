@@ -231,12 +231,30 @@ de más de uno, la regla depende de si hay una persona operando o no:
 **Consultar el stock por proveedor.** `GET /inventario/existencias` ya no
 regresa un renglón por variante: regresa un renglón por (variante,
 proveedor). Una variante que todavía no tiene ningún movimiento en esa
-sucursal sigue apareciendo con un renglón placeholder en 0 (sin proveedor),
-para poder cargarle el primer stock. `GET /inventario/bajo-stock` sí suma
-todos los buckets de una variante — el mínimo de reorden es una política por
-talla+sucursal, no por proveedor — y compara el total contra el mínimo más
-alto que tenga cualquiera de sus buckets (`PUT /inventario/minimo` aplica el
-mismo mínimo a todos los buckets existentes de esa talla+sucursal).
+sucursal sigue apareciendo con un renglón placeholder en 0, etiquetado con el
+proveedor "por defecto" que se le haya asignado en Productos (no con "Sin
+proveedor" a secas) — así la pantalla es consistente entre sucursales en vez
+de mostrar un proveedor distinto según en cuál ya se registró stock.
+`?proveedorId=` filtra a los renglones donde ese proveedor ya tiene stock ahí
+MÁS las variantes que lo tienen como proveedor por defecto aunque todavía
+estén en 0 — si solo mostrara stock ya cargado, un proveedor recién asignado
+a una variante "desaparecía" del filtro hasta que alguien le registrara una
+entrada. `GET /inventario/bajo-stock` sí suma todos los buckets de una
+variante — el mínimo de reorden es una política por talla+sucursal, no por
+proveedor — y compara el total contra el mínimo más alto que tenga cualquiera
+de sus buckets (`PUT /inventario/minimo` aplica el mismo mínimo a todos los
+buckets existentes de esa talla+sucursal).
+
+**Ojo con la entrada de stock sin elegir proveedor.** El selector de "+
+Entrada" en Inventario ahora preselecciona el proveedor por defecto de la
+variante (antes arrancaba siempre en "Sin proveedor" y, si no se cambiaba a
+mano, el stock quedaba cargado a un bucket sin proveedor aunque la variante sí
+tuviera uno asignado en Productos — eso hacía que ese proveedor "no
+apareciera" al filtrar Inventario por él, aunque en Productos sí se viera
+asignado). Sigue siendo posible elegir "Sin proveedor" a propósito si aplica.
+Stock que ya haya quedado mal clasificado por esto de antes hay que
+corregirlo a mano (Salida del bucket incorrecto + Entrada al proveedor
+correcto).
 
 **Rutas de catálogo de proveedores** (`backend/src/routes/proveedores.js`,
 roles ADMIN_PRINCIPAL/DESARROLLO/INVENTARIO para crear, editar y registrar

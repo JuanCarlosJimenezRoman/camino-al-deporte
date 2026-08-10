@@ -34,12 +34,15 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
 // producto recién creado con stock 0 "desaparecería" de Inventario y no
 // habría forma de cargarle stock.
 //
-// ?proveedorId= filtra los renglones a los que YA tiene stock ese proveedor
-// en esta sucursal (no el proveedor "por defecto" de la variante — para eso
-// existe /productos?proveedorId=).
+// ?proveedorId= filtra a los renglones donde ese proveedor YA tiene stock en
+// esta sucursal, más las variantes que tienen a ese proveedor como
+// "por defecto" (asignado en Productos) aunque todavía no tengan nada
+// cargado ahí — así el filtro también sirve para ver qué le toca surtir a
+// ese proveedor, no solo lo que ya se registró.
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
   const { skuOProducto, sucursalId, proveedorId } = req.query;
   if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
+  const filtroProveedorId = proveedorId ? Number(proveedorId) : null;
 
   const variantes = await prisma.productoVariante.findMany({
     where: {
@@ -69,19 +72,27 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
   const resultado = [];
   for (const v of variantes) {
     const { existencias, ...variante } = v;
-    const buckets = proveedorId
-      ? existencias.filter((ex) => ex.proveedorId === Number(proveedorId))
+    const buckets = filtroProveedorId
+      ? existencias.filter((ex) => ex.proveedorId === filtroProveedorId)
       : existencias;
 
     if (buckets.length === 0) {
-      // Si se está filtrando por proveedor y esta variante no tiene ese
-      // bucket en esta sucursal, no tiene caso mostrarla en 0.
-      if (proveedorId) continue;
+      // Si se filtra por proveedor y esta variante no tiene ese bucket en
+      // esta sucursal, solo la mostramos (en 0) cuando ese proveedor es
+      // justo el "por defecto" de la variante — si no, de plano no tiene
+      // relación con ese proveedor y no tiene caso listarla.
+      if (filtroProveedorId && variante.proveedorId !== filtroProveedorId) continue;
+      // El placeholder se etiqueta con el proveedor "por defecto" de la
+      // variante (el que se le asignó en Productos), no con "Sin proveedor":
+      // así, aunque todavía no haya una fila de existencia real en esta
+      // sucursal, la pantalla muestra de forma consistente quién surte esa
+      // talla en vez de un genérico "Sin proveedor" que cambiaba según la
+      // sucursal y hacía parecer que el proveedor asignado se perdía.
       resultado.push({
         id: null,
         sucursalId: Number(sucursalId),
-        proveedorId: null,
-        proveedor: null,
+        proveedorId: variante.proveedorId,
+        proveedor: variante.proveedor,
         stockActual: 0,
         stockMinimo: 0,
         variante,

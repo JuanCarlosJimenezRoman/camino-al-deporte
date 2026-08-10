@@ -38,6 +38,10 @@ interface Existencia {
     color: string | null;
     talla: { valor: string } | null;
     producto: { nombre: string; marca: { nombre: string }; imagenes?: { url: string }[] };
+    // Proveedor "por defecto" asignado a esta variante en Productos — no es
+    // necesariamente el mismo proveedor que tiene stock en este bucket
+    // (b.proveedor), se usa para preseleccionar al registrar una entrada.
+    proveedor: { id: number; nombre: string } | null;
   };
 }
 
@@ -87,11 +91,17 @@ export default function InventarioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalId, proveedorFiltro]);
 
-  function abrirEntrada(varianteId: number) {
+  // Preselecciona el proveedor "por defecto" de la variante (el que se le
+  // asignó en Productos). Antes siempre arrancaba en "Sin proveedor" y, si el
+  // usuario no se acordaba de cambiarlo, el stock quedaba cargado a un bucket
+  // sin proveedor aunque la variante sí tuviera uno asignado — eso es lo que
+  // hacía que luego, al filtrar Inventario por ese proveedor, no apareciera
+  // nada.
+  function abrirEntrada(variante: Existencia['variante']) {
     setSalidaVarianteId(null);
-    setEntradaVarianteId(varianteId);
+    setEntradaVarianteId(variante.id);
     setEntradaCantidad('1');
-    setEntradaProveedorId('');
+    setEntradaProveedorId(variante.proveedor ? String(variante.proveedor.id) : '');
   }
 
   // Como el stock se separa por proveedor, una salida/ajuste tiene que decir
@@ -247,7 +257,7 @@ export default function InventarioPage() {
                   <td className={stockTotal <= minimo ? 'stock-bajo' : ''}>{stockTotal}</td>
                   {puedeEditar && (
                     <td style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn-secondary btn" onClick={() => abrirEntrada(variante.id)}>
+                      <button className="btn-secondary btn" onClick={() => abrirEntrada(variante)}>
                         + Entrada
                       </button>
                       <button className="btn-secondary btn" onClick={() => abrirSalida(variante.id, buckets)}>
