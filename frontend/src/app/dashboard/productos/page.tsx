@@ -237,7 +237,13 @@ export default function ProductosPage() {
     } else if (!nuevaTallaSucursalId) {
       setNuevaTallaSucursalId(usuario?.sucursalId ? String(usuario.sucursalId) : sucursales[0] ? String(sucursales[0].id) : '');
     }
-    setNuevaTallaForm(nuevaVarianteForm());
+    // El SKU de fábrica suele repetirse entre tallas del mismo lote (ver nota
+    // arriba), así que se precarga con el que ya tiene el producto para no
+    // tener que volver a escribirlo — se puede cambiar si esta talla en
+    // particular sí trae un SKU distinto.
+    const producto = productos.find((p) => p.id === productoId);
+    const skuExistente = producto?.variantes[0]?.sku ?? '';
+    setNuevaTallaForm({ ...nuevaVarianteForm(), sku: skuExistente });
     setMensaje(null);
     setNuevaTallaAbiertaId(productoId);
   }
