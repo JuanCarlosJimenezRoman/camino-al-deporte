@@ -87,7 +87,11 @@ export default function ProductoDetallePage() {
 
   const variante = producto.variantes.find((v) => String(v.id) === varianteId);
   const disponible = !!variante && variante.stockTotal > 0;
-  const esCalzado = producto.variantes.some((v) => v.talla?.tipo === 'calzado');
+  // El tipo de talla de calzado ahora viene segmentado (TD/PS/GS/WMNS/MENS
+  // en vez de un genérico "calzado" — ver docs/ARQUITECTURA.md), así que
+  // "es calzado" se detecta como "cualquier tipo que no sea de ropa", en vez
+  // de comparar contra un único valor fijo.
+  const esCalzado = producto.variantes.some((v) => v.talla?.tipo && v.talla.tipo.toLowerCase() !== 'ropa');
 
   function agregarAlCarrito() {
     if (!producto || !variante) return;
@@ -317,7 +321,7 @@ export default function ProductoDetallePage() {
             </p>
             <div className="flex flex-wrap gap-2">
               {producto.variantes
-                .filter((v) => v.talla?.tipo === 'calzado')
+                .filter((v) => v.talla?.tipo && v.talla.tipo.toLowerCase() !== 'ropa')
                 .sort((a, b) => (a.talla?.orden ?? 0) - (b.talla?.orden ?? 0))
                 .map((v) => (
                   <span key={v.id} className="rounded-lg border border-border px-3 py-1.5 text-sm">

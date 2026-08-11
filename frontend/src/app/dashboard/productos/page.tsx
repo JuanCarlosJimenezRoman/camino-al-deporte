@@ -65,6 +65,7 @@ interface DetalleCompletarTallas {
   productoId: number;
   productoNombre: string;
   estado: 'actualizado' | 'sin_cambios' | 'omitido';
+  categoria?: string;
   tallasAgregadas?: string[];
   motivo?: string;
 }
@@ -302,7 +303,7 @@ export default function ProductosPage() {
   async function completarTallasCalzado() {
     if (
       !window.confirm(
-        'Esto va a crear, para cada producto de Calzado, las tallas que le falten (usando su SKU/color actual), sin stock. Los productos con más de un SKU/color se van a omitir. ¿Continuar?'
+        'Esto va a crear, para cada producto de Calzado, las tallas que le falten de su misma categoría (TD/PS/GS/WMNS/MENS, según las tallas que ya tenga), usando su SKU/color actual, sin stock. Los productos con más de un SKU/color o con tallas de más de una categoría mezcladas se van a omitir. ¿Continuar?'
       )
     )
       return;
@@ -683,11 +684,13 @@ export default function ProductosPage() {
                     <td style={{ fontSize: 12 }}>
                       {d.estado === 'actualizado' && (
                         <span style={{ color: '#1a7d36' }}>
-                          Tallas agregadas: {d.tallasAgregadas?.join(', ')}
+                          [{d.categoria}] Tallas agregadas: {d.tallasAgregadas?.join(', ')}
                         </span>
                       )}
                       {d.estado === 'sin_cambios' && (
-                        <span style={{ color: 'var(--color-muted)' }}>Ya tenía todas las tallas</span>
+                        <span style={{ color: 'var(--color-muted)' }}>
+                          Ya tenía todas las tallas de {d.categoria}
+                        </span>
                       )}
                       {d.estado === 'omitido' && <span style={{ color: '#a06a00' }}>Omitido — {d.motivo}</span>}
                     </td>

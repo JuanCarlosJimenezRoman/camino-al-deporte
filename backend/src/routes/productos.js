@@ -229,35 +229,47 @@ router.post(
 );
 
 // POST /productos/completar-tallas-calzado - de un jalón, crea las variantes
-// que le falten a cada producto de la categoría "Calzado" para tener las 13
-// tallas del catálogo (backend/prisma/seed.js las trae, o las que se hayan
-// agregado en Catálogos → Tallas), sin tocar las que ya existen.
+// que le falten a cada producto de la categoría "Calzado" para tener todas
+// las tallas de SU categoría (TD/PS/GS/WMNS/MENS — ver
+// docs/ARQUITECTURA.md), sin tocar las que ya existen.
 //
-// El SKU/color de las tallas nuevas se infiere del producto: si TODAS sus
-// variantes actuales comparten el mismo SKU+color (el caso normal — un solo
-// lote de fábrica cubre todas las tallas), esa combinación se usa para las
-// tallas que le faltan. Si el producto ya tiene más de una combinación
-// SKU/color (modelos "By You" custom con varios colores, productos con más
-// de un lote/SKU) no se adivina nada: se omite y queda para agregarse a mano
-// con "+ Agregar talla", como ya se hacía. Las variantes nuevas se crean SIN
-// existencia (0 stock, sin fila en ninguna sucursal) — el flujo esperado es
-// completar el catálogo aquí y cargar cantidades después desde Inventario.
+// Tanto el SKU/color como la categoría de tallas se infieren del producto,
+// sin pedirle nada al usuario: si TODAS sus variantes actuales comparten el
+// mismo SKU+color (el caso normal — un solo lote de fábrica cubre todo el
+// rango) Y todas sus tallas ya puestas son de una sola categoría (TD, GS,
+// MENS, etc.), se completan las tallas que le falten de esa misma
+// categoría. Si el producto ya tiene más de una combinación SKU/color, más
+// de una categoría de talla mezclada, o no tiene ninguna variante con talla
+// todavía, no se adivina nada: se omite y queda para agregarse a mano con
+// "+ Agregar talla", como ya se hacía (por ejemplo modelos "By You" custom
+// con varios colores). Las variantes nuevas se crean SIN existencia (0
+// stock, sin fila en ninguna sucursal) — el flujo esperado es completar el
+// catálogo aquí y cargar cantidades después desde Inventario.
 router.post(
   '/completar-tallas-calzado',
   requireAuth,
   requireRole(...ROLES_EDICION),
   asyncHandler(async (req, res) => {
+    // Todo lo que no sea "ropa" cuenta como una categoría de calzado — así
+    // no hay que tener hardcodeados aquí los códigos TD/PS/GS/WMNS/MENS: si
+    // el día de mañana se agrega una categoría nueva en Catálogos → Tallas,
+    // ya queda incluida sola.
     const tallasCalzado = await prisma.talla.findMany({
-      where: { tipo: { equals: 'calzado', mode: 'insensitive' } },
-      orderBy: { orden: 'asc' },
+      where: { tipo: { not: { equals: 'ropa', mode: 'insensitive' } } },
+      orderBy: [{ tipo: 'asc' }, { orden: 'asc' }],
     });
     if (tallasCalzado.length === 0) {
-      return res.status(400).json({ error: 'No hay tallas de tipo "calzado" en el catálogo de tallas.' });
+      return res.status(400).json({ error: 'No hay tallas de calzado en el catálogo de tallas.' });
+    }
+    const tallasPorTipo = new Map(); // tipo -> Talla[]
+    for (const t of tallasCalzado) {
+      if (!tallasPorTipo.has(t.tipo)) tallasPorTipo.set(t.tipo, []);
+      tallasPorTipo.get(t.tipo).push(t);
     }
 
     const productos = await prisma.producto.findMany({
       where: { activo: true, categoria: { nombre: { equals: 'Calzado', mode: 'insensitive' } } },
-      include: { variantes: { where: { activo: true } } },
+      include: { variantes: { where: { activo: true }, include: { talla: true } } },
       orderBy: { nombre: 'asc' },
     });
 
@@ -273,22 +285,44 @@ router.post(
             const clave = `${v.sku}::${v.color ?? ''}`;
             if (!combos.has(clave)) combos.set(clave, { sku: v.sku, color: v.color, proveedorId: v.proveedorId });
           }
+          const tiposDeTalla = new Set(producto.variantes.map((v) => v.talla?.tipo).filter(Boolean));
 
-          if (combos.size === 0) {
-            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'omitido', motivo: 'No tiene ninguna variante todavía, no hay SKU del que partir.' });
+          if (combos.size === 0 || tiposDeTalla.size === 0) {
+            detalle.push({
+              productoId: producto.id,
+              productoNombre: producto.nombre,
+              estado: 'omitido',
+              motivo: 'No tiene ninguna variante con talla todavía, no hay de dónde inferir SKU ni categoría.',
+            });
             continue;
           }
           if (combos.size > 1) {
-            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'omitido', motivo: 'Ya tiene más de un SKU/color distinto (caso especial) — agrégalas a mano.' });
+            detalle.push({
+              productoId: producto.id,
+              productoNombre: producto.nombre,
+              estado: 'omitido',
+              motivo: 'Ya tiene más de un SKU/color distinto (caso especial) — agrégalas a mano.',
+            });
+            continue;
+          }
+          if (tiposDeTalla.size > 1) {
+            detalle.push({
+              productoId: producto.id,
+              productoNombre: producto.nombre,
+              estado: 'omitido',
+              motivo: `Tiene tallas de más de una categoría mezcladas (${[...tiposDeTalla].join(', ')}) — agrégalas a mano.`,
+            });
             continue;
           }
 
           const { sku, color, proveedorId } = [...combos.values()][0];
+          const tipoInferido = [...tiposDeTalla][0];
+          const catalogoDelTipo = tallasPorTipo.get(tipoInferido) || [];
           const tallaIdsExistentes = new Set(producto.variantes.map((v) => v.tallaId).filter((id) => id !== null));
-          const tallasFaltantes = tallasCalzado.filter((t) => !tallaIdsExistentes.has(t.id));
+          const tallasFaltantes = catalogoDelTipo.filter((t) => !tallaIdsExistentes.has(t.id));
 
           if (tallasFaltantes.length === 0) {
-            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'sin_cambios' });
+            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'sin_cambios', categoria: tipoInferido });
             continue;
           }
 
@@ -307,6 +341,7 @@ router.post(
             productoId: producto.id,
             productoNombre: producto.nombre,
             estado: 'actualizado',
+            categoria: tipoInferido,
             tallasAgregadas: valoresAgregados,
           });
         }

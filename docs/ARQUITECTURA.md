@@ -459,23 +459,51 @@ productos de calzado en Productos → "Ver variantes" y usar "+ Agregar talla"
 para completar las que falten, o volver a correr el Excel: ahora sí las
 agregará en vez de saltárselas.
 
+## Tallas de calzado segmentadas por categoría (TD/PS/GS/WMNS/MENS)
+
+En vez de un solo tipo genérico `"calzado"`, las tallas de calzado se
+catalogan por categoría de edad/público, como hacen las marcas deportivas:
+
+| tipo (código) | Significado             | Tallas aprox. MX | Edad aprox. |
+| -------------- | ------------------------ | ----------------: | ----------- |
+| `TD`           | Toddler / bebé            | 8–13 MX            | 1–4 años    |
+| `PS`           | Preschool / preescolar    | 13.5–19.5 MX        | 4–7 años    |
+| `GS`           | Grade School / escolar    | 20–25 MX            | 7–12 años   |
+| `WMNS`         | Women's / mujer           | 22–28 MX            | Adulto      |
+| `MENS`         | Men's / hombre            | 25–32 MX            | Adulto      |
+
+Cada una es un `tipo` distinto de `Talla` (el campo sigue siendo texto libre,
+no un enum — se pueden agregar más categorías desde Catálogos → Tallas si
+hace falta). Como la unicidad es `(valor, tipo)`, un mismo número puede
+existir en más de una categoría a la vez (ej. "22" en `GS` y en `WMNS` son
+dos renglones distintos del catálogo, no se pisan). `backend/prisma/seed.js`
+puebla las 5 categorías de fábrica; el rango de cada una se puede editar ahí
+o agregar tallas sueltas después a mano.
+
+En el frontend, cualquier lugar que antes asumía `talla.tipo === 'calzado'`
+(la guía de tallas de la tienda en línea, `tienda/productos/[id]/page.tsx`)
+ahora detecta "es calzado" como *"tipo distinto de `ropa`"*, para no depender
+de los códigos exactos.
+
 ## Completar tallas de calzado en lote
 
 Productos → "Completar tallas de calzado" (`POST /productos/completar-tallas-calzado`)
 crea, para cada producto activo de la categoría "Calzado", las variantes de
-talla que le falten para tener todas las tallas del catálogo con
-`tipo = "calzado"` — pensado para no tener que dar de alta una por una con
+talla que le falten para tener todas las tallas **de su misma categoría**
+(TD/PS/GS/WMNS/MENS) — pensado para no tener que dar de alta una por una con
 "+ Agregar talla" cuando la mayoría de tus productos comparten un solo SKU de
-fábrica para todo el rango de tallas.
+fábrica para todo el rango de tallas de esa categoría.
 
-Cómo decide qué SKU/color ponerle a las tallas nuevas: mira las variantes que
-el producto ya tiene.
+No hay que decirle nada al sistema: tanto el SKU/color como la categoría de
+tallas se infieren mirando las variantes que el producto ya tiene.
 - Si todas comparten el mismo SKU+color (el caso normal — un solo lote cubre
-  todo el rango), usa esa combinación para las tallas que falten.
+  todo el rango) **y** todas sus tallas puestas son de una sola categoría,
+  usa esa combinación y esa categoría para las tallas que falten.
 - Si el producto ya tiene más de una combinación SKU/color (modelos "By You"
-  custom con varios colores, o productos con más de un lote/SKU) o no tiene
-  ninguna variante todavía, **no se adivina nada: se omite** y aparece en el
-  reporte para agregarse a mano con "+ Agregar talla", igual que antes.
+  custom con varios colores, o productos con más de un lote/SKU), tallas de
+  más de una categoría mezcladas, o no tiene ninguna variante con talla
+  todavía, **no se adivina nada: se omite** y aparece en el reporte para
+  agregarse a mano con "+ Agregar talla", igual que antes.
 
 Las variantes nuevas se crean sin ninguna fila de existencia (0 stock, en
 ninguna sucursal) — el flujo esperado es completar el catálogo de tallas

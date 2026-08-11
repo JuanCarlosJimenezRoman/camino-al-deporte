@@ -49,15 +49,37 @@ async function main() {
     console.log('El usuario administrador ya existe, no se modifica.');
   }
 
-  // Tallas de ejemplo (calzado deportivo mexicano) - edítalas o agrega más
-  // desde el panel una vez que el sistema esté corriendo.
-  const tallasCalzado = ['5', '5.5', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10', '10.5', '11'];
-  for (let i = 0; i < tallasCalzado.length; i++) {
-    await prisma.talla.upsert({
-      where: { valor_tipo: { valor: tallasCalzado[i], tipo: 'calzado' } },
-      update: {},
-      create: { valor: tallasCalzado[i], tipo: 'calzado', orden: i },
-    });
+  // Tallas de calzado segmentadas por categoría de edad/público, como en
+  // Nike/marcas deportivas (TD = bebé, PS = preescolar, GS = escolar, WMNS =
+  // mujer, MENS = hombre) — en vez de un solo tipo genérico "calzado". Cada
+  // combinación (tipo, valor) es un renglón propio del catálogo de tallas,
+  // así que un mismo número (ej. "22") puede existir en más de una
+  // categoría (GS 22 y WMNS 22 no son la misma fila). Edítalas o agrega más
+  // desde Catálogos → Tallas una vez que el sistema esté corriendo.
+  function rangoTallas(desde, hasta, paso = 0.5) {
+    const valores = [];
+    for (let v = desde; v <= hasta + 1e-9; v += paso) {
+      valores.push(Number(v.toFixed(1)).toString());
+    }
+    return valores;
+  }
+
+  const TALLAS_CALZADO = [
+    { tipo: 'TD', valores: rangoTallas(8, 13) }, // Toddler/bebé, ~1-4 años
+    { tipo: 'PS', valores: rangoTallas(13.5, 19.5) }, // Preschool/preescolar, ~4-7 años
+    { tipo: 'GS', valores: rangoTallas(20, 25) }, // Grade School/escolar, ~7-12 años
+    { tipo: 'WMNS', valores: rangoTallas(22, 28) }, // Women's/mujer, adulto
+    { tipo: 'MENS', valores: rangoTallas(25, 32) }, // Men's/hombre, adulto
+  ];
+
+  for (const grupo of TALLAS_CALZADO) {
+    for (let i = 0; i < grupo.valores.length; i++) {
+      await prisma.talla.upsert({
+        where: { valor_tipo: { valor: grupo.valores[i], tipo: grupo.tipo } },
+        update: {},
+        create: { valor: grupo.valores[i], tipo: grupo.tipo, orden: i },
+      });
+    }
   }
 
   const tallasRopa = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
