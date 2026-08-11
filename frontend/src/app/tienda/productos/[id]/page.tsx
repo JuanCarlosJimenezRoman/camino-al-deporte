@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { useCarrito } from '@/lib/carrito';
 import { Stepper, claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
-import { imagenProducto, imagenMiniatura } from '@/lib/imagenCloudinary';
+import { imagenProducto, imagenMiniatura, imagenCatalogo } from '@/lib/imagenCloudinary';
 
 interface Variante {
   id: number;
@@ -19,12 +20,20 @@ interface ProductoDetalle {
   id: number;
   nombre: string;
   descripcion: string | null;
-  marca: { nombre: string } | null;
-  categoria: { nombre: string } | null;
+  marca: { id: number; nombre: string } | null;
+  categoria: { id: number; nombre: string } | null;
   precioVenta: string;
   imagenes: { url: string }[];
   variantes: Variante[];
   stockTotal: number;
+}
+
+interface ProductoSimilar {
+  id: number;
+  nombre: string;
+  marca: { nombre: string } | null;
+  precioVenta: string;
+  imagenes: { url: string }[];
 }
 
 export default function ProductoDetallePage() {
@@ -40,8 +49,11 @@ export default function ProductoDetallePage() {
   const [imagenActiva, setImagenActiva] = useState(0);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guiaAbierta, setGuiaAbierta] = useState(false);
+  const [similares, setSimilares] = useState<ProductoSimilar[] | null>(null);
 
   useEffect(() => {
+    setProducto(null);
+    setSimilares(null);
     apiTienda<ProductoDetalle>(`/tienda/productos/${params.id}`)
       .then((data) => {
         setProducto(data);
@@ -50,6 +62,25 @@ export default function ProductoDetallePage() {
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el producto.'));
   }, [params.id]);
+
+  // Modelos parecidos: misma categoría (o, si no tiene, misma marca),
+  // excluyendo el producto actual. Reutiliza el endpoint público del
+  // catálogo, sin necesidad de un endpoint nuevo en el backend.
+  useEffect(() => {
+    if (!producto) return;
+    const query = producto.categoria
+      ? `categoriaId=${producto.categoria.id}`
+      : producto.marca
+        ? `marcaId=${producto.marca.id}`
+        : null;
+    if (!query) {
+      setSimilares([]);
+      return;
+    }
+    apiTienda<ProductoSimilar[]>(`/tienda/productos?${query}`)
+      .then((data) => setSimilares(data.filter((p) => p.id !== producto.id).slice(0, 8)))
+      .catch(() => setSimilares([]));
+  }, [producto]);
 
   if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (!producto) return <p className="text-sm text-muted-foreground">Cargando...</p>;
@@ -216,6 +247,34 @@ export default function ProductoDetallePage() {
           </div>
         </div>
       </div>
+
+      {/* Modelos parecidos: misma categoría (o marca), scroll horizontal en
+          móvil y grid en escritorio, con el mismo look de tarjeta que el
+          catálogo para mantener consistencia visual. */}
+      {similares && similares.length > 0 && (
+        <div className="mt-16 border-t border-border pt-10">
+          <h2 className="mb-5 text-lg font-bold uppercase tracking-tight sm:text-xl">También te puede interesar</h2>
+          <div className="flex snap-x gap-4 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:gap-6 sm:overflow-visible lg:grid-cols-4">
+            {similares.map((p) => (
+              <Link key={p.id} href={`/tienda/productos/${p.id}`} className="group block w-40 shrink-0 snap-start sm:w-auto">
+                <div className="mb-3 aspect-square overflow-hidden rounded-2xl bg-secondary">
+                  {p.imagenes?.[0]?.url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={imagenCatalogo(p.imagenes[0].url)}
+                      alt={p.nombre}
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  )}
+                </div>
+                <p className="truncate text-sm font-semibold leading-tight">{p.nombre}</p>
+                <p className="text-xs text-muted-foreground">{p.marca?.nombre}</p>
+                <p className="mt-1 text-sm font-bold">${p.precioVenta}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Barra fija de compra en móvil, siempre visible mientras se hace scroll */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background p-4 md:hidden">
