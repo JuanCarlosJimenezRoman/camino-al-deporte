@@ -1,10 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Search } from 'lucide-react';
+import { Search, SlidersHorizontal } from 'lucide-react';
 import { apiTienda } from '@/lib/apiTienda';
 import { imagenCatalogo } from '@/lib/imagenCloudinary';
+import { EstadoFiltros, FiltrosPanel, Orden, contarFiltrosActivos, filtrosVacios } from '@/components/tienda/FiltrosPanel';
+
+interface VarianteTienda {
+  talla: { valor: string; orden?: number } | null;
+  color: string | null;
+  stockTotal: number;
+}
 
 interface ProductoTienda {
   id: number;
@@ -13,6 +20,7 @@ interface ProductoTienda {
   categoria: { nombre: string } | null;
   precioVenta: string;
   imagenes: { url: string }[];
+  variantes: VarianteTienda[];
   stockTotal: number;
 }
 
@@ -20,20 +28,67 @@ export default function TiendaCatalogoPage() {
   const [productos, setProductos] = useState<ProductoTienda[] | null>(null);
   const [q, setQ] = useState('');
   const [error, setError] = useState<string | null>(null);
-
-  async function cargar(busqueda?: string) {
-    try {
-      const query = busqueda ? `?q=${encodeURIComponent(busqueda)}` : '';
-      const data = await apiTienda<ProductoTienda[]>(`/tienda/productos${query}`);
-      setProductos(data);
-    } catch {
-      setError('No se pudo cargar el catálogo. Intenta de nuevo en un momento.');
-    }
-  }
+  const [panelAbierto, setPanelAbierto] = useState(false);
+  const [filtros, setFiltros] = useState<EstadoFiltros>(filtrosVacios());
+  const [orden, setOrden] = useState<Orden>('recientes');
 
   useEffect(() => {
-    cargar();
+    apiTienda<ProductoTienda[]>('/tienda/productos')
+      .then(setProductos)
+      .catch(() => setError('No se pudo cargar el catálogo. Intenta de nuevo en un momento.'));
   }, []);
+
+  // Opciones disponibles para cada filtro, calculadas a partir de lo que
+  // realmente hay en el catálogo (así nunca se muestra una opción vacía).
+  const facetas = useMemo(() => {
+    const marcas = new Set<string>();
+    const categorias = new Set<string>();
+    const tallas = new Map<string, number>();
+    const colores = new Set<string>();
+
+    productos?.forEach((p) => {
+      if (p.marca?.nombre) marcas.add(p.marca.nombre);
+      if (p.categoria?.nombre) categorias.add(p.categoria.nombre);
+      p.variantes?.forEach((v) => {
+        if (v.talla?.valor) tallas.set(v.talla.valor, v.talla.orden ?? 0);
+        if (v.color) colores.add(v.color);
+      });
+    });
+
+    return {
+      marcas: [...marcas].sort(),
+      categorias: [...categorias].sort(),
+      tallas: [...tallas.entries()].sort((a, b) => a[1] - b[1]).map(([valor]) => valor),
+      colores: [...colores].sort(),
+    };
+  }, [productos]);
+
+  const filtrados = useMemo(() => {
+    if (!productos) return null;
+    const texto = q.trim().toLowerCase();
+    const precioMin = filtros.precioMin ? Number(filtros.precioMin) : null;
+    const precioMax = filtros.precioMax ? Number(filtros.precioMax) : null;
+
+    const resultado = productos.filter((p) => {
+      if (texto && !p.nombre.toLowerCase().includes(texto)) return false;
+      if (filtros.categorias.size && !(p.categoria?.nombre && filtros.categorias.has(p.categoria.nombre))) return false;
+      if (filtros.marcas.size && !(p.marca?.nombre && filtros.marcas.has(p.marca.nombre))) return false;
+      if (filtros.tallas.size && !p.variantes?.some((v) => v.talla?.valor && v.stockTotal > 0 && filtros.tallas.has(v.talla.valor)))
+        return false;
+      if (filtros.colores.size && !p.variantes?.some((v) => v.color && filtros.colores.has(v.color))) return false;
+      const precio = Number(p.precioVenta);
+      if (precioMin != null && !Number.isNaN(precioMin) && precio < precioMin) return false;
+      if (precioMax != null && !Number.isNaN(precioMax) && precio > precioMax) return false;
+      return true;
+    });
+
+    if (orden === 'precioAsc') resultado.sort((a, b) => Number(a.precioVenta) - Number(b.precioVenta));
+    else if (orden === 'precioDesc') resultado.sort((a, b) => Number(b.precioVenta) - Number(a.precioVenta));
+
+    return resultado;
+  }, [productos, q, filtros, orden]);
+
+  const filtrosActivos = contarFiltrosActivos(filtros);
 
   return (
     <div>
@@ -43,13 +98,7 @@ export default function TiendaCatalogoPage() {
           <h1 className="text-2xl font-extrabold uppercase tracking-tight sm:text-3xl">Catálogo</h1>
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            cargar(q);
-          }}
-          className="relative w-full sm:w-72"
-        >
+        <div className="relative w-full sm:w-72">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             placeholder="Buscar productos"
@@ -57,17 +106,34 @@ export default function TiendaCatalogoPage() {
             onChange={(e) => setQ(e.target.value)}
             className="w-full rounded-full border border-border bg-secondary/60 py-3 pl-10 pr-4 text-sm outline-none focus:border-foreground"
           />
-        </form>
+        </div>
+      </div>
+
+      <div className="mb-5 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setPanelAbierto(true)}
+          className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold transition hover:border-foreground"
+        >
+          <SlidersHorizontal className="h-4 w-4" strokeWidth={1.75} />
+          Filtrar y ordenar
+          {filtrosActivos > 0 && (
+            <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-foreground px-1 text-[11px] font-bold text-background">
+              {filtrosActivos}
+            </span>
+          )}
+        </button>
+        {filtrados && <p className="text-xs text-muted-foreground">{filtrados.length} productos</p>}
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
       {productos === null && !error && <p className="text-sm text-muted-foreground">Cargando...</p>}
-      {productos && productos.length === 0 && (
-        <p className="text-sm text-muted-foreground">No hay productos disponibles por ahora.</p>
+      {filtrados && filtrados.length === 0 && (
+        <p className="text-sm text-muted-foreground">No hay productos que coincidan con tu búsqueda o filtros.</p>
       )}
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4">
-        {productos?.map((p) => (
+        {filtrados?.map((p) => (
           <Link key={p.id} href={`/tienda/productos/${p.id}`} className="group block">
             <div className="mb-3 aspect-square overflow-hidden rounded-2xl bg-secondary">
               {p.imagenes?.[0]?.url && (
@@ -85,6 +151,17 @@ export default function TiendaCatalogoPage() {
           </Link>
         ))}
       </div>
+
+      <FiltrosPanel
+        abierto={panelAbierto}
+        onClose={() => setPanelAbierto(false)}
+        facetas={facetas}
+        filtros={filtros}
+        setFiltros={setFiltros}
+        orden={orden}
+        setOrden={setOrden}
+        totalResultados={filtrados?.length ?? 0}
+      />
     </div>
   );
 }
