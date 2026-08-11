@@ -459,6 +459,30 @@ productos de calzado en Productos → "Ver variantes" y usar "+ Agregar talla"
 para completar las que falten, o volver a correr el Excel: ahora sí las
 agregará en vez de saltárselas.
 
+## Completar tallas de calzado en lote
+
+Productos → "Completar tallas de calzado" (`POST /productos/completar-tallas-calzado`)
+crea, para cada producto activo de la categoría "Calzado", las variantes de
+talla que le falten para tener todas las tallas del catálogo con
+`tipo = "calzado"` — pensado para no tener que dar de alta una por una con
+"+ Agregar talla" cuando la mayoría de tus productos comparten un solo SKU de
+fábrica para todo el rango de tallas.
+
+Cómo decide qué SKU/color ponerle a las tallas nuevas: mira las variantes que
+el producto ya tiene.
+- Si todas comparten el mismo SKU+color (el caso normal — un solo lote cubre
+  todo el rango), usa esa combinación para las tallas que falten.
+- Si el producto ya tiene más de una combinación SKU/color (modelos "By You"
+  custom con varios colores, o productos con más de un lote/SKU) o no tiene
+  ninguna variante todavía, **no se adivina nada: se omite** y aparece en el
+  reporte para agregarse a mano con "+ Agregar talla", igual que antes.
+
+Las variantes nuevas se crean sin ninguna fila de existencia (0 stock, en
+ninguna sucursal) — el flujo esperado es completar el catálogo de tallas
+aquí y cargar las cantidades reales después desde Inventario (que ya muestra
+un renglón placeholder en 0 para variantes sin stock todavía, listo para
+"+ Entrada").
+
 ## Fotos de producto: subida en lote por SKU y fotos por color
 
 Las fotos (`ProductoImagen`, tabla `producto_imagenes`) son parte de la

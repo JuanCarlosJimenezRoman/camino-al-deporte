@@ -228,6 +228,101 @@ router.post(
   })
 );
 
+// POST /productos/completar-tallas-calzado - de un jalón, crea las variantes
+// que le falten a cada producto de la categoría "Calzado" para tener las 13
+// tallas del catálogo (backend/prisma/seed.js las trae, o las que se hayan
+// agregado en Catálogos → Tallas), sin tocar las que ya existen.
+//
+// El SKU/color de las tallas nuevas se infiere del producto: si TODAS sus
+// variantes actuales comparten el mismo SKU+color (el caso normal — un solo
+// lote de fábrica cubre todas las tallas), esa combinación se usa para las
+// tallas que le faltan. Si el producto ya tiene más de una combinación
+// SKU/color (modelos "By You" custom con varios colores, productos con más
+// de un lote/SKU) no se adivina nada: se omite y queda para agregarse a mano
+// con "+ Agregar talla", como ya se hacía. Las variantes nuevas se crean SIN
+// existencia (0 stock, sin fila en ninguna sucursal) — el flujo esperado es
+// completar el catálogo aquí y cargar cantidades después desde Inventario.
+router.post(
+  '/completar-tallas-calzado',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  asyncHandler(async (req, res) => {
+    const tallasCalzado = await prisma.talla.findMany({
+      where: { tipo: { equals: 'calzado', mode: 'insensitive' } },
+      orderBy: { orden: 'asc' },
+    });
+    if (tallasCalzado.length === 0) {
+      return res.status(400).json({ error: 'No hay tallas de tipo "calzado" en el catálogo de tallas.' });
+    }
+
+    const productos = await prisma.producto.findMany({
+      where: { activo: true, categoria: { nombre: { equals: 'Calzado', mode: 'insensitive' } } },
+      include: { variantes: { where: { activo: true } } },
+      orderBy: { nombre: 'asc' },
+    });
+
+    const detalle = [];
+    let productosActualizados = 0;
+    let tallasCreadasTotal = 0;
+
+    await prisma.$transaction(
+      async (tx) => {
+        for (const producto of productos) {
+          const combos = new Map(); // `${sku}::${color??''}` -> { sku, color, proveedorId }
+          for (const v of producto.variantes) {
+            const clave = `${v.sku}::${v.color ?? ''}`;
+            if (!combos.has(clave)) combos.set(clave, { sku: v.sku, color: v.color, proveedorId: v.proveedorId });
+          }
+
+          if (combos.size === 0) {
+            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'omitido', motivo: 'No tiene ninguna variante todavía, no hay SKU del que partir.' });
+            continue;
+          }
+          if (combos.size > 1) {
+            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'omitido', motivo: 'Ya tiene más de un SKU/color distinto (caso especial) — agrégalas a mano.' });
+            continue;
+          }
+
+          const { sku, color, proveedorId } = [...combos.values()][0];
+          const tallaIdsExistentes = new Set(producto.variantes.map((v) => v.tallaId).filter((id) => id !== null));
+          const tallasFaltantes = tallasCalzado.filter((t) => !tallaIdsExistentes.has(t.id));
+
+          if (tallasFaltantes.length === 0) {
+            detalle.push({ productoId: producto.id, productoNombre: producto.nombre, estado: 'sin_cambios' });
+            continue;
+          }
+
+          const valoresAgregados = [];
+          for (const talla of tallasFaltantes) {
+            const codigoInterno = await generarCodigoInterno(tx, { sku, tallaValor: talla.valor, color });
+            await tx.productoVariante.create({
+              data: { productoId: producto.id, tallaId: talla.id, color, sku, proveedorId, codigoInterno },
+            });
+            valoresAgregados.push(talla.valor);
+          }
+
+          productosActualizados += 1;
+          tallasCreadasTotal += valoresAgregados.length;
+          detalle.push({
+            productoId: producto.id,
+            productoNombre: producto.nombre,
+            estado: 'actualizado',
+            tallasAgregadas: valoresAgregados,
+          });
+        }
+      },
+      { timeout: 60000 }
+    );
+
+    res.json({
+      productosRevisados: productos.length,
+      productosActualizados,
+      tallasCreadasTotal,
+      detalle,
+    });
+  })
+);
+
 // PUT /productos/:id/variantes/:varianteId - editar una variante existente.
 // Pensado sobre todo para poder asignar/cambiar el proveedor de un SKU que
 // ya existe (dar de alta el catálogo y clasificarlo por proveedor son pasos

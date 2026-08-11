@@ -61,6 +61,21 @@ interface Proveedor {
   nombre: string;
 }
 
+interface DetalleCompletarTallas {
+  productoId: number;
+  productoNombre: string;
+  estado: 'actualizado' | 'sin_cambios' | 'omitido';
+  tallasAgregadas?: string[];
+  motivo?: string;
+}
+
+interface ResultadoCompletarTallas {
+  productosRevisados: number;
+  productosActualizados: number;
+  tallasCreadasTotal: number;
+  detalle: DetalleCompletarTallas[];
+}
+
 interface VarianteForm {
   tallaId: string;
   color: string;
@@ -114,6 +129,13 @@ export default function ProductosPage() {
   const [filtroCategoriaId, setFiltroCategoriaId] = useState('');
   const [filtroModeloId, setFiltroModeloId] = useState('');
   const [filtroTallaId, setFiltroTallaId] = useState('');
+
+  // "Completar tallas de calzado": crea de un jalón las variantes de talla
+  // que le falten a cada producto de Calzado (partiendo de su SKU/color
+  // actual), para no tener que dar de alta una por una con "+ Agregar
+  // talla". El resultado se muestra en un reporte por producto.
+  const [completandoTallas, setCompletandoTallas] = useState(false);
+  const [resultadoCompletarTallas, setResultadoCompletarTallas] = useState<ResultadoCompletarTallas | null>(null);
 
   // Campos del nuevo producto
   const [nombre, setNombre] = useState('');
@@ -277,6 +299,27 @@ export default function ProductosPage() {
     }
   }
 
+  async function completarTallasCalzado() {
+    if (
+      !window.confirm(
+        'Esto va a crear, para cada producto de Calzado, las tallas que le falten (usando su SKU/color actual), sin stock. Los productos con más de un SKU/color se van a omitir. ¿Continuar?'
+      )
+    )
+      return;
+    setCompletandoTallas(true);
+    setResultadoCompletarTallas(null);
+    setMensaje(null);
+    try {
+      const data = await api<ResultadoCompletarTallas>('/productos/completar-tallas-calzado', { method: 'POST' });
+      setResultadoCompletarTallas(data);
+      cargarProductos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al completar las tallas.');
+    } finally {
+      setCompletandoTallas(false);
+    }
+  }
+
   // Dar de alta una talla/color nueva en un producto que ya existe (por
   // ejemplo, llegó una talla que no se había registrado). Antes solo se podía
   // definir variantes al crear el producto o re-subiendo un Excel; el
@@ -406,6 +449,9 @@ export default function ProductosPage() {
             <Link href="/dashboard/productos/fotos" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
               Subir fotos por SKU
             </Link>
+            <button className="btn-secondary btn" onClick={completarTallasCalzado} disabled={completandoTallas}>
+              {completandoTallas ? 'Completando...' : 'Completar tallas de calzado'}
+            </button>
             <button className="btn" onClick={() => (mostrarForm ? setMostrarForm(false) : abrirFormulario())}>
               {mostrarForm ? 'Cerrar' : '+ Nuevo producto'}
             </button>
@@ -606,6 +652,52 @@ export default function ProductosPage() {
           </button>
         )}
       </div>
+
+      {resultadoCompletarTallas && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <h2 style={{ fontSize: 15 }}>Completar tallas de calzado — resultado</h2>
+            <button className="btn-secondary btn" onClick={() => setResultadoCompletarTallas(null)}>
+              Cerrar
+            </button>
+          </div>
+          <p style={{ fontSize: 14, marginBottom: 10 }}>
+            {resultadoCompletarTallas.productosRevisados} productos de Calzado revisados ·{' '}
+            <strong style={{ color: '#1a7d36' }}>
+              {resultadoCompletarTallas.productosActualizados} actualizados
+            </strong>{' '}
+            ({resultadoCompletarTallas.tallasCreadasTotal} tallas nuevas en total)
+          </p>
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Resultado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resultadoCompletarTallas.detalle.map((d) => (
+                  <tr key={d.productoId}>
+                    <td>{d.productoNombre}</td>
+                    <td style={{ fontSize: 12 }}>
+                      {d.estado === 'actualizado' && (
+                        <span style={{ color: '#1a7d36' }}>
+                          Tallas agregadas: {d.tallasAgregadas?.join(', ')}
+                        </span>
+                      )}
+                      {d.estado === 'sin_cambios' && (
+                        <span style={{ color: 'var(--color-muted)' }}>Ya tenía todas las tallas</span>
+                      )}
+                      {d.estado === 'omitido' && <span style={{ color: '#a06a00' }}>Omitido — {d.motivo}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {cargando ? (
         <p>Cargando...</p>
