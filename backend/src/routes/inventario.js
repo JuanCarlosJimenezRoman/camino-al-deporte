@@ -44,15 +44,25 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
 // "por defecto" (asignado en Productos) aunque todavía no tengan nada
 // cargado ahí — así el filtro también sirve para ver qué le toca surtir a
 // ese proveedor, no solo lo que ya se registró.
+//
+// ?marcaId= ?categoriaId= ?modeloId= filtran por esos campos del producto.
+// ?tallaId= filtra directo por la talla de la variante — para poder ver de
+// un vistazo qué hay disponible, por ejemplo, en el número 27.
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
-  const { skuOProducto, sucursalId, proveedorId } = req.query;
+  const { skuOProducto, sucursalId, proveedorId, marcaId, categoriaId, modeloId, tallaId } = req.query;
   if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
   const filtroProveedorId = proveedorId ? Number(proveedorId) : null;
 
   const variantes = await prisma.productoVariante.findMany({
     where: {
       activo: true,
-      producto: { activo: true },
+      producto: {
+        activo: true,
+        ...(marcaId ? { marcaId: Number(marcaId) } : {}),
+        ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
+        ...(modeloId ? { modeloId: Number(modeloId) } : {}),
+      },
+      ...(tallaId ? { tallaId: Number(tallaId) } : {}),
       ...(skuOProducto
         ? {
             OR: [

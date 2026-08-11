@@ -20,6 +20,25 @@ interface Proveedor {
   nombre: string;
 }
 
+interface Marca {
+  id: number;
+  nombre: string;
+}
+interface Modelo {
+  id: number;
+  nombre: string;
+  marcaId: number;
+}
+interface Categoria {
+  id: number;
+  nombre: string;
+}
+interface Talla {
+  id: number;
+  valor: string;
+  tipo: string;
+}
+
 // Desde que el stock se separa por proveedor, el backend ya no manda un
 // renglón por variante: manda un renglón por (variante, proveedor) — si dos
 // proveedores surten la misma talla en esta sucursal, llegan dos renglones
@@ -61,6 +80,17 @@ export default function InventarioPage() {
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [existencias, setExistencias] = useState<Existencia[]>([]);
   const [busqueda, setBusqueda] = useState('');
+
+  // Catálogos y filtros extra para encontrar más rápido qué tallas/marcas/
+  // modelos hay disponibles, además de la búsqueda por texto y el proveedor.
+  const [marcas, setMarcas] = useState<Marca[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [tallas, setTallas] = useState<Talla[]>([]);
+  const [modelosFiltro, setModelosFiltro] = useState<Modelo[]>([]);
+  const [marcaFiltro, setMarcaFiltro] = useState('');
+  const [categoriaFiltro, setCategoriaFiltro] = useState('');
+  const [modeloFiltro, setModeloFiltro] = useState('');
+  const [tallaFiltro, setTallaFiltro] = useState('');
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [entradaVarianteId, setEntradaVarianteId] = useState<number | null>(null);
   const [entradaCantidad, setEntradaCantidad] = useState('1');
@@ -78,14 +108,30 @@ export default function InventarioPage() {
       setSucursalId(inicial);
     });
     api<Proveedor[]>('/proveedores').then(setProveedores).catch(() => {});
+    api<Marca[]>('/catalogos/marcas').then(setMarcas);
+    api<Categoria[]>('/catalogos/categorias').then(setCategorias);
+    api<Talla[]>('/catalogos/tallas').then(setTallas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Los modelos del filtro dependen de la marca elegida (si no hay ninguna,
+  // se listan todos). Al cambiar de marca se limpia el modelo elegido, por
+  // si ya no pertenece a la marca nueva.
+  useEffect(() => {
+    api<Modelo[]>(`/catalogos/modelos${marcaFiltro ? `?marcaId=${marcaFiltro}` : ''}`).then(setModelosFiltro);
+    setModeloFiltro('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marcaFiltro]);
 
   async function cargar() {
     if (!sucursalId) return;
     const qs = new URLSearchParams({ sucursalId });
     if (busqueda) qs.set('skuOProducto', busqueda);
     if (proveedorFiltro) qs.set('proveedorId', proveedorFiltro);
+    if (marcaFiltro) qs.set('marcaId', marcaFiltro);
+    if (categoriaFiltro) qs.set('categoriaId', categoriaFiltro);
+    if (modeloFiltro) qs.set('modeloId', modeloFiltro);
+    if (tallaFiltro) qs.set('tallaId', tallaFiltro);
     const data = await api<Existencia[]>(`/inventario/existencias?${qs.toString()}`);
     setExistencias(data);
   }
@@ -93,7 +139,7 @@ export default function InventarioPage() {
   useEffect(() => {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sucursalId, proveedorFiltro]);
+  }, [sucursalId, proveedorFiltro, marcaFiltro, categoriaFiltro, modeloFiltro, tallaFiltro]);
 
   // Preselecciona el proveedor "por defecto" de la variante (el que se le
   // asignó en Productos). Antes siempre arrancaba en "Sin proveedor" y, si el
@@ -220,6 +266,59 @@ export default function InventarioPage() {
         <button className="btn" onClick={cargar}>
           Buscar
         </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={marcaFiltro} onChange={(e) => setMarcaFiltro(e.target.value)} style={{ maxWidth: 170 }}>
+          <option value="">Todas las marcas</option>
+          {marcas.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nombre}
+            </option>
+          ))}
+        </select>
+        <select
+          value={modeloFiltro}
+          onChange={(e) => setModeloFiltro(e.target.value)}
+          disabled={modelosFiltro.length === 0}
+          style={{ maxWidth: 170 }}
+        >
+          <option value="">Todos los modelos</option>
+          {modelosFiltro.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nombre}
+            </option>
+          ))}
+        </select>
+        <select value={categoriaFiltro} onChange={(e) => setCategoriaFiltro(e.target.value)} style={{ maxWidth: 170 }}>
+          <option value="">Todas las categorías</option>
+          {categorias.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nombre}
+            </option>
+          ))}
+        </select>
+        <select value={tallaFiltro} onChange={(e) => setTallaFiltro(e.target.value)} style={{ maxWidth: 170 }}>
+          <option value="">Todas las tallas</option>
+          {tallas.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.tipo}: {t.valor}
+            </option>
+          ))}
+        </select>
+        {(marcaFiltro || categoriaFiltro || modeloFiltro || tallaFiltro) && (
+          <button
+            className="btn-secondary btn"
+            onClick={() => {
+              setMarcaFiltro('');
+              setCategoriaFiltro('');
+              setModeloFiltro('');
+              setTallaFiltro('');
+            }}
+          >
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
       {mensaje && <p style={{ marginBottom: 12, fontSize: 13 }}>{mensaje}</p>}

@@ -32,14 +32,21 @@ const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orde
 router.use('/', require('./productosImportExport'));
 
 // GET /productos - todos los roles autenticados pueden consultar
+// ?marcaId= ?categoriaId= ?modeloId= filtran por esos campos directos del
+// producto. ?tallaId= es distinto: la talla vive en la variante, no en el
+// producto, así que filtra a los productos que tengan AL MENOS una variante
+// activa con esa talla (para poder responder rápido "qué productos hay
+// disponibles en el número 27", por ejemplo).
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, q } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, q } = req.query;
 
   const productos = await prisma.producto.findMany({
     where: {
       activo: true,
       ...(marcaId ? { marcaId: Number(marcaId) } : {}),
       ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
+      ...(modeloId ? { modeloId: Number(modeloId) } : {}),
+      ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
       ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
     },
     include: {

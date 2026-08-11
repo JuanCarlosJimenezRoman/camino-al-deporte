@@ -38,6 +38,11 @@ interface Marca {
   id: number;
   nombre: string;
 }
+interface Modelo {
+  id: number;
+  nombre: string;
+  marcaId: number;
+}
 interface Categoria {
   id: number;
   nombre: string;
@@ -94,12 +99,21 @@ export default function ProductosPage() {
   const [editVarianteForm, setEditVarianteForm] = useState<EditVarianteForm>({ tallaId: '', color: '', sku: '' });
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
-  // Catálogos para el formulario de alta
+  // Catálogos para el formulario de alta y para los filtros del listado
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tallas, setTallas] = useState<Talla[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  // Modelos del filtro: dependen de la marca elegida en el filtro (no del
+  // formulario de alta), se recargan cada vez que cambia esa marca.
+  const [modelosFiltro, setModelosFiltro] = useState<Modelo[]>([]);
+
+  // Filtros del listado (además de la búsqueda por texto que ya existía)
+  const [filtroMarcaId, setFiltroMarcaId] = useState('');
+  const [filtroCategoriaId, setFiltroCategoriaId] = useState('');
+  const [filtroModeloId, setFiltroModeloId] = useState('');
+  const [filtroTallaId, setFiltroTallaId] = useState('');
 
   // Campos del nuevo producto
   const [nombre, setNombre] = useState('');
@@ -114,28 +128,48 @@ export default function ProductosPage() {
 
   async function cargarProductos() {
     setCargando(true);
-    const data = await api<Producto[]>(`/productos${busqueda ? `?q=${encodeURIComponent(busqueda)}` : ''}`);
+    const qs = new URLSearchParams();
+    if (busqueda) qs.set('q', busqueda);
+    if (filtroMarcaId) qs.set('marcaId', filtroMarcaId);
+    if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
+    if (filtroModeloId) qs.set('modeloId', filtroModeloId);
+    if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    const data = await api<Producto[]>(`/productos${qs.toString() ? `?${qs.toString()}` : ''}`);
     setProductos(data);
     setCargando(false);
   }
 
   useEffect(() => {
-    cargarProductos();
+    // Marca/categoría/talla se cargan de una vez al entrar a la página: ya
+    // no son solo del formulario de alta, también alimentan los filtros del
+    // listado.
+    api<Marca[]>('/catalogos/marcas').then(setMarcas);
+    api<Categoria[]>('/catalogos/categorias').then(setCategorias);
+    api<Talla[]>('/catalogos/tallas').then(setTallas);
     api<Proveedor[]>('/proveedores').then(setProveedores);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Un solo efecto controla la carga del listado: se dispara al entrar y
+  // cada vez que cambia alguno de los filtros de selección (igual que en
+  // Inventario); la búsqueda por texto sigue siendo manual (botón/Enter).
+  useEffect(() => {
+    cargarProductos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId]);
+
+  // Los modelos del filtro dependen de la marca elegida ahí (si no hay
+  // ninguna, se listan todos). Al cambiar la marca del filtro se limpia el
+  // modelo elegido, porque puede que ya no pertenezca a la marca nueva.
+  useEffect(() => {
+    api<Modelo[]>(`/catalogos/modelos${filtroMarcaId ? `?marcaId=${filtroMarcaId}` : ''}`).then(setModelosFiltro);
+    setFiltroModeloId('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroMarcaId]);
+
   async function abrirFormulario() {
-    if (marcas.length === 0) {
-      const [m, c, t, s] = await Promise.all([
-        api<Marca[]>('/catalogos/marcas'),
-        api<Categoria[]>('/catalogos/categorias'),
-        api<Talla[]>('/catalogos/tallas'),
-        api<Sucursal[]>('/sucursales'),
-      ]);
-      setMarcas(m);
-      setCategorias(c);
-      setTallas(t);
+    if (sucursales.length === 0) {
+      const s = await api<Sucursal[]>('/sucursales');
       setSucursales(s);
       setSucursalStockId(usuario?.sucursalId ? String(usuario.sucursalId) : s[0] ? String(s[0].id) : '');
     }
@@ -485,16 +519,70 @@ export default function ProductosPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <input
           placeholder="Buscar por nombre..."
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && cargarProductos()}
+          style={{ maxWidth: 240 }}
         />
         <button className="btn" onClick={cargarProductos}>
           Buscar
         </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={filtroMarcaId} onChange={(e) => setFiltroMarcaId(e.target.value)} style={{ maxWidth: 170 }}>
+          <option value="">Todas las marcas</option>
+          {marcas.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nombre}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filtroModeloId}
+          onChange={(e) => setFiltroModeloId(e.target.value)}
+          disabled={modelosFiltro.length === 0}
+          style={{ maxWidth: 170 }}
+        >
+          <option value="">Todos los modelos</option>
+          {modelosFiltro.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.nombre}
+            </option>
+          ))}
+        </select>
+        <select value={filtroCategoriaId} onChange={(e) => setFiltroCategoriaId(e.target.value)} style={{ maxWidth: 170 }}>
+          <option value="">Todas las categorías</option>
+          {categorias.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nombre}
+            </option>
+          ))}
+        </select>
+        <select value={filtroTallaId} onChange={(e) => setFiltroTallaId(e.target.value)} style={{ maxWidth: 170 }}>
+          <option value="">Todas las tallas</option>
+          {tallas.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.tipo}: {t.valor}
+            </option>
+          ))}
+        </select>
+        {(filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId) && (
+          <button
+            className="btn-secondary btn"
+            onClick={() => {
+              setFiltroMarcaId('');
+              setFiltroCategoriaId('');
+              setFiltroModeloId('');
+              setFiltroTallaId('');
+            }}
+          >
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
       {cargando ? (
