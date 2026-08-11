@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { useCarrito } from '@/lib/carrito';
 import { Stepper, claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
+import { imagenProducto, imagenMiniatura } from '@/lib/imagenCloudinary';
 
 interface Variante {
   id: number;
@@ -100,7 +101,7 @@ export default function ProductoDetallePage() {
               <div key={i} className="aspect-square w-full shrink-0 snap-center">
                 {img.url && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={img.url} alt={producto.nombre} className="h-full w-full object-cover" />
+                  <img src={imagenProducto(img.url)} alt={producto.nombre} className="h-full w-full object-cover" />
                 )}
               </div>
             ))}
@@ -127,7 +128,7 @@ export default function ProductoDetallePage() {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={img.url}
-                  src={img.url}
+                  src={imagenMiniatura(img.url)}
                   alt=""
                   onClick={() => irAImagen(i)}
                   className={`h-16 w-16 cursor-pointer rounded-lg object-cover ${
