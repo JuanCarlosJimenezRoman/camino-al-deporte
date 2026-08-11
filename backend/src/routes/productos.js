@@ -297,6 +297,68 @@ router.post(
   })
 );
 
+// POST /productos/fotos-por-sku - sube una foto identificando el producto por
+// el SKU de fábrica del archivo (multipart/form-data, campos "sku" e
+// "imagen"). Pensado para subir en lote fotos de una carpeta local
+// etiquetada por SKU, sin tener que buscar cada producto a mano uno por uno.
+//
+// El SKU de fábrica ya no es único por variante (se repite entre tallas del
+// mismo lote — ver docs/ARQUITECTURA.md), pero todas las variantes con ese
+// mismo SKU deberían pertenecer al mismo producto. Si por algún error de
+// captura el mismo texto de SKU quedó repetido en dos productos distintos,
+// no se adivina a cuál va la foto: se responde 409 con la lista de
+// productos para que se resuelva a mano.
+router.post(
+  '/fotos-por-sku',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  (req, res, next) => {
+    upload.single('imagen')(req, res, (err) => {
+      if (err) {
+        if (err.message === 'SOLO_IMAGENES') return res.status(400).json({ error: 'El archivo debe ser una imagen.' });
+        if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'La imagen no puede pesar más de 5 MB.' });
+        return res.status(400).json({ error: 'No se pudo procesar el archivo.' });
+      }
+      next();
+    });
+  },
+  asyncHandler(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Falta el archivo de imagen (campo "imagen").' });
+    const sku = String(req.body.sku || '').trim();
+    if (!sku) return res.status(400).json({ error: 'Falta el SKU (campo "sku").' });
+
+    const variantes = await prisma.productoVariante.findMany({
+      where: { sku: { equals: sku, mode: 'insensitive' }, activo: true, producto: { activo: true } },
+      select: { productoId: true, producto: { select: { id: true, nombre: true } } },
+    });
+
+    if (variantes.length === 0) {
+      return res.status(404).json({ error: `No se encontró ningún producto con el SKU "${sku}".` });
+    }
+
+    const productosDistintos = new Map();
+    for (const v of variantes) productosDistintos.set(v.productoId, v.producto.nombre);
+
+    if (productosDistintos.size > 1) {
+      const nombres = Array.from(productosDistintos.values()).join(', ');
+      return res.status(409).json({
+        error: `El SKU "${sku}" está repetido en más de un producto (${nombres}), no se puede saber a cuál va la foto.`,
+        productos: Array.from(productosDistintos, ([id, nombre]) => ({ id, nombre })),
+      });
+    }
+
+    const [[productoId, productoNombre]] = productosDistintos;
+
+    const { url, publicId } = await subirImagen(req.file.buffer);
+    const esPrimera = (await prisma.productoImagen.count({ where: { productoId } })) === 0;
+    const imagen = await prisma.productoImagen.create({
+      data: { productoId, url, publicId, esPrincipal: esPrimera },
+    });
+
+    res.status(201).json({ ...imagen, productoId, productoNombre });
+  })
+);
+
 // PUT /productos/:id/imagenes/:imagenId/principal - marcarla como foto de portada
 router.put(
   '/:id/imagenes/:imagenId/principal',

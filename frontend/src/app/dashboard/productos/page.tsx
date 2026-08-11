@@ -347,6 +347,9 @@ export default function ProductosPage() {
             <Link href="/dashboard/productos/importar" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
               Importar / exportar Excel
             </Link>
+            <Link href="/dashboard/productos/fotos" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
+              Subir fotos por SKU
+            </Link>
             <button className="btn" onClick={() => (mostrarForm ? setMostrarForm(false) : abrirFormulario())}>
               {mostrarForm ? 'Cerrar' : '+ Nuevo producto'}
             </button>
