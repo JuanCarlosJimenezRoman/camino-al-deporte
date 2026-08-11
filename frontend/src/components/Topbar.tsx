@@ -56,7 +56,7 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
 
   return (
     <header className="flex h-16 items-center gap-2 sm:gap-3 border-b border-border bg-card px-3 sm:px-6 sticky top-0 z-30">
-      <Button variant="ghost" size="icon" onClick={onOpenMobileMenu} className="lg:hidden">
+      <Button variant="ghost" size="icon" onClick={onOpenMobileMenu} className="md:hidden">
         <Menu className="w-4 h-4" />
       </Button>
 

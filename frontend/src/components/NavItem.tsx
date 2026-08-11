@@ -28,14 +28,14 @@ export function NavItem({
       title={collapsed ? String(children) : undefined}
       className={cn(
         'flex items-center gap-3 rounded-lg px-3 h-9 text-sm font-medium transition-colors mb-0.5',
-        collapsed && 'lg:justify-center lg:px-0',
+        collapsed && 'md:justify-center md:px-0',
         activo
           ? 'bg-sidebar-primary text-sidebar-primary-foreground'
           : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground'
       )}
     >
       {Icon && <Icon className="w-4 h-4 shrink-0" />}
-      <span className={cn('truncate', collapsed && 'lg:hidden')}>{children}</span>
+      <span className={cn('truncate', collapsed && 'md:hidden')}>{children}</span>
     </Link>
   );
 }

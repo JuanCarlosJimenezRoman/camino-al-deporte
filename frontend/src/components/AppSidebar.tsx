@@ -96,7 +96,7 @@ export function AppSidebar({
       {/* Fondo oscuro detrás del menú cuando está abierto en móvil */}
       <div
         onClick={onCloseMobile}
-        className={`fixed inset-0 z-40 bg-black/40 transition-opacity lg:hidden ${
+        className={`fixed inset-0 z-40 bg-black/40 transition-opacity md:hidden ${
           mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         aria-hidden="true"
@@ -105,9 +105,9 @@ export function AppSidebar({
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-64 transform bg-sidebar text-sidebar-foreground
           border-r border-sidebar-border flex flex-col transition-transform duration-200
-          lg:static lg:translate-x-0 lg:z-auto lg:transition-[width] lg:duration-200
+          md:sticky md:top-0 md:h-screen md:translate-x-0 md:z-auto md:transition-[width] md:duration-200
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
-          ${collapsed ? 'lg:w-16' : 'lg:w-64'}`}
+          ${collapsed ? 'md:w-16' : 'md:w-64'}`}
       >
         <div className="flex items-center justify-between h-16 px-3 border-b border-sidebar-border">
           <div className="flex items-center gap-2.5 overflow-hidden">
@@ -117,11 +117,11 @@ export function AppSidebar({
               alt="Camino al Deporte"
               className="w-8 h-8 rounded-md object-cover shrink-0 border border-sidebar-border"
             />
-            <span className={`font-semibold text-sm leading-tight truncate ${collapsed ? 'lg:hidden' : ''}`}>
+            <span className={`font-semibold text-sm leading-tight truncate ${collapsed ? 'md:hidden' : ''}`}>
               Camino al Deporte
             </span>
           </div>
-          <button onClick={onCloseMobile} className="lg:hidden p-1.5 rounded-md hover:bg-sidebar-accent">
+          <button onClick={onCloseMobile} className="md:hidden p-1.5 rounded-md hover:bg-sidebar-accent">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -131,7 +131,7 @@ export function AppSidebar({
             <div key={seccion.titulo} className="mb-4">
               <div
                 className={`px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/40 ${
-                  collapsed ? 'lg:hidden' : ''
+                  collapsed ? 'md:hidden' : ''
                 }`}
               >
                 {seccion.titulo}
@@ -151,7 +151,7 @@ export function AppSidebar({
           ))}
         </nav>
 
-        <div className="border-t border-sidebar-border p-2 hidden lg:block">
+        <div className="border-t border-sidebar-border p-2 hidden md:block">
           <button
             onClick={onToggleCollapse}
             className="w-full flex items-center gap-3 rounded-lg px-3 h-9 text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
