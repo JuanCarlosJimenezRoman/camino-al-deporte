@@ -54,6 +54,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       modelo: true,
       categoria: true,
       variantes: {
+        where: { activo: true },
         include: {
           talla: true,
           proveedor: { select: { id: true, nombre: true } },
@@ -76,6 +77,7 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
       modelo: true,
       categoria: true,
       variantes: {
+        where: { activo: true },
         include: {
           talla: true,
           proveedor: { select: { id: true, nombre: true } },

@@ -255,6 +255,28 @@ export default function ProductosPage() {
     }
   }
 
+  // "Eliminar" una variante no la borra físicamente: la desactiva
+  // (activo: false), igual que se hace con productos completos. Es más
+  // seguro que un borrado real (no rompe historial de movimientos/ventas que
+  // ya la referencian) y el efecto visible es el mismo: deja de aparecer
+  // aquí, en Inventario y en la tienda en línea (los tres ya filtran por
+  // variantes activas). Pensado sobre todo para variantes "fantasma" creadas
+  // sin talla/color por error, que se quedaban mostrándose como agotadas en
+  // el selector de tallas de la tienda.
+  async function eliminarVariante(productoId: number, varianteId: number) {
+    if (!window.confirm('¿Eliminar esta variante? Ya no aparecerá en Inventario ni en la tienda en línea.')) return;
+    try {
+      await api(`/productos/${productoId}/variantes/${varianteId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ activo: false }),
+      });
+      setMensaje('Variante eliminada.');
+      cargarProductos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al eliminar la variante.');
+    }
+  }
+
   // Dar de alta una talla/color nueva en un producto que ya existe (por
   // ejemplo, llegó una talla que no se había registrado). Antes solo se podía
   // definir variantes al crear el producto o re-subiendo un Excel; el
@@ -783,13 +805,20 @@ export default function ProductosPage() {
                                     )}
                                   </td>
                                   {puedeCrear && (
-                                    <td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
                                       <button
                                         className="btn-secondary btn"
-                                        style={{ fontSize: 11, padding: '3px 10px' }}
+                                        style={{ fontSize: 11, padding: '3px 10px', marginRight: 4 }}
                                         onClick={() => abrirEditarVariante(v)}
                                       >
                                         Editar
+                                      </button>
+                                      <button
+                                        className="btn-secondary btn"
+                                        style={{ fontSize: 11, padding: '3px 10px' }}
+                                        onClick={() => eliminarVariante(p.id, v.id)}
+                                      >
+                                        Eliminar
                                       </button>
                                     </td>
                                   )}
