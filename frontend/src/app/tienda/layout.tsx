@@ -38,8 +38,10 @@ function Header() {
             <Menu className="h-6 w-6" strokeWidth={1.75} />
           </button>
 
-          <Link href="/tienda" className="text-sm font-extrabold uppercase tracking-tight sm:text-base">
-            Camino al Deporte
+          <Link href="/tienda" className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-full ring-1 ring-border sm:h-8 sm:w-8" />
+            <span className="text-sm font-extrabold uppercase tracking-tight sm:text-base">Camino al Deporte</span>
           </Link>
 
           <nav className="hidden items-center gap-8 text-sm font-medium md:flex">
