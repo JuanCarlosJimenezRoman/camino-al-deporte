@@ -9,20 +9,21 @@ function conTransformacion(url: string | undefined, transformacion: string): str
   return url.replace('/upload/', `/upload/${transformacion}/`);
 }
 
-// Miniaturas de catálogo: recorta a cuadro centrando el producto de forma
-// automática (IA de Cloudinary detecta el sujeto), para que todas las fotos
-// llenen el marco de forma pareja sin importar cómo fue tomada la original.
+// Miniaturas de catálogo: NUNCA recorta (muchas fotos de producto son casi
+// panorámicas, ej. tenis de perfil en foto 4:3, y ya llenan el cuadro de
+// lado a lado — recortar a 1:1 corta el producto o lo descentra). En vez de
+// eso, se agrega relleno blanco hasta completar el cuadro: el producto
+// siempre se ve completo y centrado, aunque a veces un poco más chico.
 export function imagenCatalogo(url: string | undefined, ancho = 600): string | undefined {
-  return conTransformacion(url, `c_fill,g_auto,ar_1:1,w_${ancho},q_auto,f_auto`);
+  return conTransformacion(url, `c_pad,b_white,ar_1:1,w_${ancho},q_auto,f_auto`);
 }
 
-// Foto principal de producto: nunca recorta (para no cortar el producto),
-// solo agrega relleno blanco hasta completar el cuadro y pareja el tamaño.
+// Foto principal de producto: mismo criterio, nunca recorta.
 export function imagenProducto(url: string | undefined, ancho = 1200): string | undefined {
   return conTransformacion(url, `c_pad,b_white,ar_1:1,w_${ancho},q_auto,f_auto`);
 }
 
-// Miniaturas pequeñas (galería/carrito): igual que catálogo pero más chicas.
+// Miniaturas pequeñas (galería/carrito): igual, sin recorte.
 export function imagenMiniatura(url: string | undefined, ancho = 200): string | undefined {
-  return conTransformacion(url, `c_fill,g_auto,ar_1:1,w_${ancho},q_auto,f_auto`);
+  return conTransformacion(url, `c_pad,b_white,ar_1:1,w_${ancho},q_auto,f_auto`);
 }
