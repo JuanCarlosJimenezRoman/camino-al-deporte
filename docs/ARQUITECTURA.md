@@ -441,7 +441,13 @@ Comportamiento al importar:
   estaba en el sistema de antes o porque se repite dentro del mismo archivo.
   El motivo mostrado en la vista previa distingue ambos casos.
 - Si la marca/categoría/talla que trae la fila no existen todavía, se crean
-  solas.
+  solas — incluida la combinación `(talla, tipo_talla)`: si en la columna
+  `tipo_talla` pones un código que no está en el catálogo (ver sección de
+  tallas segmentadas más abajo: `TD`/`PS`/`GS`/`WMNS`/`MENS` para calzado,
+  `ropa` para ropa), se crea una categoría nueva con ese nombre tal cual. Si
+  se deja en blanco, la talla queda con tipo `"general"`, que no participa en
+  "Completar tallas de calzado" ni en la guía de tallas de la tienda en
+  línea — para calzado conviene siempre llenarlo con el código correcto.
 - Si el nombre+marca de una fila coincide con un producto que ya existe, no
   se duplica: se le agrega la variante nueva (por ejemplo, para dar de alta
   una talla nueva de un producto que ya tenías, aunque comparta SKU con otra
