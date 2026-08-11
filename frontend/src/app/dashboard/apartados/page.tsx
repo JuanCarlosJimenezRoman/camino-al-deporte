@@ -33,8 +33,13 @@ interface Existencia {
   variante: {
     id: number;
     sku: string;
+    color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; precioVenta: string; imagenes?: { url: string }[] };
+    producto: {
+      nombre: string;
+      precioVenta: string;
+      imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[];
+    };
   };
 }
 
@@ -72,8 +77,9 @@ interface ApartadoItem {
   subtotal: string;
   variante: {
     sku: string;
+    color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; imagenes?: { url: string }[] };
+    producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
   };
   sucursalStock?: { nombre: string };
 }
@@ -353,7 +359,10 @@ function ApartadoFila({
                   {apartado.items.map((it) => (
                     <tr key={it.id}>
                       <td>
-                        <ProductoThumb url={imagenPrincipal(it.variante.producto)} alt={it.variante.producto.nombre} />
+                        <ProductoThumb
+                          url={imagenPrincipal(it.variante.producto, it.variante.color)}
+                          alt={it.variante.producto.nombre}
+                        />
                       </td>
                       <td>{it.variante.sku}</td>
                       <td>{it.variante.producto.nombre}</td>
@@ -557,7 +566,7 @@ function NuevoApartadoForm({
         descripcion: `${existencia.variante.producto.nombre} ${
           existencia.variante.talla ? `(${existencia.variante.talla.valor})` : ''
         } — ${existencia.variante.sku} — ${existencia.proveedor?.nombre ?? 'sin proveedor'}`,
-        imagenUrl: imagenPrincipal(existencia.variante.producto),
+        imagenUrl: imagenPrincipal(existencia.variante.producto, existencia.variante.color),
         cantidad,
         precioUnitario: Number(existencia.variante.producto.precioVenta),
       },
@@ -748,7 +757,10 @@ function NuevoApartadoForm({
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {existenciaKey && (
               <ProductoThumb
-                url={imagenPrincipal(existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto)}
+                url={imagenPrincipal(
+                  existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto,
+                  existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.color
+                )}
                 alt=""
                 size={32}
               />

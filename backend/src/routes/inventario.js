@@ -9,11 +9,16 @@ const router = express.Router();
 
 const ROLES_INVENTARIO = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
 
-// Solo la foto principal (o la primera si no hay ninguna marcada como
-// principal), para no mandar la galería completa en listados donde solo se
-// necesita una miniatura.
+// Manda la galería completa (solo url/color/esPrincipal, sin publicId ni
+// fechas) en vez de una sola foto: como una foto puede estar etiquetada para
+// un color de variante específico (ver ProductoImagen.color), el frontend
+// necesita ver todas para elegir la que corresponde al color de cada
+// renglón, no solo la portada general del producto.
 const IMAGEN_PRINCIPAL_INCLUDE = {
-  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+  imagenes: {
+    orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }],
+    select: { url: true, color: true, esPrincipal: true },
+  },
 };
 
 // GET /inventario/existencias?sucursalId=&proveedorId= - consulta de stock

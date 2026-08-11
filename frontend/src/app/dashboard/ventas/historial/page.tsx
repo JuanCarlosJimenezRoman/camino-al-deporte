@@ -13,8 +13,9 @@ interface Sucursal {
 
 interface VentaItem {
   variante: {
+    color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; imagenes?: { url: string }[] };
+    producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
   };
 }
 
@@ -162,7 +163,10 @@ export default function HistorialVentasPage() {
                 return (
                   <tr key={v.id}>
                     <td>
-                      <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto)} alt={primerItem?.variante.producto.nombre || ''} />
+                      <ProductoThumb
+                        url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)}
+                        alt={primerItem?.variante.producto.nombre || ''}
+                      />
                     </td>
                     <td>{v.folio}</td>
                     <td>

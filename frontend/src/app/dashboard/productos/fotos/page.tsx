@@ -2,35 +2,47 @@
 
 import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { ApiError } from '@/lib/api';
+import { apiUpload, ApiError } from '@/lib/api';
 
-// Igual que apiUpload en lib/api, pero necesitamos leer el body también
-// cuando la respuesta NO es ok (por ejemplo el 409 de SKU ambiguo trae
-// nombres de producto útiles) — apiUpload normal descarta eso.
-async function subirFotoPorSku(sku: string, archivo: File): Promise<ResultadoFoto> {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+function getToken(): string | null {
+  return typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+}
+
+// Una combinación producto+color entre las que hay que elegir cuando el SKU
+// es ambiguo (color null = "general", sin color específico).
+interface OpcionFoto {
+  productoId: number;
+  productoNombre: string;
+  color: string | null;
+}
+
+interface RespuestaFotoPorSku {
+  ok: boolean;
+  status: number;
+  productoId?: number;
+  productoNombre?: string;
+  color?: string | null;
+  error?: string;
+  opciones?: OpcionFoto[];
+}
+
+// A diferencia de apiUpload de lib/api (que descarta el body cuando la
+// respuesta no es ok), aquí sí necesitamos leerlo: el 409 de "SKU ambiguo"
+// trae la lista de combinaciones producto+color para poder elegir una a mano.
+async function intentarSubirFotoPorSku(sku: string, archivo: File): Promise<RespuestaFotoPorSku> {
   const formData = new FormData();
   formData.append('sku', sku);
   formData.append('imagen', archivo);
 
   const res = await fetch(`${API_URL}/productos/fotos-por-sku`, {
     method: 'POST',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
     body: formData,
   });
   const body = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    throw new ApiError(body.error || `Error ${res.status}`, res.status);
-  }
-  return body;
-}
-
-interface ResultadoFoto {
-  productoId: number;
-  productoNombre: string;
+  return { ok: res.ok, status: res.status, ...body };
 }
 
 type Estado = 'pendiente' | 'subiendo' | 'ok' | 'no-encontrado' | 'ambiguo' | 'error';
@@ -40,6 +52,15 @@ interface ItemFoto {
   sku: string;
   estado: Estado;
   mensaje?: string;
+  // Solo cuando estado === 'ambiguo': combinaciones producto+color entre las
+  // que hay que elegir, y cuál se seleccionó en el <select> (como clave
+  // "productoId::color") mientras no se confirma.
+  candidatos?: OpcionFoto[];
+  opcionElegida?: string;
+}
+
+function claveOpcion(o: OpcionFoto) {
+  return `${o.productoId}::${o.color ?? ''}`;
 }
 
 const ESTADO_STYLE: Record<Estado, { color: string; label: string }> = {
@@ -84,22 +105,55 @@ export default function FotosPorSkuPage() {
     // peticiones simultáneas, y así el reporte se va viendo en vivo.
     for (let i = 0; i < items.length; i++) {
       setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, estado: 'subiendo' } : it)));
-      try {
-        const data = await subirFotoPorSku(items[i].sku, items[i].archivo);
+      const resp = await intentarSubirFotoPorSku(items[i].sku, items[i].archivo);
+      if (resp.ok) {
+        const etiqueta = resp.color ? `${resp.productoNombre} (${resp.color})` : resp.productoNombre;
+        setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, estado: 'ok', mensaje: etiqueta } : it)));
+      } else if (resp.status === 404) {
+        setItems((prev) =>
+          prev.map((it, idx) => (idx === i ? { ...it, estado: 'no-encontrado', mensaje: resp.error } : it))
+        );
+      } else if (resp.status === 409) {
         setItems((prev) =>
           prev.map((it, idx) =>
-            idx === i ? { ...it, estado: 'ok', mensaje: data.productoNombre } : it
+            idx === i ? { ...it, estado: 'ambiguo', mensaje: resp.error, candidatos: resp.opciones || [] } : it
           )
         );
-      } catch (err) {
-        let estado: Estado = 'error';
-        if (err instanceof ApiError && err.status === 404) estado = 'no-encontrado';
-        if (err instanceof ApiError && err.status === 409) estado = 'ambiguo';
-        const mensaje = err instanceof ApiError ? err.message : 'Error al subir la foto.';
-        setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, estado, mensaje } : it)));
+      } else {
+        setItems((prev) =>
+          prev.map((it, idx) => (idx === i ? { ...it, estado: 'error', mensaje: resp.error || 'Error al subir.' } : it))
+        );
       }
     }
     setSubiendo(false);
+  }
+
+  // Cuando un SKU salió "ambiguo" (mismo SKU repetido en más de una
+  // combinación producto+color — típico de modelos "By You" custom donde el
+  // color cambia mucho el aspecto), se resuelve a mano: se elige la
+  // combinación correcta del desplegable y se sube directo a esa galería con
+  // ese color, sin pasar por la búsqueda por SKU.
+  async function resolverAmbiguo(i: number) {
+    const it = items[i];
+    const opcion = it.candidatos?.find((c) => claveOpcion(c) === it.opcionElegida);
+    if (!opcion) return;
+    setItems((prev) => prev.map((x, idx) => (idx === i ? { ...x, estado: 'subiendo' } : x)));
+    try {
+      const formData = new FormData();
+      formData.append('imagen', it.archivo);
+      if (opcion.color) formData.append('color', opcion.color);
+      await apiUpload(`/productos/${opcion.productoId}/imagenes`, formData);
+      const etiqueta = opcion.color ? `${opcion.productoNombre} (${opcion.color})` : opcion.productoNombre;
+      setItems((prev) => prev.map((x, idx) => (idx === i ? { ...x, estado: 'ok', mensaje: etiqueta } : x)));
+    } catch (err) {
+      setItems((prev) =>
+        prev.map((x, idx) =>
+          idx === i
+            ? { ...x, estado: 'ambiguo', mensaje: err instanceof ApiError ? err.message : 'Error al subir la foto.' }
+            : x
+        )
+      );
+    }
   }
 
   function reiniciar() {
@@ -130,7 +184,9 @@ export default function FotosPorSkuPage() {
         <h2 style={{ fontSize: 15, marginBottom: 8 }}>1. Elige las fotos</h2>
         <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 12 }}>
           El nombre de cada archivo (sin la extensión) se usa como SKU de fábrica para encontrar el producto — por
-          ejemplo <code>112441113-13.jpg</code> busca el producto que tenga ese SKU. Una foto por SKU.
+          ejemplo <code>112441113-13.jpg</code> busca el producto que tenga ese SKU. Si ese SKU está repetido en más
+          de un producto (por ejemplo modelos &quot;By You&quot; de distintos colores que comparten SKU de fábrica),
+          te lo marca como ambiguo y puedes elegir a mano a cuál va.
         </p>
 
         <div
@@ -187,7 +243,7 @@ export default function FotosPorSkuPage() {
               )}
             </p>
           )}
-          <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+          <div style={{ maxHeight: 480, overflowY: 'auto' }}>
             <table>
               <thead>
                 <tr>
@@ -201,12 +257,39 @@ export default function FotosPorSkuPage() {
                   <tr key={i}>
                     <td>{it.archivo.name}</td>
                     <td>{it.sku || '—'}</td>
-                    <td style={{ color: ESTADO_STYLE[it.estado].color, fontSize: 12 }}>
-                      {ESTADO_STYLE[it.estado].label}
-                      {it.estado === 'ok' ? ` — ${it.mensaje}` : ''}
-                      {it.estado === 'no-encontrado' || it.estado === 'ambiguo' || it.estado === 'error'
-                        ? ` — ${it.mensaje}`
-                        : ''}
+                    <td style={{ fontSize: 12 }}>
+                      <span style={{ color: ESTADO_STYLE[it.estado].color }}>{ESTADO_STYLE[it.estado].label}</span>
+                      {it.estado === 'ok' && it.mensaje ? ` — ${it.mensaje}` : ''}
+                      {it.estado === 'no-encontrado' || it.estado === 'error' ? ` — ${it.mensaje}` : ''}
+                      {it.estado === 'ambiguo' && (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+                          <select
+                            value={it.opcionElegida || ''}
+                            onChange={(e) =>
+                              setItems((prev) =>
+                                prev.map((x, idx) => (idx === i ? { ...x, opcionElegida: e.target.value } : x))
+                              )
+                            }
+                            style={{ fontSize: 12, maxWidth: 260 }}
+                          >
+                            <option value="">Elige producto y color...</option>
+                            {(it.candidatos || []).map((c) => (
+                              <option key={claveOpcion(c)} value={claveOpcion(c)}>
+                                {c.productoNombre}
+                                {c.color ? ` (${c.color})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="btn"
+                            style={{ fontSize: 11, padding: '3px 10px' }}
+                            onClick={() => resolverAmbiguo(i)}
+                            disabled={!it.opcionElegida}
+                          >
+                            Subir a esta opción
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -206,6 +206,11 @@ model ProductoImagen {
   publicId    String   @map("public_id")
   esPrincipal Boolean  @default(false) @map("es_principal")
   orden       Int      @default(0)
+  // Color de variante al que pertenece esta foto (ej. modelos "By You"
+  // custom donde el mismo producto tiene colores muy distintos entre sí).
+  // null = foto general del producto, válida para cualquier color que no
+  // tenga una foto propia — ver docs/ARQUITECTURA.md.
+  color       String?
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@map("producto_imagenes")

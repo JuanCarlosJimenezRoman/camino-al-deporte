@@ -12,11 +12,15 @@ const router = express.Router();
 const ROLES_VENTAS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 const ROLES_ADMIN = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
 
-// Solo la foto principal del producto (o la primera si no hay ninguna
-// marcada como principal), para mostrar una miniatura en las listas de
-// ventas sin mandar la galería completa.
+// Manda la galería completa (solo url/color/esPrincipal) en vez de una sola
+// foto: como una foto puede estar etiquetada para un color de variante
+// específico, el frontend necesita verlas todas para elegir la que
+// corresponde al color de cada línea de venta, no solo la portada general.
 const IMAGEN_PRINCIPAL_INCLUDE = {
-  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+  imagenes: {
+    orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }],
+    select: { url: true, color: true, esPrincipal: true },
+  },
 };
 
 function esAdmin(rol) {

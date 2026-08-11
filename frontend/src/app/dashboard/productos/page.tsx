@@ -789,7 +789,12 @@ export default function ProductosPage() {
                   {galeriaAbiertaId === p.id && (
                     <tr>
                       <td colSpan={7} style={{ background: '#fafafa' }}>
-                        <GaleriaFotos productoId={p.id} imagenes={p.imagenes} onCambio={cargarProductos} />
+                        <GaleriaFotos
+                          productoId={p.id}
+                          imagenes={p.imagenes}
+                          colores={p.variantes.map((v) => v.color)}
+                          onCambio={cargarProductos}
+                        />
                       </td>
                     </tr>
                   )}

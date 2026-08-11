@@ -14,7 +14,7 @@ interface PedidoItem {
     sku: string;
     talla: { valor: string } | null;
     color: string | null;
-    producto: { nombre: string; imagenes?: { url: string }[] };
+    producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
   };
   sucursalStock: { nombre: string };
 }
@@ -226,7 +226,10 @@ export default function PedidoOnlineDetallePage() {
         <h2 style={{ fontSize: 16, marginBottom: 12 }}>Artículos</h2>
         {pedido.items.map((it) => (
           <div key={it.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-            <ProductoThumb url={imagenPrincipal(it.variante.producto)} alt={it.variante.producto.nombre} />
+            <ProductoThumb
+              url={imagenPrincipal(it.variante.producto, it.variante.color)}
+              alt={it.variante.producto.nombre}
+            />
             <div style={{ flex: 1, fontSize: 13 }}>
               <div>{it.variante.producto.nombre}</div>
               <div style={{ color: 'var(--color-muted)' }}>

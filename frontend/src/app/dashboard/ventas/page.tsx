@@ -22,8 +22,9 @@ interface VentaItem {
   cantidad: number;
   variante: {
     sku: string;
+    color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; imagenes?: { url: string }[] };
+    producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
   };
 }
 
@@ -52,8 +53,13 @@ interface Existencia {
   variante: {
     id: number;
     sku: string;
+    color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; precioVenta: string; imagenes?: { url: string }[] };
+    producto: {
+      nombre: string;
+      precioVenta: string;
+      imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[];
+    };
   };
 }
 
@@ -216,7 +222,10 @@ export default function VentasPage() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
           {existenciaKey && (
             <ProductoThumb
-              url={imagenPrincipal(existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto)}
+              url={imagenPrincipal(
+                existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto,
+                existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.color
+              )}
               alt=""
               size={40}
             />
@@ -317,7 +326,10 @@ export default function VentasPage() {
             return (
               <tr key={v.id}>
                 <td>
-                  <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto)} alt={primerItem?.variante.producto.nombre || ''} />
+                  <ProductoThumb
+                    url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)}
+                    alt={primerItem?.variante.producto.nombre || ''}
+                  />
                 </td>
                 <td>{v.folio}</td>
                 <td>

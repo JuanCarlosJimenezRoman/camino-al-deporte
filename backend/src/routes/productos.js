@@ -285,29 +285,38 @@ router.post(
     const producto = await prisma.producto.findUnique({ where: { id: productoId } });
     if (!producto) return res.status(404).json({ error: 'Producto no encontrado.' });
 
+    // Color de variante al que pertenece esta foto (opcional): para
+    // productos donde el color cambia mucho el aspecto (modelos "By You"
+    // custom, por ejemplo) y una sola foto genérica no sirve para todos los
+    // colores. Si no se manda, la foto es general (sirve de respaldo para
+    // cualquier color que no tenga la suya propia).
+    const color = req.body.color ? String(req.body.color).trim() || null : null;
+
     const { url, publicId } = await subirImagen(req.file.buffer);
 
     const esPrimera = (await prisma.productoImagen.count({ where: { productoId } })) === 0;
 
     const imagen = await prisma.productoImagen.create({
-      data: { productoId, url, publicId, esPrincipal: esPrimera },
+      data: { productoId, url, publicId, color, esPrincipal: esPrimera },
     });
 
     res.status(201).json(imagen);
   })
 );
 
-// POST /productos/fotos-por-sku - sube una foto identificando el producto por
-// el SKU de fábrica del archivo (multipart/form-data, campos "sku" e
-// "imagen"). Pensado para subir en lote fotos de una carpeta local
-// etiquetada por SKU, sin tener que buscar cada producto a mano uno por uno.
+// POST /productos/fotos-por-sku - sube una foto identificando el producto (y,
+// si aplica, el color) por el SKU de fábrica del archivo (multipart/form-data,
+// campos "sku" e "imagen"). Pensado para subir en lote fotos de una carpeta
+// local etiquetada por SKU, sin tener que buscar cada producto a mano uno
+// por uno.
 //
-// El SKU de fábrica ya no es único por variante (se repite entre tallas del
-// mismo lote — ver docs/ARQUITECTURA.md), pero todas las variantes con ese
-// mismo SKU deberían pertenecer al mismo producto. Si por algún error de
-// captura el mismo texto de SKU quedó repetido en dos productos distintos,
-// no se adivina a cuál va la foto: se responde 409 con la lista de
-// productos para que se resuelva a mano.
+// El SKU de fábrica ya no es único (se repite entre tallas del mismo lote, y
+// en modelos "By You" custom a veces también entre colores — ver
+// docs/ARQUITECTURA.md), así que un mismo SKU puede apuntar a más de una
+// combinación producto+color. Si solo hay una, se sube directo y se etiqueta
+// con ese color automáticamente. Si hay varias, no se adivina: se responde
+// 409 con las opciones para que se resuelva a mano (ver
+// PUT /productos/:id/imagenes que acepta "color").
 router.post(
   '/fotos-por-sku',
   requireAuth,
@@ -329,33 +338,68 @@ router.post(
 
     const variantes = await prisma.productoVariante.findMany({
       where: { sku: { equals: sku, mode: 'insensitive' }, activo: true, producto: { activo: true } },
-      select: { productoId: true, producto: { select: { id: true, nombre: true } } },
+      select: { productoId: true, color: true, producto: { select: { id: true, nombre: true } } },
     });
 
     if (variantes.length === 0) {
       return res.status(404).json({ error: `No se encontró ningún producto con el SKU "${sku}".` });
     }
 
-    const productosDistintos = new Map();
-    for (const v of variantes) productosDistintos.set(v.productoId, v.producto.nombre);
+    // Agrupa por combinación producto+color (no solo por producto): el mismo
+    // SKU puede repetirse dentro de un solo producto en tallas de distinto
+    // color (ej. "By You" custom), y ahí también hay que preguntar a cuál
+    // color va la foto, no solo a cuál producto.
+    const opciones = new Map(); // `${productoId}::${color}` -> { productoId, productoNombre, color }
+    for (const v of variantes) {
+      const clave = `${v.productoId}::${v.color ?? ''}`;
+      if (!opciones.has(clave)) {
+        opciones.set(clave, { productoId: v.productoId, productoNombre: v.producto.nombre, color: v.color ?? null });
+      }
+    }
 
-    if (productosDistintos.size > 1) {
-      const nombres = Array.from(productosDistintos.values()).join(', ');
+    if (opciones.size > 1) {
+      const lista = Array.from(opciones.values());
+      const descripcion = lista.map((o) => `${o.productoNombre}${o.color ? ` (${o.color})` : ''}`).join(', ');
       return res.status(409).json({
-        error: `El SKU "${sku}" está repetido en más de un producto (${nombres}), no se puede saber a cuál va la foto.`,
-        productos: Array.from(productosDistintos, ([id, nombre]) => ({ id, nombre })),
+        error: `El SKU "${sku}" está repetido en más de una combinación de producto/color (${descripcion}), no se puede saber a cuál va la foto.`,
+        opciones: lista,
       });
     }
 
-    const [[productoId, productoNombre]] = productosDistintos;
+    const { productoId, productoNombre, color } = [...opciones.values()][0];
 
     const { url, publicId } = await subirImagen(req.file.buffer);
     const esPrimera = (await prisma.productoImagen.count({ where: { productoId } })) === 0;
     const imagen = await prisma.productoImagen.create({
-      data: { productoId, url, publicId, esPrincipal: esPrimera },
+      data: { productoId, url, publicId, color, esPrincipal: esPrimera },
     });
 
     res.status(201).json({ ...imagen, productoId, productoNombre });
+  })
+);
+
+// PUT /productos/:id/imagenes/:imagenId - editar el color al que pertenece
+// una foto ya subida (por si se etiquetó mal). No toca nada más de la foto.
+router.put(
+  '/:id/imagenes/:imagenId',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  asyncHandler(async (req, res) => {
+    const schema = z.object({ color: z.string().nullable() });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    try {
+      const imagen = await prisma.productoImagen.update({
+        where: { id: Number(req.params.imagenId) },
+        data: { color: parsed.data.color?.trim() || null },
+      });
+      res.json(imagen);
+    } catch (err) {
+      if (err.code === 'P2025') return res.status(404).json({ error: 'Imagen no encontrada.' });
+      throw err;
+    }
   })
 );
 

@@ -35,9 +35,31 @@ export function ProductoThumb({
   );
 }
 
-// Extrae la URL de la foto principal (o la primera) de la forma en la que
-// el backend la manda: producto.imagenes = [{ url }] (ya viene limitada a
-// una sola imagen desde el API).
-export function imagenPrincipal(producto?: { imagenes?: { url: string }[] } | null): string | null {
-  return producto?.imagenes?.[0]?.url ?? null;
+interface ImagenProducto {
+  url: string;
+  color?: string | null;
+  esPrincipal?: boolean;
+}
+
+// Elige qué foto mostrar de la galería de un producto. Como una foto puede
+// estar etiquetada para un color de variante específico (modelos "By You"
+// custom, por ejemplo, donde el negro y el azul se ven muy distintos aunque
+// sean el mismo producto), si se manda el color de la variante en cuestión
+// se prioriza una foto etiquetada con ese color; si no hay ninguna así, cae
+// de vuelta a la portada general del producto (o a la primera foto que
+// haya).
+export function imagenPrincipal(
+  producto?: { imagenes?: ImagenProducto[] } | null,
+  color?: string | null
+): string | null {
+  const imagenes = producto?.imagenes;
+  if (!imagenes || imagenes.length === 0) return null;
+
+  if (color) {
+    const deEseColor = imagenes.find((img) => img.color && img.color.toLowerCase() === color.toLowerCase());
+    if (deEseColor) return deEseColor.url;
+  }
+
+  const general = imagenes.find((img) => !img.color && img.esPrincipal) ?? imagenes.find((img) => !img.color);
+  return (general ?? imagenes[0]).url;
 }

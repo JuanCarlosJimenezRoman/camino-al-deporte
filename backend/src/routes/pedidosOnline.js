@@ -11,8 +11,15 @@ const router = express.Router();
 // ya manejan ventas/apartados en tienda física.
 const ROLES_PEDIDOS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 
+// Manda la galería completa (solo url/color/esPrincipal) en vez de una sola
+// foto: como una foto puede estar etiquetada para un color de variante
+// específico, el frontend necesita verlas todas para elegir la que
+// corresponde al color de cada línea del pedido, no solo la portada general.
 const IMAGEN_PRINCIPAL_INCLUDE = {
-  imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }], take: 1 },
+  imagenes: {
+    orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }],
+    select: { url: true, color: true, esPrincipal: true },
+  },
 };
 
 const PEDIDO_INCLUDE = {

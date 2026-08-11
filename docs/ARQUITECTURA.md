@@ -459,6 +459,49 @@ productos de calzado en Productos → "Ver variantes" y usar "+ Agregar talla"
 para completar las que falten, o volver a correr el Excel: ahora sí las
 agregará en vez de saltárselas.
 
+## Fotos de producto: subida en lote por SKU y fotos por color
+
+Las fotos (`ProductoImagen`, tabla `producto_imagenes`) son parte de la
+galería de un producto (`Producto`), no de una variante puntual — un
+producto normalmente comparte las mismas fotos entre todas sus tallas. La
+excepción son los modelos donde el color cambia mucho el aspecto del
+producto (por ejemplo modelos "By You"/custom, donde el mismo producto tiene
+variantes de colores muy distintos entre sí): para esos casos, cada foto
+puede llevar un `color` opcional (el texto exacto de un color de variante de
+ese producto). `color = null` es una foto "general", válida como respaldo
+para cualquier color que no tenga la suya propia. Al elegir qué foto mostrar
+(`imagenPrincipal()` en `frontend/src/components/ProductoThumb.tsx`), se
+prioriza una foto etiquetada con el color de la variante en cuestión; si no
+hay ninguna, cae a la portada general del producto.
+
+**Subida en lote por SKU** (Productos → "Subir fotos por SKU",
+`POST /productos/fotos-por-sku`): pensada para subir de un jalón una carpeta
+local de fotos etiquetadas con el SKU de fábrica en el nombre del archivo
+(`112441113-13.jpg`). Busca las variantes con ese SKU y agrupa por
+combinación **producto + color**:
+- Si hay una sola combinación, sube la foto directo y la etiqueta con ese
+  color automáticamente (o sin color, si esa combinación no tiene uno).
+- Si hay más de una (el mismo SKU repetido entre distintos productos, o
+  entre distintos colores dentro del mismo producto — pasa sobre todo en
+  modelos "By You" custom), no se adivina: responde 409 con la lista de
+  opciones `{ productoId, productoNombre, color }` y el frontend muestra un
+  selector para resolverlo a mano, subiendo con
+  `POST /productos/:id/imagenes` (campo `color` opcional) directamente a la
+  combinación elegida.
+
+**Edición manual** (Productos → "Fotos", `GaleriaFotos.tsx`): al subir una
+foto a mano se puede elegir a qué color pertenece (o dejarla general); cada
+foto ya subida se puede recolorear con
+`PUT /productos/:id/imagenes/:imagenId` sin tener que borrarla y resubirla.
+
+**Listados que muestran miniatura por color de variante** (Inventario,
+Ventas, Apartados, pedidos en línea): antes solo se mandaba la foto
+principal del producto (`take: 1`); ahora se manda la galería completa
+(`{ url, color, esPrincipal }`, sin `publicId` ni fechas) para que el
+frontend pueda elegir la foto que corresponde al color de cada renglón —
+importante porque desde que el stock se separó por proveedor cada fila ya es
+por variante concreta (talla+color), no por producto genérico.
+
 ## Por qué esta pila tecnológica
 
 - **PostgreSQL**: ya lo pediste explícitamente y ya tienes experiencia con él

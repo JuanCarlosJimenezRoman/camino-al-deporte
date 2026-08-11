@@ -7,20 +7,36 @@ export interface Imagen {
   id: number;
   url: string;
   esPrincipal: boolean;
+  // Color de variante al que pertenece esta foto (modelos "By You" custom,
+  // por ejemplo, donde el color cambia mucho el aspecto). null = foto
+  // general, válida para cualquier color que no tenga la suya propia.
+  color?: string | null;
 }
+
+// Sentinel para "foto general" en el <select> de color — '' se deja libre
+// para "sin elegir nada" no hace falta aquí porque el <select> siempre tiene
+// un valor, pero se usa igual por consistencia con el resto de la app.
+const GENERAL = '__general__';
 
 export function GaleriaFotos({
   productoId,
   imagenes,
+  colores = [],
   onCambio,
 }: {
   productoId: number;
   imagenes: Imagen[];
+  // Colores de las variantes de este producto, para poder etiquetar cada
+  // foto con uno de ellos en vez de escribirlo a mano.
+  colores?: (string | null)[];
   onCambio: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = useState(false);
+  const [colorNuevo, setColorNuevo] = useState(GENERAL);
   const [mensaje, setMensaje] = useState<string | null>(null);
+
+  const coloresDisponibles = Array.from(new Set(colores.filter((c): c is string => !!c)));
 
   async function subir(file: File) {
     if (!file.type.startsWith('image/')) {
@@ -37,6 +53,7 @@ export function GaleriaFotos({
     try {
       const formData = new FormData();
       formData.append('imagen', file);
+      if (colorNuevo !== GENERAL) formData.append('color', colorNuevo);
       await apiUpload(`/productos/${productoId}/imagenes`, formData);
       onCambio();
     } catch (err) {
@@ -44,6 +61,18 @@ export function GaleriaFotos({
     } finally {
       setSubiendo(false);
       if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  async function cambiarColor(imagenId: number, color: string) {
+    try {
+      await api(`/productos/${productoId}/imagenes/${imagenId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ color: color === GENERAL ? null : color }),
+      });
+      onCambio();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar el color.');
     }
   }
 
@@ -70,7 +99,7 @@ export function GaleriaFotos({
     <div style={{ padding: '12px 0' }}>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
         {imagenes.map((img) => (
-          <div key={img.id} style={{ textAlign: 'center' }}>
+          <div key={img.id} style={{ textAlign: 'center', width: 90 }}>
             <img
               src={img.url}
               alt=""
@@ -103,12 +132,40 @@ export function GaleriaFotos({
             {img.esPrincipal && (
               <div style={{ fontSize: 11, color: 'var(--color-primary)', marginTop: 2 }}>Portada</div>
             )}
+            {coloresDisponibles.length > 0 && (
+              <select
+                value={img.color || GENERAL}
+                onChange={(e) => cambiarColor(img.id, e.target.value)}
+                style={{ fontSize: 11, marginTop: 4, width: '100%' }}
+              >
+                <option value={GENERAL}>General (todos)</option>
+                {coloresDisponibles.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         ))}
         {imagenes.length === 0 && (
           <p style={{ color: 'var(--color-muted)', fontSize: 13 }}>Sin fotos todavía.</p>
         )}
       </div>
+
+      {coloresDisponibles.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ fontSize: 12, marginRight: 6 }}>Esta foto es de:</label>
+          <select value={colorNuevo} onChange={(e) => setColorNuevo(e.target.value)} style={{ fontSize: 12, maxWidth: 180 }}>
+            <option value={GENERAL}>General (todos los colores)</option>
+            {coloresDisponibles.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <input
         ref={inputRef}

@@ -37,7 +37,11 @@ interface Existencia {
     sku: string;
     color: string | null;
     talla: { valor: string } | null;
-    producto: { nombre: string; marca: { nombre: string }; imagenes?: { url: string }[] };
+    producto: {
+      nombre: string;
+      marca: { nombre: string };
+      imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[];
+    };
     // Proveedor "por defecto" asignado a esta variante en Productos — no es
     // necesariamente el mismo proveedor que tiene stock en este bucket
     // (b.proveedor), se usa para preseleccionar al registrar una entrada.
@@ -241,7 +245,10 @@ export default function InventarioPage() {
               <Fragment key={variante.id}>
                 <tr>
                   <td>
-                    <ProductoThumb url={imagenPrincipal(variante.producto)} alt={variante.producto?.nombre || ''} />
+                    <ProductoThumb
+                      url={imagenPrincipal(variante.producto, variante.color)}
+                      alt={variante.producto?.nombre || ''}
+                    />
                   </td>
                   <td>{variante.sku}</td>
                   <td>{variante.producto?.nombre}</td>
