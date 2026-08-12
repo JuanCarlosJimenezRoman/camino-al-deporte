@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, apiTiendaUpload, ApiError } from '@/lib/apiTienda';
-import { claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
+import { claseBotonPrimario, claseBotonSecundario, Estrellas } from '@/components/tienda/ui';
+
+interface PedidoResena {
+  id: number;
+  calificacionProducto: number;
+  calificacionEnvio: number;
+  comentario: string | null;
+  fotos: { id: number; url: string }[];
+}
 
 interface PedidoItem {
   id: number;
@@ -42,6 +50,7 @@ interface Pedido {
   numeroGuia: string | null;
   items: PedidoItem[];
   createdAt: string;
+  resena: PedidoResena | null;
 }
 
 const ESTADO_LABEL: Record<Pedido['estado'], string> = {
@@ -120,6 +129,13 @@ export default function PedidoDetallePage() {
   const [subiendo, setSubiendo] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const pedidoRef = useRef<Pedido | null>(null);
+
+  const [calProducto, setCalProducto] = useState(0);
+  const [calEnvio, setCalEnvio] = useState(0);
+  const [comentarioResena, setComentarioResena] = useState('');
+  const [fotosResena, setFotosResena] = useState<File[]>([]);
+  const [enviandoResena, setEnviandoResena] = useState(false);
+  const [mensajeResena, setMensajeResena] = useState<string | null>(null);
 
   async function cargar() {
     try {
@@ -210,6 +226,33 @@ export default function PedidoDetallePage() {
       setPedido(actualizado);
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'No se pudo confirmar la recepción.');
+    }
+  }
+
+  async function enviarResena() {
+    if (calProducto < 1 || calEnvio < 1) {
+      setMensajeResena('Selecciona una calificación de 1 a 5 para el producto y el envío.');
+      return;
+    }
+    setEnviandoResena(true);
+    setMensajeResena(null);
+    try {
+      const formData = new FormData();
+      formData.append(
+        'datos',
+        JSON.stringify({
+          calificacionProducto: calProducto,
+          calificacionEnvio: calEnvio,
+          comentario: comentarioResena || undefined,
+        })
+      );
+      fotosResena.forEach((f) => formData.append('fotos', f));
+      const actualizado = await apiTiendaUpload<Pedido>(`/tienda/pedidos/${pedido!.id}/resena`, formData);
+      setPedido(actualizado);
+    } catch (err) {
+      setMensajeResena(err instanceof ApiError ? err.message : 'No se pudo enviar tu calificación.');
+    } finally {
+      setEnviandoResena(false);
     }
   }
 
@@ -334,7 +377,76 @@ export default function PedidoDetallePage() {
         )}
 
         {pedido.estado === 'RECIBIDO' && (
-          <p className="mb-5 rounded-2xl bg-secondary/60 p-5 text-sm">Pedido entregado. ¡Gracias por tu compra!</p>
+          <div className="mb-5 rounded-2xl bg-secondary/60 p-5">
+            <p className="mb-4 text-sm">Pedido entregado. ¡Gracias por tu compra!</p>
+
+            {pedido.resena ? (
+              <div>
+                <h2 className="mb-3 text-sm font-bold uppercase tracking-wide">Tu calificación</h2>
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">Producto</span>
+                  <Estrellas valor={pedido.resena.calificacionProducto} tamano="h-4 w-4" />
+                </div>
+                <div className="mb-3 flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">Envío</span>
+                  <Estrellas valor={pedido.resena.calificacionEnvio} tamano="h-4 w-4" />
+                </div>
+                {pedido.resena.comentario && <p className="mb-3 text-sm text-muted-foreground">{pedido.resena.comentario}</p>}
+                {pedido.resena.fotos.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {pedido.resena.fotos.map((f) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={f.id} src={f.url} alt="Foto del paquete recibido" className="h-20 w-20 rounded-lg object-cover" />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="border-t border-border pt-4">
+                <h2 className="mb-3 text-sm font-bold uppercase tracking-wide">Califica tu pedido</h2>
+
+                <div className="mb-3">
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Producto</p>
+                  <Estrellas valor={calProducto} onChange={setCalProducto} />
+                </div>
+                <div className="mb-4">
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Envío</p>
+                  <Estrellas valor={calEnvio} onChange={setCalEnvio} />
+                </div>
+
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Comentario (opcional)
+                </label>
+                <textarea
+                  value={comentarioResena}
+                  onChange={(e) => setComentarioResena(e.target.value)}
+                  rows={3}
+                  placeholder="¿Cómo te fue con tu pedido?"
+                  className="mb-4 w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground"
+                />
+
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Fotos del paquete que recibiste (opcional, hasta 6)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setFotosResena(Array.from(e.target.files || []).slice(0, 6))}
+                  className="mb-1 block w-full text-sm"
+                />
+                {fotosResena.length > 0 && (
+                  <p className="mb-3 text-xs text-muted-foreground">{fotosResena.length} foto(s) seleccionada(s)</p>
+                )}
+
+                {mensajeResena && <p className="mb-3 text-sm text-destructive">{mensajeResena}</p>}
+
+                <button className={`${claseBotonPrimario} w-full sm:w-auto`} disabled={enviandoResena} onClick={enviarResena}>
+                  {enviandoResena ? 'Enviando...' : 'Enviar calificación'}
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {mensaje && <p className="mb-4 text-sm">{mensaje}</p>}

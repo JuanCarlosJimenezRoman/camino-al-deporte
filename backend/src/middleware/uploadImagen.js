@@ -36,4 +36,29 @@ function manejarSubidaImagen(campo) {
   };
 }
 
-module.exports = { manejarSubidaImagen };
+/**
+ * Igual que manejarSubidaImagen pero para varios archivos bajo el mismo
+ * campo (ej. fotos del paquete recibido en una reseña). "max" limita cuántas
+ * se aceptan en una sola solicitud.
+ */
+function manejarSubidaImagenes(campo, max = 6) {
+  return (req, res, next) => {
+    uploadImagen.array(campo, max)(req, res, (err) => {
+      if (err) {
+        if (err.message === 'SOLO_IMAGENES') {
+          return res.status(400).json({ error: 'Los archivos deben ser imágenes.' });
+        }
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ error: 'Cada imagen puede pesar máximo 5 MB.' });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return res.status(400).json({ error: `Puedes subir máximo ${max} fotos.` });
+        }
+        return res.status(400).json({ error: 'No se pudo procesar los archivos.' });
+      }
+      next();
+    });
+  };
+}
+
+module.exports = { manejarSubidaImagen, manejarSubidaImagenes };

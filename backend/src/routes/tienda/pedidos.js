@@ -3,7 +3,7 @@ const { z } = require('zod');
 const prisma = require('../../db');
 const { requireClienteAuth } = require('../../middleware/authCliente');
 const { asyncHandler } = require('../../utils/asyncHandler');
-const { manejarSubidaImagen } = require('../../middleware/uploadImagen');
+const { manejarSubidaImagen, manejarSubidaImagenes } = require('../../middleware/uploadImagen');
 const { subirImagen } = require('../../config/cloudinary');
 
 const router = express.Router();
@@ -37,6 +37,7 @@ const PEDIDO_INCLUDE = {
     },
   },
   cuentaTransferencia: true,
+  resena: { include: { fotos: true } },
 };
 
 // El pago ya no se cobra directo en la página (los clientes no se sentían
@@ -295,6 +296,68 @@ router.post('/:id/confirmar-recibido', requireClienteAuth, asyncHandler(async (r
   });
   res.json(await conWhatsapp(actualizado));
 }));
+
+const resenaSchema = z.object({
+  calificacionProducto: z.coerce.number().int().min(1).max(5),
+  calificacionEnvio: z.coerce.number().int().min(1).max(5),
+  comentario: z.string().optional(),
+});
+
+// POST /tienda/pedidos/:id/resena - el cliente califica producto y envío,
+// con fotos opcionales del paquete recibido. Solo una vez el pedido está
+// RECIBIDO, y solo una reseña por pedido (la tabla lo obliga con un índice
+// único en pedido_id). multipart/form-data: "datos" (JSON) + hasta 6 fotos
+// bajo el campo "fotos".
+router.post(
+  '/:id/resena',
+  requireClienteAuth,
+  manejarSubidaImagenes('fotos', 6),
+  asyncHandler(async (req, res) => {
+    const pedido = await prisma.pedido.findUnique({
+      where: { id: Number(req.params.id) },
+      include: { resena: true },
+    });
+    if (!pedido || pedido.clienteId !== req.cliente.id) {
+      return res.status(404).json({ error: 'Pedido no encontrado.' });
+    }
+    if (pedido.estado !== 'RECIBIDO') {
+      return res.status(409).json({ error: 'Solo se puede calificar un pedido ya recibido.' });
+    }
+    if (pedido.resena) {
+      return res.status(409).json({ error: 'Ya calificaste este pedido.' });
+    }
+
+    let body = req.body;
+    if (req.is('multipart/form-data')) {
+      try {
+        body = JSON.parse(req.body.datos || '{}');
+      } catch {
+        return res.status(400).json({ error: 'El campo "datos" debe ser un JSON válido.' });
+      }
+    }
+
+    const parsed = resenaSchema.safeParse(body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+
+    const archivos = req.files || [];
+    const subidas = await Promise.all(archivos.map((f) => subirImagen(f.buffer, 'resenas')));
+
+    await prisma.pedidoResena.create({
+      data: {
+        pedidoId: pedido.id,
+        calificacionProducto: parsed.data.calificacionProducto,
+        calificacionEnvio: parsed.data.calificacionEnvio,
+        comentario: parsed.data.comentario || undefined,
+        fotos: { create: subidas.map((s) => ({ url: s.url, publicId: s.publicId })) },
+      },
+    });
+
+    const actualizado = await prisma.pedido.findUnique({ where: { id: pedido.id }, include: PEDIDO_INCLUDE });
+    res.status(201).json(await conWhatsapp(actualizado));
+  })
+);
 
 // POST /tienda/pedidos/:id/cancelar - el cliente cancela mientras siga
 // PENDIENTE_PAGO (antes de subir comprobante); regresa el stock reservado.

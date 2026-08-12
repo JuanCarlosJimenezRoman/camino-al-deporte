@@ -734,6 +734,9 @@ model Pedido {
 
   items       PedidoItem[]
   movimientos MovimientoInventario[]
+  // Calificación que deja el cliente una vez RECIBIDO (ver PedidoResena).
+  // Uno por pedido: se califica la experiencia completa, no cada artículo.
+  resena      PedidoResena?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -783,4 +786,38 @@ model ConfiguracionTienda {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("configuracion_tienda")
+}
+
+// ---------------------------------------------------------------------------
+// Reseñas de pedidos en línea
+// ---------------------------------------------------------------------------
+//
+// El cliente puede calificar su pedido una vez que lo marca (o se marca)
+// como RECIBIDO: qué tan bien le pareció el/los producto(s) y el envío, con
+// comentario y fotos opcionales del paquete tal como llegó — útil tanto de
+// prueba social para otros clientes a futuro como de evidencia si hay una
+// queja por daños en el envío. Una reseña por pedido (no por artículo).
+model PedidoResena {
+  id       Int    @id @default(autoincrement())
+  pedidoId Int    @unique @map("pedido_id")
+  pedido   Pedido @relation(fields: [pedidoId], references: [id])
+
+  calificacionProducto Int     @map("calificacion_producto") // 1 a 5
+  calificacionEnvio    Int     @map("calificacion_envio") // 1 a 5
+  comentario           String?
+
+  fotos     PedidoResenaFoto[]
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@map("pedido_resenas")
+}
+
+model PedidoResenaFoto {
+  id       Int          @id @default(autoincrement())
+  resenaId Int          @map("resena_id")
+  resena   PedidoResena @relation(fields: [resenaId], references: [id])
+  url      String
+  publicId String       @map("public_id")
+
+  @@map("pedido_resena_fotos")
 }

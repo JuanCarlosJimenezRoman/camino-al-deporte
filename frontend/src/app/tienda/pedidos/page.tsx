@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
-import { claseBotonPrimario } from '@/components/tienda/ui';
+import { claseBotonPrimario, Estrellas } from '@/components/tienda/ui';
 
 interface Pedido {
   id: number;
@@ -15,6 +15,7 @@ interface Pedido {
   total: string;
   createdAt: string;
   items: { id: number; cantidad: number; variante: { producto: { nombre: string } } }[];
+  resena: { calificacionProducto: number; calificacionEnvio: number } | null;
 }
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -114,6 +115,18 @@ export default function MisPedidosPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {new Date(p.createdAt).toLocaleDateString('es-MX')} · {p.items.length} artículo(s)
               </p>
+              {p.estado === 'RECIBIDO' && (
+                <div className="mt-1.5">
+                  {p.resena ? (
+                    <div className="flex items-center gap-1.5">
+                      <Estrellas valor={p.resena.calificacionProducto} tamano="h-3.5 w-3.5" />
+                      <span className="text-xs text-muted-foreground">Calificado</span>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-semibold text-primary underline underline-offset-4">Calificar pedido</span>
+                  )}
+                </div>
+              )}
             </div>
             <p className="whitespace-nowrap text-sm font-bold">${p.total}</p>
             <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />

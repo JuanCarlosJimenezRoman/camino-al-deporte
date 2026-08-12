@@ -1,7 +1,7 @@
 'use client';
 
 import { ButtonHTMLAttributes } from 'react';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus, Star } from 'lucide-react';
 
 // Estilos de botón compartidos por toda la tienda (cliente). Son
 // independientes de las clases .btn/.card del panel de administración a
@@ -57,6 +57,41 @@ export function Stepper({
       >
         <Plus className="h-3.5 w-3.5" />
       </button>
+    </div>
+  );
+}
+
+// Selector/despliegue de calificación en estrellas (1-5), usado en la reseña
+// de pedidos. Sin onChange es de solo lectura (para mostrar una calificación
+// ya enviada).
+export function Estrellas({
+  valor,
+  onChange,
+  tamano = 'h-6 w-6',
+}: {
+  valor: number;
+  onChange?: (n: number) => void;
+  tamano?: string;
+}) {
+  const soloLectura = !onChange;
+  return (
+    <div className="inline-flex items-center gap-1" role={soloLectura ? undefined : 'radiogroup'}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          disabled={soloLectura}
+          onClick={() => onChange?.(n)}
+          aria-label={`${n} de 5 estrellas`}
+          className={soloLectura ? 'cursor-default' : 'cursor-pointer'}
+        >
+          <Star
+            className={`${tamano} ${n <= valor ? 'text-foreground' : 'text-muted-foreground/30'}`}
+            strokeWidth={1.5}
+            fill={n <= valor ? 'currentColor' : 'none'}
+          />
+        </button>
+      ))}
     </div>
   );
 }
