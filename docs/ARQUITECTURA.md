@@ -71,6 +71,12 @@ Si a futuro se necesita un campo que sí amerite estar indexado/filtrable de
 forma nativa (no solo dentro del JSON), ese sí requiere una migración
 tradicional — es la excepción, no la regla.
 
+Mientras no exista la pantalla de administración de `campos_personalizados`,
+Productos → "Editar" ya deja llenar `atributosExtra` directamente como pares
+clave/valor libres (sin tipo ni validación) — junto con precio de
+compra/venta, descripción, marca, modelo y categoría del producto. Todos
+estos campos extra son opcionales.
+
 ## Multi-sucursal / bodega
 
 El catálogo (producto, variante, SKU, precio) es **global**: el mismo SKU

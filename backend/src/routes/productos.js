@@ -111,9 +111,9 @@ const varianteSchema = z.object({
 
 const productoSchema = z.object({
   nombre: z.string().min(1),
-  descripcion: z.string().optional(),
+  descripcion: z.string().nullable().optional(),
   marcaId: z.number().int(),
-  modeloId: z.number().int().optional(),
+  modeloId: z.number().int().nullable().optional(),
   categoriaId: z.number().int(),
   precioCompra: z.number().nonnegative().optional(),
   precioVenta: z.number().nonnegative().optional(),

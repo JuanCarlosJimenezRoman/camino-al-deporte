@@ -27,9 +27,16 @@ interface Variante {
 interface Producto {
   id: number;
   nombre: string;
+  descripcion: string | null;
+  precioCompra: string;
   precioVenta: string;
+  marcaId: number;
+  modeloId: number | null;
+  categoriaId: number;
   marca: { nombre: string };
+  modelo: { nombre: string } | null;
   categoria: { nombre: string };
+  atributosExtra: Record<string, string> | null;
   variantes: Variante[];
   imagenes: Imagen[];
 }
@@ -79,6 +86,38 @@ interface EditVarianteForm {
   sku: string;
 }
 
+// Un par clave/valor libre (ej. "Material" / "Piel sintética") para info
+// extra opcional del producto — se guarda tal cual en Producto.atributosExtra
+// (JSON), sin necesidad de definir un esquema de campos de antemano.
+interface AtributoExtra {
+  clave: string;
+  valor: string;
+}
+
+interface EditProductoForm {
+  nombre: string;
+  marcaId: string;
+  modeloId: string;
+  categoriaId: string;
+  precioCompra: string;
+  precioVenta: string;
+  descripcion: string;
+  atributos: AtributoExtra[];
+}
+
+function formVacioProducto(): EditProductoForm {
+  return {
+    nombre: '',
+    marcaId: '',
+    modeloId: '',
+    categoriaId: '',
+    precioCompra: '0',
+    precioVenta: '0',
+    descripcion: '',
+    atributos: [],
+  };
+}
+
 export default function ProductosPage() {
   const { usuario } = useAuth();
   const puedeCrear = usuario ? puedeVer('inventario', usuario.rol) : false;
@@ -98,6 +137,13 @@ export default function ProductosPage() {
   const [editandoVarianteId, setEditandoVarianteId] = useState<number | null>(null);
   const [editVarianteForm, setEditVarianteForm] = useState<EditVarianteForm>({ tallaId: '', color: '', sku: '' });
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
+  // Editar datos generales del producto (precio, descripción, atributos
+  // extra opcionales como materiales/información) sin tocar sus variantes.
+  const [editandoProductoId, setEditandoProductoId] = useState<number | null>(null);
+  const [editProductoForm, setEditProductoForm] = useState<EditProductoForm>(formVacioProducto());
+  const [modelosEdit, setModelosEdit] = useState<Modelo[]>([]);
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
 
   // Catálogos para el formulario de alta y para los filtros del listado
   const [marcas, setMarcas] = useState<Marca[]>([]);
@@ -283,6 +329,103 @@ export default function ProductosPage() {
       cargarProductos();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al eliminar la variante.');
+    }
+  }
+
+  // Editar los datos generales de un producto: precio, descripción y
+  // atributos extra opcionales (materiales, información, etc.) — sin límite
+  // fijo de campos, se guardan como pares clave/valor libres en
+  // Producto.atributosExtra (JSON). No toca las variantes (eso ya se hace
+  // arriba, en la tabla de "Ver variantes").
+  async function abrirEditarProducto(p: Producto) {
+    if (categorias.length === 0) {
+      const c = await api<Categoria[]>('/catalogos/categorias');
+      setCategorias(c);
+    }
+    const m = await api<Modelo[]>(`/catalogos/modelos?marcaId=${p.marcaId}`);
+    setModelosEdit(m);
+    setEditProductoForm({
+      nombre: p.nombre,
+      marcaId: String(p.marcaId),
+      modeloId: p.modeloId ? String(p.modeloId) : '',
+      categoriaId: String(p.categoriaId),
+      precioCompra: p.precioCompra,
+      precioVenta: p.precioVenta,
+      descripcion: p.descripcion ?? '',
+      atributos: Object.entries(p.atributosExtra ?? {}).map(([clave, valor]) => ({
+        clave,
+        valor: String(valor),
+      })),
+    });
+    setMensaje(null);
+    setEditandoProductoId(p.id);
+  }
+
+  function cancelarEdicionProducto() {
+    setEditandoProductoId(null);
+  }
+
+  // Al cambiar de marca en el formulario de edición, los modelos disponibles
+  // cambian con ella (igual que en el filtro del listado).
+  async function cambiarMarcaEditProducto(marcaId: string) {
+    setEditProductoForm((f) => ({ ...f, marcaId, modeloId: '' }));
+    if (!marcaId) {
+      setModelosEdit([]);
+      return;
+    }
+    const m = await api<Modelo[]>(`/catalogos/modelos?marcaId=${marcaId}`);
+    setModelosEdit(m);
+  }
+
+  function actualizarAtributo(i: number, cambios: Partial<AtributoExtra>) {
+    setEditProductoForm((f) => ({
+      ...f,
+      atributos: f.atributos.map((a, idx) => (idx === i ? { ...a, ...cambios } : a)),
+    }));
+  }
+
+  function agregarAtributo() {
+    setEditProductoForm((f) => ({ ...f, atributos: [...f.atributos, { clave: '', valor: '' }] }));
+  }
+
+  function quitarAtributo(i: number) {
+    setEditProductoForm((f) => ({ ...f, atributos: f.atributos.filter((_, idx) => idx !== i) }));
+  }
+
+  async function guardarEdicionProducto(id: number) {
+    if (!editProductoForm.nombre.trim() || !editProductoForm.marcaId || !editProductoForm.categoriaId) {
+      setMensaje('Nombre, marca y categoría son obligatorios.');
+      return;
+    }
+    // Solo se guardan los atributos con clave no vacía; el valor puede
+    // quedar vacío (ej. un campo que aún no se llena).
+    const atributosExtra: Record<string, string> = {};
+    for (const a of editProductoForm.atributos) {
+      if (a.clave.trim()) atributosExtra[a.clave.trim()] = a.valor;
+    }
+    setGuardandoProducto(true);
+    setMensaje(null);
+    try {
+      await api(`/productos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          nombre: editProductoForm.nombre.trim(),
+          marcaId: Number(editProductoForm.marcaId),
+          modeloId: editProductoForm.modeloId ? Number(editProductoForm.modeloId) : null,
+          categoriaId: Number(editProductoForm.categoriaId),
+          precioCompra: Number(editProductoForm.precioCompra) || 0,
+          precioVenta: Number(editProductoForm.precioVenta) || 0,
+          descripcion: editProductoForm.descripcion.trim() || null,
+          atributosExtra,
+        }),
+      });
+      setEditandoProductoId(null);
+      setMensaje('Producto actualizado.');
+      cargarProductos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar el producto.');
+    } finally {
+      setGuardandoProducto(false);
     }
   }
 
@@ -699,15 +842,161 @@ export default function ProductosPage() {
                     </td>
                     <td>
                       {puedeCrear && (
-                        <button
-                          className="btn-secondary btn"
-                          onClick={() => setGaleriaAbiertaId(galeriaAbiertaId === p.id ? null : p.id)}
-                        >
-                          {galeriaAbiertaId === p.id ? 'Cerrar fotos' : 'Fotos'}
-                        </button>
+                        <div style={{ display: 'flex', gap: 6, whiteSpace: 'nowrap' }}>
+                          <button
+                            className="btn-secondary btn"
+                            onClick={() =>
+                              editandoProductoId === p.id ? cancelarEdicionProducto() : abrirEditarProducto(p)
+                            }
+                          >
+                            {editandoProductoId === p.id ? 'Cerrar edición' : 'Editar'}
+                          </button>
+                          <button
+                            className="btn-secondary btn"
+                            onClick={() => setGaleriaAbiertaId(galeriaAbiertaId === p.id ? null : p.id)}
+                          >
+                            {galeriaAbiertaId === p.id ? 'Cerrar fotos' : 'Fotos'}
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
+                  {editandoProductoId === p.id && (
+                    <tr>
+                      <td colSpan={8} style={{ background: '#fafafa' }}>
+                        <div style={{ maxWidth: 640 }}>
+                          <h3 style={{ fontSize: 14, marginBottom: 10 }}>Editar producto</h3>
+
+                          <label style={{ fontSize: 13 }}>Nombre</label>
+                          <div style={{ marginBottom: 10 }}>
+                            <input
+                              value={editProductoForm.nombre}
+                              onChange={(e) => setEditProductoForm((f) => ({ ...f, nombre: e.target.value }))}
+                            />
+                          </div>
+
+                          <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 13 }}>Marca</label>
+                              <select
+                                value={editProductoForm.marcaId}
+                                onChange={(e) => cambiarMarcaEditProducto(e.target.value)}
+                              >
+                                <option value="">Selecciona...</option>
+                                {marcas.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.nombre}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 13 }}>Modelo</label>
+                              <select
+                                value={editProductoForm.modeloId}
+                                onChange={(e) => setEditProductoForm((f) => ({ ...f, modeloId: e.target.value }))}
+                                disabled={modelosEdit.length === 0}
+                              >
+                                <option value="">Sin modelo</option>
+                                {modelosEdit.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.nombre}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 13 }}>Categoría</label>
+                              <select
+                                value={editProductoForm.categoriaId}
+                                onChange={(e) => setEditProductoForm((f) => ({ ...f, categoriaId: e.target.value }))}
+                              >
+                                <option value="">Selecciona...</option>
+                                {categorias.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.nombre}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 13 }}>Precio de compra</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={editProductoForm.precioCompra}
+                                onChange={(e) => setEditProductoForm((f) => ({ ...f, precioCompra: e.target.value }))}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: 13 }}>Precio de venta</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={editProductoForm.precioVenta}
+                                onChange={(e) => setEditProductoForm((f) => ({ ...f, precioVenta: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+
+                          <label style={{ fontSize: 13 }}>Descripción (opcional)</label>
+                          <div style={{ marginBottom: 12 }}>
+                            <textarea
+                              value={editProductoForm.descripcion}
+                              onChange={(e) => setEditProductoForm((f) => ({ ...f, descripcion: e.target.value }))}
+                              rows={3}
+                              style={{ width: '100%', resize: 'vertical' }}
+                              placeholder="Detalles del producto, uso recomendado, etc."
+                            />
+                          </div>
+
+                          <label style={{ fontSize: 13, fontWeight: 600 }}>Atributos extra (opcional)</label>
+                          <p style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2, marginBottom: 4 }}>
+                            Información adicional libre — materiales, cuidados, garantía, etc. Agrega los pares que
+                            necesites; ninguno es obligatorio.
+                          </p>
+                          {editProductoForm.atributos.map((a, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                              <input
+                                placeholder="Nombre (ej. Material)"
+                                value={a.clave}
+                                onChange={(e) => actualizarAtributo(i, { clave: e.target.value })}
+                                style={{ maxWidth: 180 }}
+                              />
+                              <input
+                                placeholder="Valor (ej. Piel sintética)"
+                                value={a.valor}
+                                onChange={(e) => actualizarAtributo(i, { valor: e.target.value })}
+                                style={{ flex: 1 }}
+                              />
+                              <button className="btn-secondary btn" onClick={() => quitarAtributo(i)}>
+                                Quitar
+                              </button>
+                            </div>
+                          ))}
+                          <button className="btn-secondary btn" onClick={agregarAtributo} style={{ marginTop: 10 }}>
+                            + Agregar atributo
+                          </button>
+
+                          <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+                            <button
+                              className="btn"
+                              onClick={() => guardarEdicionProducto(p.id)}
+                              disabled={guardandoProducto}
+                            >
+                              {guardandoProducto ? 'Guardando...' : 'Guardar cambios'}
+                            </button>
+                            <button className="btn-secondary btn" onClick={cancelarEdicionProducto}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {variantesAbiertasId === p.id && (
                     <tr>
                       <td colSpan={8} style={{ background: '#fafafa' }}>
