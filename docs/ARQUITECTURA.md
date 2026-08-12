@@ -445,9 +445,8 @@ Comportamiento al importar:
   `tipo_talla` pones un código que no está en el catálogo (ver sección de
   tallas segmentadas más abajo: `TD`/`PS`/`GS`/`WMNS`/`MENS` para calzado,
   `ropa` para ropa), se crea una categoría nueva con ese nombre tal cual. Si
-  se deja en blanco, la talla queda con tipo `"general"`, que no participa en
-  "Completar tallas de calzado" ni en la guía de tallas de la tienda en
-  línea — para calzado conviene siempre llenarlo con el código correcto.
+  se deja en blanco, la talla queda con tipo `"general"` — para calzado
+  conviene siempre llenarlo con el código correcto en vez de dejarlo así.
 - Si el nombre+marca de una fila coincide con un producto que ya existe, no
   se duplica: se le agrega la variante nueva (por ejemplo, para dar de alta
   una talla nueva de un producto que ya tenías, aunque comparta SKU con otra
@@ -490,32 +489,6 @@ En el frontend, cualquier lugar que antes asumía `talla.tipo === 'calzado'`
 (la guía de tallas de la tienda en línea, `tienda/productos/[id]/page.tsx`)
 ahora detecta "es calzado" como *"tipo distinto de `ropa`"*, para no depender
 de los códigos exactos.
-
-## Completar tallas de calzado en lote
-
-Productos → "Completar tallas de calzado" (`POST /productos/completar-tallas-calzado`)
-crea, para cada producto activo de la categoría "Calzado", las variantes de
-talla que le falten para tener todas las tallas **de su misma categoría**
-(TD/PS/GS/WMNS/MENS) — pensado para no tener que dar de alta una por una con
-"+ Agregar talla" cuando la mayoría de tus productos comparten un solo SKU de
-fábrica para todo el rango de tallas de esa categoría.
-
-No hay que decirle nada al sistema: tanto el SKU/color como la categoría de
-tallas se infieren mirando las variantes que el producto ya tiene.
-- Si todas comparten el mismo SKU+color (el caso normal — un solo lote cubre
-  todo el rango) **y** todas sus tallas puestas son de una sola categoría,
-  usa esa combinación y esa categoría para las tallas que falten.
-- Si el producto ya tiene más de una combinación SKU/color (modelos "By You"
-  custom con varios colores, o productos con más de un lote/SKU), tallas de
-  más de una categoría mezcladas, o no tiene ninguna variante con talla
-  todavía, **no se adivina nada: se omite** y aparece en el reporte para
-  agregarse a mano con "+ Agregar talla", igual que antes.
-
-Las variantes nuevas se crean sin ninguna fila de existencia (0 stock, en
-ninguna sucursal) — el flujo esperado es completar el catálogo de tallas
-aquí y cargar las cantidades reales después desde Inventario (que ya muestra
-un renglón placeholder en 0 para variantes sin stock todavía, listo para
-"+ Entrada").
 
 ## Fotos de producto: subida en lote por SKU y fotos por color
 

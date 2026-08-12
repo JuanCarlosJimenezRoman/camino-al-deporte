@@ -61,22 +61,6 @@ interface Proveedor {
   nombre: string;
 }
 
-interface DetalleCompletarTallas {
-  productoId: number;
-  productoNombre: string;
-  estado: 'actualizado' | 'sin_cambios' | 'omitido';
-  categoria?: string;
-  tallasAgregadas?: string[];
-  motivo?: string;
-}
-
-interface ResultadoCompletarTallas {
-  productosRevisados: number;
-  productosActualizados: number;
-  tallasCreadasTotal: number;
-  detalle: DetalleCompletarTallas[];
-}
-
 interface VarianteForm {
   tallaId: string;
   color: string;
@@ -130,13 +114,6 @@ export default function ProductosPage() {
   const [filtroCategoriaId, setFiltroCategoriaId] = useState('');
   const [filtroModeloId, setFiltroModeloId] = useState('');
   const [filtroTallaId, setFiltroTallaId] = useState('');
-
-  // "Completar tallas de calzado": crea de un jalón las variantes de talla
-  // que le falten a cada producto de Calzado (partiendo de su SKU/color
-  // actual), para no tener que dar de alta una por una con "+ Agregar
-  // talla". El resultado se muestra en un reporte por producto.
-  const [completandoTallas, setCompletandoTallas] = useState(false);
-  const [resultadoCompletarTallas, setResultadoCompletarTallas] = useState<ResultadoCompletarTallas | null>(null);
 
   // Campos del nuevo producto
   const [nombre, setNombre] = useState('');
@@ -218,6 +195,15 @@ export default function ProductosPage() {
     );
   }
 
+  // SKU(s) de fábrica del producto, para verlo en la tabla principal sin
+  // tener que abrir "Ver variantes" — normalmente es uno solo (un lote cubre
+  // todas las tallas), pero se listan todos si el producto tiene más de uno
+  // (varios lotes, o colores/modelos distintos con SKU propio).
+  function skusUnicos(p: Producto) {
+    const skus = Array.from(new Set(p.variantes.map((v) => v.sku).filter(Boolean)));
+    return skus.length > 0 ? skus.join(', ') : '—';
+  }
+
   async function cambiarProveedorVariante(productoId: number, varianteId: number, proveedorId: string) {
     try {
       await api(`/productos/${productoId}/variantes/${varianteId}`, {
@@ -297,27 +283,6 @@ export default function ProductosPage() {
       cargarProductos();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al eliminar la variante.');
-    }
-  }
-
-  async function completarTallasCalzado() {
-    if (
-      !window.confirm(
-        'Esto va a crear, para cada producto de Calzado, las tallas que le falten de su misma categoría (TD/PS/GS/WMNS/MENS, según las tallas que ya tenga), usando su SKU/color actual, sin stock. Los productos con más de un SKU/color o con tallas de más de una categoría mezcladas se van a omitir. ¿Continuar?'
-      )
-    )
-      return;
-    setCompletandoTallas(true);
-    setResultadoCompletarTallas(null);
-    setMensaje(null);
-    try {
-      const data = await api<ResultadoCompletarTallas>('/productos/completar-tallas-calzado', { method: 'POST' });
-      setResultadoCompletarTallas(data);
-      cargarProductos();
-    } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'Error al completar las tallas.');
-    } finally {
-      setCompletandoTallas(false);
     }
   }
 
@@ -450,9 +415,6 @@ export default function ProductosPage() {
             <Link href="/dashboard/productos/fotos" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
               Subir fotos por SKU
             </Link>
-            <button className="btn-secondary btn" onClick={completarTallasCalzado} disabled={completandoTallas}>
-              {completandoTallas ? 'Completando...' : 'Completar tallas de calzado'}
-            </button>
             <button className="btn" onClick={() => (mostrarForm ? setMostrarForm(false) : abrirFormulario())}>
               {mostrarForm ? 'Cerrar' : '+ Nuevo producto'}
             </button>
@@ -654,54 +616,6 @@ export default function ProductosPage() {
         )}
       </div>
 
-      {resultadoCompletarTallas && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <h2 style={{ fontSize: 15 }}>Completar tallas de calzado — resultado</h2>
-            <button className="btn-secondary btn" onClick={() => setResultadoCompletarTallas(null)}>
-              Cerrar
-            </button>
-          </div>
-          <p style={{ fontSize: 14, marginBottom: 10 }}>
-            {resultadoCompletarTallas.productosRevisados} productos de Calzado revisados ·{' '}
-            <strong style={{ color: '#1a7d36' }}>
-              {resultadoCompletarTallas.productosActualizados} actualizados
-            </strong>{' '}
-            ({resultadoCompletarTallas.tallasCreadasTotal} tallas nuevas en total)
-          </p>
-          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th>Resultado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {resultadoCompletarTallas.detalle.map((d) => (
-                  <tr key={d.productoId}>
-                    <td>{d.productoNombre}</td>
-                    <td style={{ fontSize: 12 }}>
-                      {d.estado === 'actualizado' && (
-                        <span style={{ color: '#1a7d36' }}>
-                          [{d.categoria}] Tallas agregadas: {d.tallasAgregadas?.join(', ')}
-                        </span>
-                      )}
-                      {d.estado === 'sin_cambios' && (
-                        <span style={{ color: 'var(--color-muted)' }}>
-                          Ya tenía todas las tallas de {d.categoria}
-                        </span>
-                      )}
-                      {d.estado === 'omitido' && <span style={{ color: '#a06a00' }}>Omitido — {d.motivo}</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {cargando ? (
         <p>Cargando...</p>
       ) : (
@@ -710,6 +624,7 @@ export default function ProductosPage() {
             <tr>
               <th>Foto</th>
               <th>Producto</th>
+              <th>SKU</th>
               <th>Marca</th>
               <th>Categoría</th>
               <th>Precio</th>
@@ -749,6 +664,7 @@ export default function ProductosPage() {
                       )}
                     </td>
                     <td>{p.nombre}</td>
+                    <td style={{ fontSize: 12, color: 'var(--color-muted)' }}>{skusUnicos(p)}</td>
                     <td>{p.marca?.nombre}</td>
                     <td>{p.categoria?.nombre}</td>
                     <td>${p.precioVenta}</td>
@@ -794,7 +710,7 @@ export default function ProductosPage() {
                   </tr>
                   {variantesAbiertasId === p.id && (
                     <tr>
-                      <td colSpan={7} style={{ background: '#fafafa' }}>
+                      <td colSpan={8} style={{ background: '#fafafa' }}>
                         <table style={{ minWidth: 0 }}>
                           <thead>
                             <tr>
@@ -1000,7 +916,7 @@ export default function ProductosPage() {
                   )}
                   {galeriaAbiertaId === p.id && (
                     <tr>
-                      <td colSpan={7} style={{ background: '#fafafa' }}>
+                      <td colSpan={8} style={{ background: '#fafafa' }}>
                         <GaleriaFotos
                           productoId={p.id}
                           imagenes={p.imagenes}
@@ -1015,7 +931,7 @@ export default function ProductosPage() {
             })}
             {productos.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ color: 'var(--color-muted)' }}>
+                <td colSpan={8} style={{ color: 'var(--color-muted)' }}>
                   Sin productos todavía.
                 </td>
               </tr>
