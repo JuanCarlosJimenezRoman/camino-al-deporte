@@ -2,8 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { Star } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
+
+function Estrellas({ valor }: { valor: number }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: 1 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          size={14}
+          fill={n <= valor ? 'var(--color-warning, #d97706)' : 'none'}
+          color={n <= valor ? 'var(--color-warning, #d97706)' : 'var(--color-border)'}
+        />
+      ))}
+    </span>
+  );
+}
 
 interface ProveedorInfo {
   id: number;
@@ -57,6 +73,12 @@ interface Pedido {
   numeroGuia: string | null;
   items: PedidoItem[];
   createdAt: string;
+  resena: {
+    calificacionProducto: number;
+    calificacionEnvio: number;
+    comentario: string | null;
+    fotos: { id: number; url: string }[];
+  } | null;
 }
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -294,6 +316,7 @@ export default function PedidoOnlineDetallePage() {
         {mensaje && <p style={{ fontSize: 13, marginTop: 12 }}>{mensaje}</p>}
       </div>
 
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'fit-content' }}>
       <div className="card" style={{ height: 'fit-content' }}>
         <h2 style={{ fontSize: 16, marginBottom: 12 }}>Artículos</h2>
         {pedido.items.map((it) => (
@@ -328,6 +351,33 @@ export default function PedidoOnlineDetallePage() {
           <span>Total</span>
           <span>${pedido.total}</span>
         </div>
+      </div>
+
+      {pedido.resena && (
+        <div className="card" style={{ height: 'fit-content' }}>
+          <h2 style={{ fontSize: 16, marginBottom: 12 }}>Reseña del cliente</h2>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 13 }}>
+            <div>
+              <div style={{ color: 'var(--color-muted)', marginBottom: 2 }}>Producto</div>
+              <Estrellas valor={pedido.resena.calificacionProducto} />
+            </div>
+            <div>
+              <div style={{ color: 'var(--color-muted)', marginBottom: 2 }}>Envío</div>
+              <Estrellas valor={pedido.resena.calificacionEnvio} />
+            </div>
+          </div>
+          {pedido.resena.comentario && <p style={{ fontSize: 14, marginBottom: 10 }}>{pedido.resena.comentario}</p>}
+          {pedido.resena.fotos.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {pedido.resena.fotos.map((f) => (
+                <a key={f.id} href={f.url} target="_blank" rel="noreferrer">
+                  <img src={f.url} alt="Foto del paquete recibido" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8 }} />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       </div>
     </div>
   );

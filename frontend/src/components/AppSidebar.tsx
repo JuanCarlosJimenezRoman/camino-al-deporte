@@ -11,6 +11,7 @@ import {
   Users,
   CalendarClock,
   Globe,
+  Star,
   CreditCard,
   Truck,
   PanelLeftClose,
@@ -69,6 +70,11 @@ export function AppSidebar({
           href: '/dashboard/pedidos-online',
           label: 'Pedidos en línea',
           icon: Globe,
+        },
+        puedeVer('resenas', rol) && {
+          href: '/dashboard/resenas',
+          label: 'Reseñas',
+          icon: Star,
         },
         puedeVer('transferencias', rol) && {
           href: '/dashboard/transferencias',

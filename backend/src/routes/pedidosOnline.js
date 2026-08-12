@@ -41,6 +41,7 @@ const PEDIDO_INCLUDE = {
   cuentaTransferencia: true,
   validadoPor: { select: { nombre: true } },
   proveedorPagoConfirmado: PROVEEDOR_SELECT,
+  resena: { include: { fotos: true } },
 };
 
 // GET /pedidos-online?estado= - lista todos los pedidos, más recientes primero
