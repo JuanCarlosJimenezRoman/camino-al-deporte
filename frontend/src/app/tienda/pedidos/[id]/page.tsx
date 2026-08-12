@@ -34,6 +34,7 @@ interface Pedido {
   codigoPostal: string;
   cuentaTransferencia: { nombre: string; banco: string | null; titular: string | null; numeroCuenta: string | null } | null;
   proveedorPago: { id: number; nombre: string; telefono: string | null } | null;
+  whatsappTienda: string | null;
   referenciaPago: string;
   comprobanteUrl: string | null;
   comprobanteRechazadoMotivo: string | null;
@@ -91,8 +92,12 @@ function construirMensajeWhatsapp(pedido: Pedido): string {
 }
 
 function construirLinkWhatsapp(pedido: Pedido): string | null {
-  if (!pedido.proveedorPago?.telefono) return null;
-  const numero = formatearTelefonoWhatsapp(pedido.proveedorPago.telefono);
+  // Preferimos el teléfono del proveedor asignado al pedido; si no hay uno
+  // (o no tiene teléfono capturado), caemos al WhatsApp general de la tienda
+  // configurado en el dashboard, para que el botón nunca desaparezca.
+  const telefono = pedido.proveedorPago?.telefono || pedido.whatsappTienda;
+  if (!telefono) return null;
+  const numero = formatearTelefonoWhatsapp(telefono);
   if (!numero) return null;
   return `https://wa.me/${numero}?text=${encodeURIComponent(construirMensajeWhatsapp(pedido))}`;
 }

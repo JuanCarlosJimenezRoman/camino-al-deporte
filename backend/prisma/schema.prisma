@@ -423,6 +423,9 @@ model Proveedor {
   pedidoItems  PedidoItem[]
   transferencias TransferenciaInventario[]
   pagos        PagoProveedor[]
+  // Pedidos en línea donde un empleado confirmó que la transferencia llegó
+  // a la cuenta de ESTE proveedor (no a la cuenta de la tienda).
+  pedidosPagoConfirmado Pedido[] @relation("PedidosConfirmadosProveedor")
 
   @@map("proveedores")
 }
@@ -714,6 +717,14 @@ model Pedido {
   validadoPor   Usuario?  @relation("PedidosValidados", fields: [validadoPorId], references: [id])
   validadoAt    DateTime? @map("validado_at")
 
+  // A qué cuenta llegó realmente la transferencia, confirmado por el
+  // empleado al validar el pago (ver POST /pedidos-online/:id/validar-pago).
+  // Null = la cuenta de la tienda (cuentaTransferenciaId, arriba); si se
+  // elige un proveedor es porque el cliente le transfirió directo a él
+  // (flujo típico: el proveedor le pasa sus datos de pago por WhatsApp).
+  proveedorPagoConfirmadoId Int?       @map("proveedor_pago_confirmado_id")
+  proveedorPagoConfirmado   Proveedor? @relation("PedidosConfirmadosProveedor", fields: [proveedorPagoConfirmadoId], references: [id])
+
   paqueteria String?
   numeroGuia String?   @map("numero_guia")
   enviadoAt  DateTime? @map("enviado_at")
@@ -756,4 +767,20 @@ model PedidoItem {
   subtotal       Decimal @db.Decimal(10, 2)
 
   @@map("pedido_items")
+}
+
+// ---------------------------------------------------------------------------
+// Configuración general de la tienda en línea
+// ---------------------------------------------------------------------------
+//
+// Fila única (siempre id=1): ajustes globales que no ameritan su propia
+// tabla. Por ahora solo el WhatsApp de contacto para pagos (respaldo cuando
+// un pedido no tiene un proveedor con teléfono asignado, o para negocios que
+// prefieren manejar todos los pagos desde un solo número).
+model ConfiguracionTienda {
+  id             Int      @id @default(autoincrement())
+  whatsappTienda String?  @map("whatsapp_tienda")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracion_tienda")
 }

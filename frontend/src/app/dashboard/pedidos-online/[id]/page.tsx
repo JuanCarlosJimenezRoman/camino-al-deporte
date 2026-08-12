@@ -5,6 +5,16 @@ import { useParams } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
 
+interface ProveedorInfo {
+  id: number;
+  nombre: string;
+  contacto: string | null;
+  telefono: string | null;
+  banco: string | null;
+  titular: string | null;
+  numeroCuenta: string | null;
+}
+
 interface PedidoItem {
   id: number;
   cantidad: number;
@@ -17,6 +27,7 @@ interface PedidoItem {
     producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
   };
   sucursalStock: { nombre: string };
+  proveedor: ProveedorInfo | null;
 }
 
 interface Pedido {
@@ -41,6 +52,7 @@ interface Pedido {
   comprobanteUrl: string | null;
   comprobanteRechazadoMotivo: string | null;
   validadoPor: { nombre: string } | null;
+  proveedorPagoConfirmado: ProveedorInfo | null;
   paqueteria: string | null;
   numeroGuia: string | null;
   items: PedidoItem[];
@@ -64,6 +76,7 @@ export default function PedidoOnlineDetallePage() {
   const [paqueteria, setPaqueteria] = useState('');
   const [numeroGuia, setNumeroGuia] = useState('');
   const [procesando, setProcesando] = useState(false);
+  const [cuentaReceptora, setCuentaReceptora] = useState(''); // '' = cuenta de la tienda
 
   async function cargar() {
     try {
@@ -71,6 +84,7 @@ export default function PedidoOnlineDetallePage() {
       setPedido(data);
       setPaqueteria(data.paqueteria || '');
       setNumeroGuia(data.numeroGuia || '');
+      setCuentaReceptora(data.proveedorPagoConfirmado ? String(data.proveedorPagoConfirmado.id) : '');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo cargar el pedido.');
     }
@@ -83,6 +97,15 @@ export default function PedidoOnlineDetallePage() {
 
   if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
   if (!pedido) return <p style={{ color: 'var(--color-muted)' }}>Cargando...</p>;
+
+  // Proveedores involucrados en este pedido (uno o varios artículos pueden
+  // venir de proveedores distintos), sin duplicar por id.
+  const proveedoresPedido: ProveedorInfo[] = [];
+  for (const it of pedido.items) {
+    if (it.proveedor && !proveedoresPedido.some((p) => p.id === it.proveedor!.id)) {
+      proveedoresPedido.push(it.proveedor);
+    }
+  }
 
   async function accion(ruta: string, body?: object) {
     setProcesando(true);
@@ -139,6 +162,25 @@ export default function PedidoOnlineDetallePage() {
           {pedido.notas && <div style={{ fontSize: 13, marginTop: 4 }}>Notas: {pedido.notas}</div>}
         </div>
 
+        {proveedoresPedido.length > 0 && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 8 }}>
+              {proveedoresPedido.length === 1 ? 'Proveedor de este pedido' : 'Proveedores de este pedido'}
+            </h2>
+            {proveedoresPedido.map((p) => (
+              <div key={p.id} style={{ fontSize: 14, marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--color-border)' }}>
+                <div style={{ fontWeight: 600 }}>{p.nombre}</div>
+                <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>
+                  {[p.contacto, p.telefono].filter(Boolean).join(' · ') || 'Sin contacto/teléfono registrado'}
+                </div>
+                <div style={{ color: 'var(--color-muted)', fontSize: 13 }}>
+                  {p.numeroCuenta ? `${p.banco || ''} · ${p.titular || ''} · ${p.numeroCuenta}` : 'Sin cuenta bancaria registrada'}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="card" style={{ marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, marginBottom: 8 }}>Pago por SPEI</h2>
           <div style={{ fontSize: 14 }}>
@@ -163,17 +205,47 @@ export default function PedidoOnlineDetallePage() {
           )}
 
           {pedido.validadoPor && (
-            <p style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 8 }}>Validado por {pedido.validadoPor.nombre}</p>
+            <p style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 8 }}>
+              Validado por {pedido.validadoPor.nombre}
+              {pedido.proveedorPagoConfirmado
+                ? ` — transferencia recibida por ${pedido.proveedorPagoConfirmado.nombre}`
+                : ' — transferencia recibida en la cuenta de la tienda'}
+            </p>
           )}
 
           {pedido.estado === 'EN_VALIDACION' && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <button className="btn" disabled={procesando} onClick={() => accion('validar-pago')}>
-                Confirmar pago
-              </button>
-              <button className="btn-secondary btn" disabled={procesando} onClick={rechazarComprobante}>
-                Rechazar comprobante
-              </button>
+            <div style={{ marginTop: 12 }}>
+              <label style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+                ¿A qué cuenta llegó la transferencia?
+              </label>
+              <select
+                value={cuentaReceptora}
+                onChange={(e) => setCuentaReceptora(e.target.value)}
+                style={{ marginBottom: 10, maxWidth: 320 }}
+              >
+                <option value="">Cuenta de la tienda ({pedido.cuentaTransferencia?.nombre || 'sin especificar'})</option>
+                {proveedoresPedido.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}{p.numeroCuenta ? ` — ${p.numeroCuenta}` : ''}
+                  </option>
+                ))}
+              </select>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn"
+                  disabled={procesando}
+                  onClick={() =>
+                    accion('validar-pago', {
+                      proveedorPagoConfirmadoId: cuentaReceptora ? Number(cuentaReceptora) : null,
+                    })
+                  }
+                >
+                  Confirmar transferencia recibida
+                </button>
+                <button className="btn-secondary btn" disabled={procesando} onClick={rechazarComprobante}>
+                  Rechazar comprobante
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -236,6 +308,7 @@ export default function PedidoOnlineDetallePage() {
                 {[it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ')} · {it.variante.sku} · sale de{' '}
                 {it.sucursalStock?.nombre}
               </div>
+              <div style={{ color: 'var(--color-muted)' }}>Proveedor: {it.proveedor?.nombre || 'sin asignar'}</div>
               <div>
                 {it.cantidad} × ${it.precioUnitario} = ${it.subtotal}
               </div>

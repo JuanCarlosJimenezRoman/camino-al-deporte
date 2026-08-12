@@ -22,17 +22,25 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
   },
 };
 
+// Datos completos del proveedor (incluida su cuenta bancaria): el empleado
+// que valida el pago necesita verlos para saber a quién le llegó realmente
+// la transferencia (ver POST /:id/validar-pago más abajo).
+const PROVEEDOR_SELECT = {
+  select: { id: true, nombre: true, contacto: true, telefono: true, banco: true, titular: true, numeroCuenta: true },
+};
+
 const PEDIDO_INCLUDE = {
   cliente: true,
   items: {
     include: {
       variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
       sucursalStock: { select: { id: true, nombre: true } },
-      proveedor: { select: { id: true, nombre: true, telefono: true } },
+      proveedor: PROVEEDOR_SELECT,
     },
   },
   cuentaTransferencia: true,
   validadoPor: { select: { nombre: true } },
+  proveedorPagoConfirmado: PROVEEDOR_SELECT,
 };
 
 // GET /pedidos-online?estado= - lista todos los pedidos, más recientes primero
@@ -56,23 +64,51 @@ router.get('/:id', requireAuth, requireRole(...ROLES_PEDIDOS), asyncHandler(asyn
   res.json(pedido);
 }));
 
+const validarPagoSchema = z.object({
+  // A qué cuenta llegó la transferencia: null/omitido = la cuenta de la
+  // tienda (cuentaTransferenciaId, fijada al crear el pedido); si se manda
+  // un id, debe ser el de uno de los proveedores que aparecen en los
+  // artículos de este pedido (se valida abajo).
+  proveedorPagoConfirmadoId: z.number().int().nullable().optional(),
+});
+
 // POST /pedidos-online/:id/validar-pago - confirma manualmente que la
 // transferencia SPEI llegó (comparando el comprobante subido contra el
-// estado de cuenta real, a mano en v1 — ver docs/ARQUITECTURA.md).
+// estado de cuenta real, a mano en v1 — ver docs/ARQUITECTURA.md). Además
+// registra a qué cuenta llegó (tienda o proveedor), para que la
+// conciliación de "Cuentas de proveedores" en Métodos de pago cuadre.
 router.post(
   '/:id/validar-pago',
   requireAuth,
   requireRole(...ROLES_PEDIDOS),
   asyncHandler(async (req, res) => {
-    const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) } });
+    const parsed = validarPagoSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+
+    const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) }, include: { items: true } });
     if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado.' });
     if (pedido.estado !== 'EN_VALIDACION') {
       return res.status(409).json({ error: 'Solo se puede validar el pago de un pedido en validación (con comprobante subido).' });
     }
 
+    const proveedorId = parsed.data.proveedorPagoConfirmadoId;
+    if (proveedorId != null) {
+      const proveedoresDelPedido = new Set(pedido.items.map((it) => it.proveedorId).filter(Boolean));
+      if (!proveedoresDelPedido.has(proveedorId)) {
+        return res.status(400).json({ error: 'Ese proveedor no corresponde a los artículos de este pedido.' });
+      }
+    }
+
     const actualizado = await prisma.pedido.update({
       where: { id: pedido.id },
-      data: { estado: 'PAGADO', validadoPorId: req.usuario.id, validadoAt: new Date() },
+      data: {
+        estado: 'PAGADO',
+        validadoPorId: req.usuario.id,
+        validadoAt: new Date(),
+        proveedorPagoConfirmadoId: proveedorId ?? null,
+      },
       include: PEDIDO_INCLUDE,
     });
     res.json(actualizado);

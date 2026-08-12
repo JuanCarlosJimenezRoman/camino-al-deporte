@@ -61,6 +61,21 @@ function conProveedorPago(pedido) {
   return { ...pedido, proveedorPago: mejor ? mejor.proveedor : null };
 }
 
+// El botón de WhatsApp del cliente usa el teléfono del proveedor si se pudo
+// resolver uno; si no (proveedor sin teléfono, o el pedido no tiene un
+// proveedor claro), cae al WhatsApp general de la tienda configurado en el
+// dashboard (ver routes/configuracionTienda.js) — así el botón nunca
+// desaparece por falta de un dato en un proveedor puntual.
+async function conWhatsapp(pedido) {
+  const conProveedor = conProveedorPago(pedido);
+  const config = await prisma.configuracionTienda.findFirst();
+  return { ...conProveedor, whatsappTienda: config?.whatsappTienda || null };
+}
+async function conWhatsappVarios(pedidos) {
+  const config = await prisma.configuracionTienda.findFirst();
+  return pedidos.map((p) => ({ ...conProveedorPago(p), whatsappTienda: config?.whatsappTienda || null }));
+}
+
 // GET /tienda/pedidos - pedidos del cliente autenticado
 router.get('/', requireClienteAuth, asyncHandler(async (req, res) => {
   const pedidos = await prisma.pedido.findMany({
@@ -68,7 +83,7 @@ router.get('/', requireClienteAuth, asyncHandler(async (req, res) => {
     include: PEDIDO_INCLUDE,
     orderBy: { createdAt: 'desc' },
   });
-  res.json(pedidos.map(conProveedorPago));
+  res.json(await conWhatsappVarios(pedidos));
 }));
 
 // GET /tienda/pedidos/:id - detalle, solo si es del cliente autenticado
@@ -80,7 +95,7 @@ router.get('/:id', requireClienteAuth, asyncHandler(async (req, res) => {
   if (!pedido || pedido.clienteId !== req.cliente.id) {
     return res.status(404).json({ error: 'Pedido no encontrado.' });
   }
-  res.json(conProveedorPago(pedido));
+  res.json(await conWhatsapp(pedido));
 }));
 
 const itemSchema = z.object({
@@ -211,7 +226,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
       return nuevo;
     });
 
-    res.status(201).json(conProveedorPago(pedido));
+    res.status(201).json(await conWhatsapp(pedido));
   } catch (err) {
     if (err.message === 'SIN_CUENTA_ONLINE') {
       return res.status(503).json({ error: 'La tienda en línea no tiene una cuenta de pago configurada todavía. Intenta más tarde.' });
@@ -258,7 +273,7 @@ router.post(
       include: PEDIDO_INCLUDE,
     });
 
-    res.json(conProveedorPago(actualizado));
+    res.json(await conWhatsapp(actualizado));
   })
 );
 
@@ -278,7 +293,7 @@ router.post('/:id/confirmar-recibido', requireClienteAuth, asyncHandler(async (r
     data: { estado: 'RECIBIDO', recibidoAt: new Date() },
     include: PEDIDO_INCLUDE,
   });
-  res.json(conProveedorPago(actualizado));
+  res.json(await conWhatsapp(actualizado));
 }));
 
 // POST /tienda/pedidos/:id/cancelar - el cliente cancela mientras siga
@@ -335,7 +350,7 @@ router.post('/:id/cancelar', requireClienteAuth, asyncHandler(async (req, res) =
     return tx.pedido.update({ where: { id: pedido.id }, data: { estado: 'CANCELADO' }, include: PEDIDO_INCLUDE });
   });
 
-  res.json(conProveedorPago(actualizado));
+  res.json(await conWhatsapp(actualizado));
 }));
 
 module.exports = router;

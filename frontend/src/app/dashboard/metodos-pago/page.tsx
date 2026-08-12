@@ -45,7 +45,11 @@ export default function MetodosPagoPage() {
         Administra las cuentas propias donde se reciben pagos por transferencia.
       </p>
 
-      <CuentasTransferenciaCard />
+      <WhatsappTiendaCard />
+
+      <div style={{ marginTop: 20 }}>
+        <CuentasTransferenciaCard />
+      </div>
 
       {puedeVer('proveedores', usuario?.rol) && (
         <div style={{ marginTop: 20 }}>
@@ -120,6 +124,70 @@ function ProveedoresCuentasCard() {
             )}
           </tbody>
         </table>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp de la tienda: a dónde llega el mensaje que le manda el cliente al
+// dar "Continuar por WhatsApp" en su pedido, cuando no hay un proveedor con
+// teléfono asignado a ese pedido (o como número único, si así prefiere
+// operar el negocio).
+// ---------------------------------------------------------------------------
+
+function WhatsappTiendaCard() {
+  const [numero, setNumero] = useState('');
+  const [guardado, setGuardado] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [mensaje, setMensaje] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ whatsappTienda: string | null }>('/configuracion-tienda')
+      .then((data) => {
+        setNumero(data.whatsappTienda || '');
+        setGuardado(data.whatsappTienda || '');
+      })
+      .finally(() => setCargando(false));
+  }, []);
+
+  async function guardar() {
+    setGuardando(true);
+    setMensaje(null);
+    try {
+      await api('/configuracion-tienda', { method: 'PUT', body: JSON.stringify({ whatsappTienda: numero || null }) });
+      setGuardado(numero);
+      setMensaje('Guardado.');
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al guardar.');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2 style={{ fontSize: 15, marginBottom: 4 }}>WhatsApp de la tienda</h2>
+      <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 12 }}>
+        Número al que llega el mensaje del cliente al continuar con el pago de su pedido, cuando el pedido no
+        tiene un proveedor con teléfono asignado. Incluye código de país si no es México (ej. 5216441234567).
+      </p>
+      {cargando ? (
+        <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Cargando...</p>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            placeholder="Ej. 6441234567"
+            value={numero}
+            onChange={(e) => setNumero(e.target.value)}
+            style={{ maxWidth: 220 }}
+          />
+          <button className="btn" onClick={guardar} disabled={guardando || numero === guardado}>
+            {guardando ? 'Guardando...' : 'Guardar'}
+          </button>
+          {mensaje && <span style={{ fontSize: 13 }}>{mensaje}</span>}
+        </div>
       )}
     </div>
   );
