@@ -682,7 +682,13 @@ model Pedido {
   cliente   Cliente      @relation(fields: [clienteId], references: [id])
 
   estado    EstadoPedido @default(PENDIENTE_PAGO)
-  total     Decimal      @default(0) @db.Decimal(10, 2)
+  // total = suma de los artículos + costoEnvio. costoEnvio se "congela" al
+  // crear el pedido (copiado de ConfiguracionTienda) para que si el negocio
+  // cambia la tarifa después, los pedidos ya hechos conserven el costo con
+  // el que realmente se cobraron — por ahora es un monto fijo global; en el
+  // futuro se piensa volver dinámico (por zona/peso/etc.).
+  total      Decimal @default(0) @db.Decimal(10, 2)
+  costoEnvio Decimal @default(0) @db.Decimal(10, 2) @map("costo_envio")
 
   // Dirección de envío: se guarda "congelada" en el pedido (no como
   // referencia a un catálogo de direcciones del cliente) para que, si el
@@ -783,6 +789,10 @@ model PedidoItem {
 model ConfiguracionTienda {
   id             Int      @id @default(autoincrement())
   whatsappTienda String?  @map("whatsapp_tienda")
+  // Costo de envío fijo que se suma al total de cada pedido nuevo (ver
+  // Pedido.costoEnvio). v1: un solo monto para toda la tienda; a futuro se
+  // piensa volver dinámico (por zona, peso, etc.).
+  costoEnvio     Decimal  @default(0) @db.Decimal(10, 2) @map("costo_envio")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("configuracion_tienda")

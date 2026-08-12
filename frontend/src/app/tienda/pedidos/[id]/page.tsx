@@ -32,6 +32,7 @@ interface Pedido {
   folio: string;
   estado: 'PENDIENTE_PAGO' | 'EN_VALIDACION' | 'PAGADO' | 'ENVIADO' | 'RECIBIDO' | 'CANCELADO';
   total: string;
+  costoEnvio: string;
   destinatario: string;
   calle: string;
   numeroExt: string;
@@ -99,6 +100,7 @@ function construirMensajeWhatsapp(pedido: Pedido): string {
     'Artículos:',
     articulos,
     '',
+    `Envío: $${pedido.costoEnvio}`,
     `Total: $${pedido.total}`,
     `Referencia: ${pedido.referenciaPago}`,
     '',
@@ -475,9 +477,19 @@ export default function PedidoDetallePage() {
             </div>
           ))}
         </div>
-        <div className="mt-4 flex justify-between border-t border-border pt-4 text-base font-bold">
-          <span>Total</span>
-          <span>${pedido.total}</span>
+        <div className="mt-4 space-y-1.5 border-t border-border pt-4 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>Subtotal</span>
+            <span>${(Number(pedido.total) - Number(pedido.costoEnvio)).toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Envío</span>
+            <span>{Number(pedido.costoEnvio) > 0 ? `$${pedido.costoEnvio}` : 'Gratis'}</span>
+          </div>
+          <div className="flex justify-between pt-1.5 text-base font-bold text-foreground">
+            <span>Total</span>
+            <span>${pedido.total}</span>
+          </div>
         </div>
       </div>
     </div>

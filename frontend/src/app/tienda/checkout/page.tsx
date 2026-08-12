@@ -34,11 +34,18 @@ export default function CheckoutPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [costoEnvio, setCostoEnvio] = useState(0);
   // Al crear el pedido vaciamos el carrito, lo que hace que items.length caiga
   // a 0 mientras el router.push todavía está resolviendo la navegación. Sin
   // este flag, el efecto de abajo alcanza a mandar de vuelta a /tienda/carrito
   // (carrito vacío) antes de que termine de navegar al detalle del pedido.
   const [pedidoCreado, setPedidoCreado] = useState(false);
+
+  useEffect(() => {
+    apiTienda<{ costoEnvio: number }>('/tienda/configuracion')
+      .then((data) => setCostoEnvio(Number(data.costoEnvio) || 0))
+      .catch(() => setCostoEnvio(0));
+  }, []);
 
   useEffect(() => {
     if (cargando || pedidoCreado) return;
@@ -175,9 +182,19 @@ export default function CheckoutPage() {
             </div>
           ))}
         </div>
-        <div className="mt-4 flex justify-between border-t border-border pt-4 text-base font-bold">
-          <span>Total</span>
-          <span>${total.toFixed(2)}</span>
+        <div className="mt-4 space-y-1.5 border-t border-border pt-4 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>Subtotal</span>
+            <span>${total.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-muted-foreground">
+            <span>Envío</span>
+            <span>{costoEnvio > 0 ? `$${costoEnvio.toFixed(2)}` : 'Gratis'}</span>
+          </div>
+          <div className="flex justify-between pt-1.5 text-base font-bold text-foreground">
+            <span>Total</span>
+            <span>${(total + costoEnvio).toFixed(2)}</span>
+          </div>
         </div>
       </div>
     </div>

@@ -141,6 +141,12 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
       });
       if (!cuenta) throw new Error('SIN_CUENTA_ONLINE');
 
+      // Costo de envío fijo (v1): se copia tal cual esté configurado en este
+      // momento, para que si el negocio lo cambia después, este pedido
+      // conserve el monto con el que se cobró.
+      const config = await tx.configuracionTienda.findFirst();
+      const costoEnvio = Number(config?.costoEnvio || 0);
+
       let total = 0;
       const itemsData = [];
 
@@ -194,6 +200,8 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
         });
       }
 
+      total += costoEnvio;
+
       const folio = `PED-${Date.now()}`;
       const referenciaPago = folio.replace('PED-', 'PED');
 
@@ -202,6 +210,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
           folio,
           clienteId: req.cliente.id,
           total,
+          costoEnvio,
           ...direccion,
           cuentaTransferenciaId: cuenta.id,
           referenciaPago,

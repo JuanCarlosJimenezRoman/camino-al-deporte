@@ -7,10 +7,10 @@ const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-// Configuración general de la tienda en línea: por ahora solo el WhatsApp de
-// contacto (fila única, siempre id=1). Es información sensible/operativa,
-// igual que las cuentas de transferencia: solo ADMIN_PRINCIPAL/DESARROLLO la
-// editan.
+// Configuración general de la tienda en línea: WhatsApp de contacto y costo
+// de envío fijo (fila única, siempre id=1). Es información
+// sensible/operativa, igual que las cuentas de transferencia: solo
+// ADMIN_PRINCIPAL/DESARROLLO la editan.
 const ROLES_EDICION = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
 
 async function obtenerOCrear() {
@@ -26,6 +26,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 
 const schema = z.object({
   whatsappTienda: z.string().optional().nullable(),
+  costoEnvio: z.coerce.number().min(0).optional(),
 });
 
 // PUT /configuracion-tienda
@@ -38,7 +39,10 @@ router.put('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (
   const actual = await obtenerOCrear();
   const actualizada = await prisma.configuracionTienda.update({
     where: { id: actual.id },
-    data: { whatsappTienda: parsed.data.whatsappTienda || null },
+    data: {
+      ...(('whatsappTienda' in req.body) ? { whatsappTienda: parsed.data.whatsappTienda || null } : {}),
+      ...(('costoEnvio' in req.body) ? { costoEnvio: parsed.data.costoEnvio ?? 0 } : {}),
+    },
   });
   res.json(actualizada);
 }));

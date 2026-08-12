@@ -138,56 +138,105 @@ function ProveedoresCuentasCard() {
 
 function WhatsappTiendaCard() {
   const [numero, setNumero] = useState('');
-  const [guardado, setGuardado] = useState('');
+  const [numeroGuardado, setNumeroGuardado] = useState('');
+  const [costoEnvio, setCostoEnvio] = useState('0');
+  const [costoEnvioGuardado, setCostoEnvioGuardado] = useState('0');
   const [cargando, setCargando] = useState(true);
-  const [guardando, setGuardando] = useState(false);
-  const [mensaje, setMensaje] = useState<string | null>(null);
+  const [guardandoNumero, setGuardandoNumero] = useState(false);
+  const [guardandoEnvio, setGuardandoEnvio] = useState(false);
+  const [mensajeNumero, setMensajeNumero] = useState<string | null>(null);
+  const [mensajeEnvio, setMensajeEnvio] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ whatsappTienda: string | null }>('/configuracion-tienda')
+    api<{ whatsappTienda: string | null; costoEnvio: string | number }>('/configuracion-tienda')
       .then((data) => {
         setNumero(data.whatsappTienda || '');
-        setGuardado(data.whatsappTienda || '');
+        setNumeroGuardado(data.whatsappTienda || '');
+        setCostoEnvio(String(data.costoEnvio ?? '0'));
+        setCostoEnvioGuardado(String(data.costoEnvio ?? '0'));
       })
       .finally(() => setCargando(false));
   }, []);
 
-  async function guardar() {
-    setGuardando(true);
-    setMensaje(null);
+  async function guardarNumero() {
+    setGuardandoNumero(true);
+    setMensajeNumero(null);
     try {
       await api('/configuracion-tienda', { method: 'PUT', body: JSON.stringify({ whatsappTienda: numero || null }) });
-      setGuardado(numero);
-      setMensaje('Guardado.');
+      setNumeroGuardado(numero);
+      setMensajeNumero('Guardado.');
     } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'Error al guardar.');
+      setMensajeNumero(err instanceof ApiError ? err.message : 'Error al guardar.');
     } finally {
-      setGuardando(false);
+      setGuardandoNumero(false);
+    }
+  }
+
+  async function guardarEnvio() {
+    const monto = Number(costoEnvio);
+    if (Number.isNaN(monto) || monto < 0) {
+      setMensajeEnvio('Ingresa un monto válido.');
+      return;
+    }
+    setGuardandoEnvio(true);
+    setMensajeEnvio(null);
+    try {
+      await api('/configuracion-tienda', { method: 'PUT', body: JSON.stringify({ costoEnvio: monto }) });
+      setCostoEnvioGuardado(costoEnvio);
+      setMensajeEnvio('Guardado.');
+    } catch (err) {
+      setMensajeEnvio(err instanceof ApiError ? err.message : 'Error al guardar.');
+    } finally {
+      setGuardandoEnvio(false);
     }
   }
 
   return (
     <div className="card">
-      <h2 style={{ fontSize: 15, marginBottom: 4 }}>WhatsApp de la tienda</h2>
-      <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 12 }}>
-        Número al que llega el mensaje del cliente al continuar con el pago de su pedido, cuando el pedido no
-        tiene un proveedor con teléfono asignado. Incluye código de país si no es México (ej. 5216441234567).
-      </p>
+      <h2 style={{ fontSize: 15, marginBottom: 4 }}>Configuración de la tienda en línea</h2>
+
       {cargando ? (
         <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Cargando...</p>
       ) : (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            placeholder="Ej. 6441234567"
-            value={numero}
-            onChange={(e) => setNumero(e.target.value)}
-            style={{ maxWidth: 220 }}
-          />
-          <button className="btn" onClick={guardar} disabled={guardando || numero === guardado}>
-            {guardando ? 'Guardando...' : 'Guardar'}
-          </button>
-          {mensaje && <span style={{ fontSize: 13 }}>{mensaje}</span>}
-        </div>
+        <>
+          <p style={{ color: 'var(--color-muted)', fontSize: 13, marginTop: 12, marginBottom: 8 }}>
+            <strong>WhatsApp de la tienda</strong> — a dónde llega el mensaje del cliente al continuar con el pago
+            de su pedido, cuando el pedido no tiene un proveedor con teléfono asignado. Incluye código de país si
+            no es México (ej. 5216441234567).
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+            <input
+              placeholder="Ej. 6441234567"
+              value={numero}
+              onChange={(e) => setNumero(e.target.value)}
+              style={{ maxWidth: 220 }}
+            />
+            <button className="btn" onClick={guardarNumero} disabled={guardandoNumero || numero === numeroGuardado}>
+              {guardandoNumero ? 'Guardando...' : 'Guardar'}
+            </button>
+            {mensajeNumero && <span style={{ fontSize: 13 }}>{mensajeNumero}</span>}
+          </div>
+
+          <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 8, borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
+            <strong>Costo de envío</strong> — monto fijo que se suma al total de cada pedido nuevo en la tienda en
+            línea. Por ahora es el mismo para todos los pedidos (más adelante se podrá variar por zona/peso).
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="Ej. 150"
+              value={costoEnvio}
+              onChange={(e) => setCostoEnvio(e.target.value)}
+              style={{ maxWidth: 140 }}
+            />
+            <button className="btn" onClick={guardarEnvio} disabled={guardandoEnvio || costoEnvio === costoEnvioGuardado}>
+              {guardandoEnvio ? 'Guardando...' : 'Guardar'}
+            </button>
+            {mensajeEnvio && <span style={{ fontSize: 13 }}>{mensajeEnvio}</span>}
+          </div>
+        </>
       )}
     </div>
   );

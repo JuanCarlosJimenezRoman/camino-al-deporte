@@ -51,6 +51,7 @@ interface Pedido {
   folio: string;
   estado: 'PENDIENTE_PAGO' | 'EN_VALIDACION' | 'PAGADO' | 'ENVIADO' | 'RECIBIDO' | 'CANCELADO';
   total: string;
+  costoEnvio: string;
   cliente: { nombre: string; telefono: string; email: string | null };
   destinatario: string;
   telefonoContacto: string;
@@ -338,18 +339,19 @@ export default function PedidoOnlineDetallePage() {
             </div>
           </div>
         ))}
-        <div
-          style={{
-            borderTop: '1px solid var(--color-border)',
-            marginTop: 10,
-            paddingTop: 10,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontWeight: 700,
-          }}
-        >
-          <span>Total</span>
-          <span>${pedido.total}</span>
+        <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 10, paddingTop: 10, fontSize: 13 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-muted)' }}>
+            <span>Subtotal</span>
+            <span>${(Number(pedido.total) - Number(pedido.costoEnvio)).toFixed(2)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-muted)', marginTop: 4 }}>
+            <span>Envío</span>
+            <span>${pedido.costoEnvio}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginTop: 6 }}>
+            <span>Total</span>
+            <span>${pedido.total}</span>
+          </div>
         </div>
       </div>
 
