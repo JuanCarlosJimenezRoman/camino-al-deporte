@@ -6,7 +6,6 @@ import { Menu, X, ShoppingBag, User } from 'lucide-react';
 import { AuthClienteProvider, useAuthCliente } from '@/lib/authCliente';
 import { CarritoProvider, useCarrito } from '@/lib/carrito';
 import { claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
-import MetaPixel from '@/components/tienda/MetaPixel';
 
 function BolsaIcono() {
   const { totalItems } = useCarrito();
@@ -141,7 +140,6 @@ export default function TiendaLayout({ children }: { children: ReactNode }) {
   return (
     <AuthClienteProvider>
       <CarritoProvider>
-        <MetaPixel />
         <div className="min-h-screen bg-background text-foreground">
           <Header />
           <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{children}</main>
