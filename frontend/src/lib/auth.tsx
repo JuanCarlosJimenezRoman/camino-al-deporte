@@ -20,6 +20,7 @@ interface AuthContextValue {
   cargando: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  actualizarUsuario: (datos: Partial<Usuario>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -57,8 +58,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   }
 
+  // Actualiza los datos del usuario en memoria (p. ej. tras editar el
+  // perfil propio) sin necesidad de recargar la página ni volver a loguear.
+  function actualizarUsuario(datos: Partial<Usuario>) {
+    setUsuario((actual) => (actual ? { ...actual, ...datos } : actual));
+  }
+
   return (
-    <AuthContext.Provider value={{ usuario, cargando, login, logout }}>
+    <AuthContext.Provider value={{ usuario, cargando, login, logout, actualizarUsuario }}>
       {children}
     </AuthContext.Provider>
   );

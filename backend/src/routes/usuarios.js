@@ -66,6 +66,7 @@ router.post('/', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (r
 router.put('/:id', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async (req, res) => {
   const schema = z.object({
     nombre: z.string().min(1).optional(),
+    email: z.string().email().optional(),
     rol: z.enum(['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA']).optional(),
     activo: z.boolean().optional(),
     password: z.string().min(8).optional(),
@@ -87,8 +88,15 @@ router.put('/:id', requireAuth, requireRole(...ROLES_ADMIN), asyncHandler(async 
     data.passwordHash = await bcrypt.hash(password, 10);
   }
 
-  const usuario = await prisma.usuario.update({ where: { id: Number(req.params.id) }, data });
-  res.json({ id: usuario.id, nombre: usuario.nombre, email: usuario.email });
+  try {
+    const usuario = await prisma.usuario.update({ where: { id: Number(req.params.id) }, data });
+    res.json({ id: usuario.id, nombre: usuario.nombre, email: usuario.email });
+  } catch (err) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({ error: 'Ya existe un usuario con ese email.' });
+    }
+    throw err;
+  }
 }));
 
 module.exports = router;

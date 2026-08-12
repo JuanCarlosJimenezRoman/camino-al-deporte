@@ -77,4 +77,69 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   });
 }));
 
+// PUT /auth/perfil - el usuario autenticado edita su propio nombre/email.
+const perfilSchema = z.object({
+  nombre: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+});
+
+router.put('/perfil', requireAuth, asyncHandler(async (req, res) => {
+  const parsed = perfilSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  if (Object.keys(parsed.data).length === 0) {
+    return res.status(400).json({ error: 'No hay cambios para guardar.' });
+  }
+
+  try {
+    const usuario = await prisma.usuario.update({
+      where: { id: req.usuario.id },
+      data: parsed.data,
+      include: { rol: true, sucursal: true },
+    });
+    res.json({
+      id: usuario.id,
+      nombre: usuario.nombre,
+      email: usuario.email,
+      rol: usuario.rol.nombre,
+      sucursalId: usuario.sucursalId,
+      sucursal: usuario.sucursal ? { id: usuario.sucursal.id, nombre: usuario.sucursal.nombre } : null,
+    });
+  } catch (err) {
+    if (err.code === 'P2002') {
+      return res.status(409).json({ error: 'Ya existe un usuario con ese email.' });
+    }
+    throw err;
+  }
+}));
+
+// PUT /auth/perfil/password - el usuario autenticado cambia su propia
+// contraseña, verificando primero la contraseña actual.
+const passwordSchema = z.object({
+  passwordActual: z.string().min(1),
+  passwordNueva: z.string().min(8),
+});
+
+router.put('/perfil/password', requireAuth, asyncHandler(async (req, res) => {
+  const parsed = passwordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const { passwordActual, passwordNueva } = parsed.data;
+
+  const usuario = await prisma.usuario.findUnique({ where: { id: req.usuario.id } });
+  if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+  const passwordOk = await bcrypt.compare(passwordActual, usuario.passwordHash);
+  if (!passwordOk) {
+    return res.status(401).json({ error: 'La contraseña actual no es correcta.' });
+  }
+
+  const passwordHash = await bcrypt.hash(passwordNueva, 10);
+  await prisma.usuario.update({ where: { id: usuario.id }, data: { passwordHash } });
+
+  res.json({ ok: true });
+}));
+
 module.exports = router;

@@ -1,7 +1,7 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
-import { LogOut, Menu, User as UserIcon } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { LogOut, Menu, User as UserIcon, Settings } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ const TITULOS: Record<string, string> = {
   '/dashboard/transferencias': 'Transferencias',
   '/dashboard/sucursales': 'Sucursales',
   '/dashboard/usuarios': 'Usuarios',
+  '/dashboard/perfil': 'Mi perfil',
 };
 
 const ROL_LABEL: Record<string, string> = {
@@ -52,6 +53,7 @@ function iniciales(nombre: string) {
 export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
   const { usuario, logout } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const titulo = TITULOS[pathname] || 'Camino al Deporte';
 
   return (
@@ -86,6 +88,10 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
               <Badge className="mt-1 w-fit">{ROL_LABEL[usuario.rol] || usuario.rol}</Badge>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push('/dashboard/perfil')}>
+              <Settings className="w-4 h-4" />
+              Mi perfil
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={logout} className="text-destructive">
               <LogOut className="w-4 h-4" />
               Cerrar sesión

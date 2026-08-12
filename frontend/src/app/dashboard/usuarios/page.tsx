@@ -30,6 +30,8 @@ const ROL_LABEL: Record<string, string> = {
 };
 
 interface EdicionUsuario {
+  nombre: string;
+  email: string;
   rol: string;
   sucursalId: string;
 }
@@ -46,7 +48,7 @@ export default function UsuariosPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
 
   const [editandoId, setEditandoId] = useState<number | null>(null);
-  const [edicion, setEdicion] = useState<EdicionUsuario>({ rol: 'CONSULTA', sucursalId: '' });
+  const [edicion, setEdicion] = useState<EdicionUsuario>({ nombre: '', email: '', rol: 'CONSULTA', sucursalId: '' });
 
   async function cargar() {
     const [u, s] = await Promise.all([api<Usuario[]>('/usuarios'), api<Sucursal[]>('/sucursales')]);
@@ -83,14 +85,25 @@ export default function UsuariosPage() {
 
   function abrirEdicion(u: Usuario) {
     setEditandoId(u.id);
-    setEdicion({ rol: u.rol, sucursalId: u.sucursalId ? String(u.sucursalId) : '' });
+    setEdicion({
+      nombre: u.nombre,
+      email: u.email,
+      rol: u.rol,
+      sucursalId: u.sucursalId ? String(u.sucursalId) : '',
+    });
   }
 
   async function guardarEdicion(id: number) {
+    if (!edicion.nombre.trim()) {
+      setMensaje('El nombre no puede estar vacío.');
+      return;
+    }
     try {
       await api(`/usuarios/${id}`, {
         method: 'PUT',
         body: JSON.stringify({
+          nombre: edicion.nombre,
+          email: edicion.email,
           rol: edicion.rol,
           sucursalId: edicion.sucursalId ? Number(edicion.sucursalId) : null,
         }),
@@ -198,8 +211,27 @@ export default function UsuariosPage() {
         <tbody>
           {usuarios.map((u) => (
             <tr key={u.id} style={{ opacity: u.activo ? 1 : 0.5 }}>
-              <td>{u.nombre}</td>
-              <td>{u.email}</td>
+              <td>
+                {editandoId === u.id ? (
+                  <input
+                    value={edicion.nombre}
+                    onChange={(e) => setEdicion({ ...edicion, nombre: e.target.value })}
+                  />
+                ) : (
+                  u.nombre
+                )}
+              </td>
+              <td>
+                {editandoId === u.id ? (
+                  <input
+                    type="email"
+                    value={edicion.email}
+                    onChange={(e) => setEdicion({ ...edicion, email: e.target.value })}
+                  />
+                ) : (
+                  u.email
+                )}
+              </td>
               <td>
                 {editandoId === u.id ? (
                   <select value={edicion.rol} onChange={(e) => setEdicion({ ...edicion, rol: e.target.value })}>
