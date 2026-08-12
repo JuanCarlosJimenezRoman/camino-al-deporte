@@ -37,36 +37,59 @@ router.use('/', require('./productosImportExport'));
 // producto, así que filtra a los productos que tengan AL MENOS una variante
 // activa con esa talla (para poder responder rápido "qué productos hay
 // disponibles en el número 27", por ejemplo).
+//
+// Paginado (?page=, ?limit=, tope 100): con cientos de productos, cada uno
+// con su lista de variantes + existencias + imágenes, traer todo en una sola
+// respuesta se vuelve pesado y lento tanto para la base de datos como para
+// el navegador. La respuesta ahora es { data, total, page, totalPages } en
+// vez de un arreglo plano — ?limit=1 sirve además como forma barata de leer
+// solo el total (ver dashboard de inicio, que antes traía el catálogo
+// completo nada más para contar cuántos productos hay).
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, modeloId, tallaId, q } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, q, page, limit } = req.query;
 
-  const productos = await prisma.producto.findMany({
-    where: {
-      activo: true,
-      ...(marcaId ? { marcaId: Number(marcaId) } : {}),
-      ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
-      ...(modeloId ? { modeloId: Number(modeloId) } : {}),
-      ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
-      ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
-    },
-    include: {
-      marca: true,
-      modelo: true,
-      categoria: true,
-      variantes: {
-        where: { activo: true },
-        include: {
-          talla: true,
-          proveedor: { select: { id: true, nombre: true } },
-          existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
+  const pageNum = Math.max(1, Number(page) || 1);
+  const limitNum = Math.min(100, Math.max(1, Number(limit) || 30));
+
+  const where = {
+    activo: true,
+    ...(marcaId ? { marcaId: Number(marcaId) } : {}),
+    ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
+    ...(modeloId ? { modeloId: Number(modeloId) } : {}),
+    ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
+    ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
+  };
+
+  const [productos, total] = await Promise.all([
+    prisma.producto.findMany({
+      where,
+      include: {
+        marca: true,
+        modelo: true,
+        categoria: true,
+        variantes: {
+          where: { activo: true },
+          include: {
+            talla: true,
+            proveedor: { select: { id: true, nombre: true } },
+            existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
+          },
         },
+        ...IMAGENES_INCLUDE,
       },
-      ...IMAGENES_INCLUDE,
-    },
-    orderBy: { nombre: 'asc' },
-  });
+      orderBy: { nombre: 'asc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
+    prisma.producto.count({ where }),
+  ]);
 
-  res.json(productos);
+  res.json({
+    data: productos,
+    total,
+    page: pageNum,
+    totalPages: Math.max(1, Math.ceil(total / limitNum)),
+  });
 }));
 
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {

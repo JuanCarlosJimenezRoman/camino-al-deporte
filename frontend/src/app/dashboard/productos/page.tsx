@@ -68,6 +68,15 @@ interface Proveedor {
   nombre: string;
 }
 
+interface ProductosPaginados {
+  data: Producto[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+const PRODUCTOS_POR_PAGINA = 30;
+
 interface VarianteForm {
   tallaId: string;
   color: string;
@@ -161,6 +170,12 @@ export default function ProductosPage() {
   const [filtroModeloId, setFiltroModeloId] = useState('');
   const [filtroTallaId, setFiltroTallaId] = useState('');
 
+  // Paginación: con el catálogo creciendo (600+ productos) traer todo de una
+  // vez volvía lento tanto el backend como el render de la tabla.
+  const [pagina, setPagina] = useState(1);
+  const [totalPaginas, setTotalPaginas] = useState(1);
+  const [totalProductos, setTotalProductos] = useState(0);
+
   // Campos del nuevo producto
   const [nombre, setNombre] = useState('');
   const [marcaId, setMarcaId] = useState('');
@@ -172,7 +187,7 @@ export default function ProductosPage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  async function cargarProductos() {
+  async function cargarProductos(paginaDestino = pagina) {
     setCargando(true);
     const qs = new URLSearchParams();
     if (busqueda) qs.set('q', busqueda);
@@ -180,8 +195,13 @@ export default function ProductosPage() {
     if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
     if (filtroModeloId) qs.set('modeloId', filtroModeloId);
     if (filtroTallaId) qs.set('tallaId', filtroTallaId);
-    const data = await api<Producto[]>(`/productos${qs.toString() ? `?${qs.toString()}` : ''}`);
-    setProductos(data);
+    qs.set('page', String(paginaDestino));
+    qs.set('limit', String(PRODUCTOS_POR_PAGINA));
+    const resultado = await api<ProductosPaginados>(`/productos?${qs.toString()}`);
+    setProductos(resultado.data);
+    setTotalPaginas(resultado.totalPages);
+    setTotalProductos(resultado.total);
+    setPagina(resultado.page);
     setCargando(false);
   }
 
@@ -199,8 +219,10 @@ export default function ProductosPage() {
   // Un solo efecto controla la carga del listado: se dispara al entrar y
   // cada vez que cambia alguno de los filtros de selección (igual que en
   // Inventario); la búsqueda por texto sigue siendo manual (botón/Enter).
+  // Cambiar un filtro siempre vuelve a la página 1: la página en la que
+  // estabas puede ya no existir con el nuevo filtro aplicado.
   useEffect(() => {
-    cargarProductos();
+    cargarProductos(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId]);
 
@@ -698,10 +720,10 @@ export default function ProductosPage() {
           placeholder="Buscar por nombre..."
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && cargarProductos()}
+          onKeyDown={(e) => e.key === 'Enter' && cargarProductos(1)}
           style={{ maxWidth: 240 }}
         />
-        <button className="btn" onClick={cargarProductos}>
+        <button className="btn" onClick={() => cargarProductos(1)}>
           Buscar
         </button>
       </div>
@@ -762,6 +784,7 @@ export default function ProductosPage() {
       {cargando ? (
         <p>Cargando...</p>
       ) : (
+        <>
         <table>
           <thead>
             <tr>
@@ -1227,6 +1250,29 @@ export default function ProductosPage() {
             )}
           </tbody>
         </table>
+
+        {totalProductos > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12 }}>
+            <button
+              className="btn-secondary btn"
+              onClick={() => cargarProductos(pagina - 1)}
+              disabled={pagina <= 1}
+            >
+              Anterior
+            </button>
+            <span style={{ fontSize: 13, color: 'var(--color-muted)' }}>
+              Página {pagina} de {totalPaginas} · {totalProductos} {totalProductos === 1 ? 'producto' : 'productos'}
+            </span>
+            <button
+              className="btn-secondary btn"
+              onClick={() => cargarProductos(pagina + 1)}
+              disabled={pagina >= totalPaginas}
+            >
+              Siguiente
+            </button>
+          </div>
+        )}
+        </>
       )}
     </div>
   );

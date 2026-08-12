@@ -29,10 +29,13 @@ export default function DashboardHome() {
       const resultado: Kpi[] = [];
 
       try {
-        const productos = await api<unknown[]>('/productos');
+        // ?limit=1 basta: solo se usa el total, no hace falta traer el
+        // catálogo completo (con 600+ productos eso era lo que hacía lenta
+        // esta pantalla).
+        const productos = await api<{ total: number }>('/productos?limit=1');
         resultado.push({
           titulo: 'Productos en catálogo',
-          valor: String(productos.length),
+          valor: String(productos.total),
           descripcion: 'Total de productos dados de alta',
           icon: Package,
           href: '/dashboard/productos',

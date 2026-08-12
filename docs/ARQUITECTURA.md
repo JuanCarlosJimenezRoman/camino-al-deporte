@@ -58,6 +58,15 @@ registros de stock independientes bajo el mismo producto.
 Las tallas son un catálogo reutilizable con un `tipo` (calzado, ropa,
 accesorio) para no mezclar selectores de talla de zapato con los de ropa.
 
+`GET /productos` está paginado (`?page=`, `?limit=`, tope 100 por página;
+responde `{ data, total, page, totalPages }`) — con el catálogo creciendo a
+cientos de productos, cada uno con sus variantes/existencias/imágenes, traer
+todo de una sola vez era lento tanto para la base de datos como para el
+navegador. El listado de Productos usa esto para mostrar 30 a la vez con
+botones Anterior/Siguiente; el dashboard de inicio pide `?limit=1` para leer
+solo el total en vez de descargar el catálogo completo nada más para
+contarlo.
+
 ## Campos personalizados (crecer el sistema sin tocar código)
 
 En vez de que agregar un campo nuevo signifique una migración de base de
