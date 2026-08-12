@@ -11,6 +11,7 @@ interface Resena {
   calificacionEnvio: number;
   comentario: string | null;
   createdAt: string;
+  visible: boolean;
   fotos: { id: number; url: string }[];
   pedido: {
     id: number;
@@ -46,6 +47,15 @@ export default function ResenasPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : 'No se pudieron cargar las reseñas.'));
   }, []);
 
+  async function alternarVisibilidad(r: Resena) {
+    try {
+      await api(`/resenas/${r.id}/visibilidad`, { method: 'PUT', body: JSON.stringify({ visible: !r.visible }) });
+      setResenas((prev) => prev && prev.map((x) => (x.id === r.id ? { ...x, visible: !r.visible } : x)));
+    } catch {
+      // sin acción especial: si falla, el estado local no cambia y el botón sigue reflejando lo real
+    }
+  }
+
   if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
 
   const promedioProducto = resenas?.length
@@ -57,7 +67,9 @@ export default function ResenasPage() {
     <div>
       <h1 style={{ fontSize: 22, marginBottom: 4 }}>Reseñas de clientes</h1>
       <p style={{ color: 'var(--color-muted)', marginBottom: 16, fontSize: 14 }}>
-        Calificaciones y fotos que los clientes dejan después de recibir su pedido en la tienda en línea.
+        Calificaciones y fotos que los clientes dejan después de recibir su pedido en la tienda en línea. Por
+        default se muestran como testimonio en la tienda (con solo el primer nombre del cliente, sin teléfono);
+        puedes ocultar cualquiera puntual sin borrarla.
       </p>
 
       {resenas === null && !error && <p style={{ color: 'var(--color-muted)' }}>Cargando...</p>}
@@ -90,19 +102,39 @@ export default function ResenasPage() {
       )}
 
       {resenas?.map((r) => (
-        <div key={r.id} className="card" style={{ marginBottom: 12 }}>
+        <div key={r.id} className="card" style={{ marginBottom: 12, opacity: r.visible ? 1 : 0.6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
             <div>
               <Link href={`/dashboard/pedidos-online/${r.pedido.id}`} style={{ fontWeight: 600 }}>
                 {r.pedido.folio}
               </Link>
+              {!r.visible && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: '2px 6px',
+                    borderRadius: 4,
+                    background: 'var(--color-border)',
+                    color: 'var(--color-muted)',
+                  }}
+                >
+                  Oculta
+                </span>
+              )}
               <div style={{ fontSize: 13, color: 'var(--color-muted)' }}>
                 {r.pedido.cliente?.nombre || 'Cliente'} ·{' '}
                 {r.pedido.items.map((it) => it.variante.producto.nombre).join(', ')}
               </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-              {new Date(r.createdAt).toLocaleDateString('es-MX')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>
+                {new Date(r.createdAt).toLocaleDateString('es-MX')}
+              </span>
+              <button className="btn-secondary btn" onClick={() => alternarVisibilidad(r)}>
+                {r.visible ? 'Ocultar de la tienda' : 'Publicar en la tienda'}
+              </button>
             </div>
           </div>
 

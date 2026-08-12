@@ -34,4 +34,21 @@ router.get('/', requireAuth, requireRole(...ROLES_RESENAS), asyncHandler(async (
   res.json(resenas);
 }));
 
+// PUT /resenas/:id/visibilidad - mostrar u ocultar una reseña de los
+// testimonios públicos de la tienda en línea (ver routes/tienda/resenas.js).
+// No la borra: sigue viéndose aquí en el dashboard de todas formas.
+router.put(
+  '/:id/visibilidad',
+  requireAuth,
+  requireRole(...ROLES_RESENAS),
+  asyncHandler(async (req, res) => {
+    const visible = Boolean(req.body?.visible);
+    const resena = await prisma.pedidoResena.update({
+      where: { id: Number(req.params.id) },
+      data: { visible },
+    });
+    res.json(resena);
+  })
+);
+
 module.exports = router;

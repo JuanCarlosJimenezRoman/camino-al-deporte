@@ -806,6 +806,14 @@ model PedidoResena {
   calificacionEnvio    Int     @map("calificacion_envio") // 1 a 5
   comentario           String?
 
+  // Si se muestra como testimonio público en la tienda en línea. El cliente
+  // no dio consentimiento explícito para que su reseña sea pública al
+  // escribirla, así que por default sí se publica (son reseñas normales de
+  // compra) pero el negocio puede ocultar cualquiera puntual desde el
+  // dashboard (ver routes/resenas.js) — por ejemplo, si trae una queja o una
+  // foto que no se preste para mostrarse a otros clientes.
+  visible Boolean @default(true)
+
   fotos     PedidoResenaFoto[]
   createdAt DateTime           @default(now()) @map("created_at")
 

@@ -7,6 +7,7 @@ import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { useCarrito } from '@/lib/carrito';
 import { Stepper, claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
 import { imagenProducto, imagenMiniatura, imagenCatalogo } from '@/lib/imagenCloudinary';
+import { Testimonios } from '@/components/tienda/Testimonios';
 
 interface Variante {
   id: number;
@@ -251,6 +252,8 @@ export default function ProductoDetallePage() {
           </div>
         </div>
       </div>
+
+      <Testimonios productoId={producto.id} titulo="Reseñas de este producto" />
 
       {/* Modelos parecidos: misma categoría (o marca), scroll horizontal en
           móvil y grid en escritorio, con el mismo look de tarjeta que el

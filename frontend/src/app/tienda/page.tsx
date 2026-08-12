@@ -6,6 +6,7 @@ import { Search, SlidersHorizontal } from 'lucide-react';
 import { apiTienda } from '@/lib/apiTienda';
 import { imagenCatalogo } from '@/lib/imagenCloudinary';
 import { EstadoFiltros, FiltrosPanel, Orden, contarFiltrosActivos, filtrosVacios } from '@/components/tienda/FiltrosPanel';
+import { Testimonios } from '@/components/tienda/Testimonios';
 
 interface VarianteTienda {
   talla: { valor: string; orden?: number } | null;
@@ -151,6 +152,8 @@ export default function TiendaCatalogoPage() {
           </Link>
         ))}
       </div>
+
+      <Testimonios />
 
       <FiltrosPanel
         abierto={panelAbierto}
