@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, apiTiendaUpload, ApiError } from '@/lib/apiTienda';
@@ -54,6 +54,13 @@ const ESTADO_LABEL: Record<Pedido['estado'], string> = {
 };
 
 const PASOS: Pedido['estado'][] = ['PENDIENTE_PAGO', 'EN_VALIDACION', 'PAGADO', 'ENVIADO', 'RECIBIDO'];
+
+// Mientras el pedido esté en uno de estos estados, todavía puede cambiar por
+// una acción del negocio (validar pago, marcar enviado, etc.) sin que el
+// cliente haga nada — vale la pena seguir consultando en automático. Una vez
+// recibido o cancelado ya no hay nada más que esperar.
+const ESTADOS_FINALES: Pedido['estado'][] = ['RECIBIDO', 'CANCELADO'];
+const INTERVALO_ACTUALIZACION_MS = 8000;
 
 // El pago ya no se muestra directo en la página (cuenta/CLABE en frío no le
 // daba confianza al cliente). En vez de eso se le manda por WhatsApp al
@@ -112,6 +119,7 @@ export default function PedidoDetallePage() {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
+  const pedidoRef = useRef<Pedido | null>(null);
 
   async function cargar() {
     try {
@@ -122,6 +130,23 @@ export default function PedidoDetallePage() {
     }
   }
 
+  // Actualización automática del estado (pago validado, enviado, etc.) sin
+  // que el cliente tenga que recargar la página. Consulta en silencio cada
+  // pocos segundos — si falla una vez por la red no interrumpe la vista con
+  // un error, simplemente lo vuelve a intentar en el siguiente ciclo.
+  async function actualizarEnSilencio() {
+    try {
+      const data = await apiTienda<Pedido>(`/tienda/pedidos/${params.id}`);
+      setPedido(data);
+    } catch {
+      // sin acción: se reintenta solo
+    }
+  }
+
+  useEffect(() => {
+    pedidoRef.current = pedido;
+  }, [pedido]);
+
   useEffect(() => {
     if (cargando) return;
     if (!cliente) {
@@ -129,6 +154,31 @@ export default function PedidoDetallePage() {
       return;
     }
     cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargando, cliente, params.id]);
+
+  useEffect(() => {
+    if (cargando || !cliente) return;
+
+    const intervalo = setInterval(() => {
+      if (document.hidden) return; // pestaña en segundo plano: no gastar llamadas de más
+      if (pedidoRef.current && ESTADOS_FINALES.includes(pedidoRef.current.estado)) return;
+      actualizarEnSilencio();
+    }, INTERVALO_ACTUALIZACION_MS);
+
+    // Al volver a la pestaña, refresca de inmediato en vez de esperar al
+    // siguiente ciclo del intervalo.
+    function alVolverVisible() {
+      if (!document.hidden && pedidoRef.current && !ESTADOS_FINALES.includes(pedidoRef.current.estado)) {
+        actualizarEnSilencio();
+      }
+    }
+    document.addEventListener('visibilitychange', alVolverVisible);
+
+    return () => {
+      clearInterval(intervalo);
+      document.removeEventListener('visibilitychange', alVolverVisible);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargando, cliente, params.id]);
 

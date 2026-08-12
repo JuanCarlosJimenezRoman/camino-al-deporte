@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
@@ -35,11 +35,25 @@ const ESTADO_ESTILO: Record<string, string> = {
   CANCELADO: 'bg-destructive/15 text-destructive',
 };
 
+const ESTADOS_FINALES = new Set(['RECIBIDO', 'CANCELADO']);
+const INTERVALO_ACTUALIZACION_MS = 15000;
+
 export default function MisPedidosPage() {
   const { cliente, cargando } = useAuthCliente();
   const router = useRouter();
   const [pedidos, setPedidos] = useState<Pedido[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pedidosRef = useRef<Pedido[] | null>(null);
+
+  function cargar() {
+    return apiTienda<Pedido[]>('/tienda/pedidos')
+      .then(setPedidos)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'No se pudieron cargar tus pedidos.'));
+  }
+
+  useEffect(() => {
+    pedidosRef.current = pedidos;
+  }, [pedidos]);
 
   useEffect(() => {
     if (cargando) return;
@@ -47,10 +61,23 @@ export default function MisPedidosPage() {
       router.replace('/tienda/login?siguiente=/tienda/pedidos');
       return;
     }
-    apiTienda<Pedido[]>('/tienda/pedidos')
-      .then(setPedidos)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'No se pudieron cargar tus pedidos.'));
+    cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cargando, cliente, router]);
+
+  // Actualiza los estados (badges) en automático mientras haya al menos un
+  // pedido que todavía pueda cambiar, sin que el cliente recargue la página.
+  useEffect(() => {
+    if (cargando || !cliente) return;
+    const intervalo = setInterval(() => {
+      if (document.hidden) return;
+      const lista = pedidosRef.current;
+      const hayPendientes = lista === null || lista.some((p) => !ESTADOS_FINALES.has(p.estado));
+      if (hayPendientes) apiTienda<Pedido[]>('/tienda/pedidos').then(setPedidos).catch(() => {});
+    }, INTERVALO_ACTUALIZACION_MS);
+    return () => clearInterval(intervalo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargando, cliente]);
 
   if (cargando || !cliente) return null;
   if (error) return <p className="text-sm text-destructive">{error}</p>;
