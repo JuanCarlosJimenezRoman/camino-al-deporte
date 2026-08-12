@@ -8,6 +8,7 @@ import { Estrellas } from './ui';
 interface Testimonio {
   id: number;
   calificacionProducto: number;
+  calificacionEnvio: number;
   comentario: string | null;
   fotos: { url: string }[];
   clienteNombre: string;
@@ -40,9 +41,17 @@ export function Testimonios({
     <div className="mt-16 border-t border-border pt-10">
       <h2 className="mb-5 text-lg font-bold uppercase tracking-tight sm:text-xl">{titulo}</h2>
       <div className="flex snap-x gap-4 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {testimonios.map((t) => (
+        {testimonios.map((t) => {
+          const promedio = (t.calificacionProducto + t.calificacionEnvio) / 2;
+          return (
           <div key={t.id} className="w-72 shrink-0 snap-start rounded-2xl border border-border p-5">
-            <Estrellas valor={t.calificacionProducto} tamano="h-4 w-4" />
+            <div className="flex items-center gap-2">
+              <Estrellas valor={Math.round(promedio)} tamano="h-4 w-4" />
+              <span className="text-xs font-semibold text-muted-foreground">{promedio.toFixed(1)}</span>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Producto {t.calificacionProducto}/5 · Envío {t.calificacionEnvio}/5
+            </p>
             {t.comentario && <p className="mt-3 line-clamp-5 text-sm leading-relaxed">{t.comentario}</p>}
             {t.fotos.length > 0 && (
               <div className="mt-3 flex gap-2">
@@ -56,7 +65,8 @@ export function Testimonios({
               {t.clienteNombre} · {t.productos.join(', ')}
             </p>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

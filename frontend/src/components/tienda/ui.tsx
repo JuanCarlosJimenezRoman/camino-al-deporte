@@ -86,9 +86,14 @@ export function Estrellas({
           className={soloLectura ? 'cursor-default' : 'cursor-pointer'}
         >
           <Star
-            className={`${tamano} ${n <= valor ? 'text-foreground' : 'text-muted-foreground/30'}`}
+            className={tamano}
             strokeWidth={1.5}
-            fill={n <= valor ? 'currentColor' : 'none'}
+            // Color explícito (no clases de Tailwind con opacidad sobre
+            // variables CSS): así la estrella vacía siempre se ve claramente
+            // distinta de la llena, sin depender de que el modificador de
+            // opacidad resuelva bien.
+            color={n <= valor ? '#111827' : '#d1d5db'}
+            fill={n <= valor ? '#111827' : 'none'}
           />
         </button>
       ))}
