@@ -55,7 +55,15 @@ async function resolverWhatsappVenta(venta) {
 }
 
 async function conWhatsappContactoVarios(ventas) {
-  const config = await prisma.configuracionTienda.findFirst();
+  // Igual que resolverWhatsappVenta: esto es solo para mostrar el número de
+  // contacto en la lista/historial, nunca debe tumbar la consulta si algo
+  // falla al leer la configuración general (p.ej. una migración pendiente).
+  let config = null;
+  try {
+    config = await prisma.configuracionTienda.findFirst();
+  } catch (err) {
+    console.error('Error leyendo configuración de la tienda (WhatsApp):', err);
+  }
   return ventas.map((v) => ({
     ...v,
     whatsappContacto: v.sucursal?.telefono || config?.whatsappTienda || null,
