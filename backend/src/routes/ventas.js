@@ -27,6 +27,32 @@ function esAdmin(rol) {
   return ROLES_ADMIN.includes(rol);
 }
 
+// El ticket digital se manda al cliente por WhatsApp con el mismo mecanismo
+// de click-to-chat que ya se usa en pedidos en línea (ver
+// routes/tienda/pedidos.js): no hay envío automático desde el servidor, es
+// el cajero quien abre un link con el mensaje ya armado y lo manda desde el
+// WhatsApp de la sucursal. El número que se muestra como "contacto" dentro
+// del ticket prioriza el WhatsApp propio de la sucursal (Sucursal.telefono)
+// — útil si en el futuro cada sucursal tiene su propio número — y cae al
+// WhatsApp general configurado en el dashboard (configuracionTienda) si esa
+// sucursal no tiene uno capturado, para que el ticket nunca se quede sin un
+// número de contacto.
+async function conWhatsappContacto(venta) {
+  if (!venta) return venta;
+  if (venta.sucursal?.telefono) {
+    return { ...venta, whatsappContacto: venta.sucursal.telefono };
+  }
+  const config = await prisma.configuracionTienda.findFirst();
+  return { ...venta, whatsappContacto: config?.whatsappTienda || null };
+}
+async function conWhatsappContactoVarios(ventas) {
+  const config = await prisma.configuracionTienda.findFirst();
+  return ventas.map((v) => ({
+    ...v,
+    whatsappContacto: v.sucursal?.telefono || config?.whatsappTienda || null,
+  }));
+}
+
 /**
  * Resuelve desde qué sucursal se puede vender/consultar según el rol:
  *  - ADMIN_PRINCIPAL/DESARROLLO: pueden operar sobre cualquier sucursal
@@ -66,13 +92,13 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
         },
       },
       usuario: { select: { nombre: true } },
-      sucursal: { select: { nombre: true } },
+      sucursal: { select: { nombre: true, telefono: true } },
       cuentaTransferencia: { select: { nombre: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
 
-  res.json(ventas);
+  res.json(await conWhatsappContactoVarios(ventas));
 }));
 
 // GET /ventas/corte-dia - resumen de caja de un día (por defecto hoy) para
@@ -183,7 +209,7 @@ router.get(
         },
       },
         usuario: { select: { nombre: true } },
-        sucursal: { select: { nombre: true } },
+        sucursal: { select: { nombre: true, telefono: true } },
         cuentaTransferencia: { select: { nombre: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -202,7 +228,7 @@ router.get(
     }
 
     res.json({
-      ventas,
+      ventas: await conWhatsappContactoVarios(ventas),
       resumen: { totalGeneral, porSucursal: resumenPorSucursal },
     });
   })
@@ -223,6 +249,10 @@ const ventaSchema = z
   .object({
     sucursalId: z.number().int().optional(),
     cliente: z.string().optional(),
+    // Teléfono del cliente, opcional: solo se pide para poder mandarle el
+    // ticket digital por WhatsApp al terminar la venta. Sin él, la venta se
+    // registra igual, solo que no se ofrece el botón de enviar ticket.
+    clienteTelefono: z.string().optional(),
     metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']).default('EFECTIVO'),
     cuentaTransferenciaId: z.number().int().optional(),
     items: z.array(ventaItemSchema).min(1),
@@ -261,7 +291,7 @@ router.post(
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
-    const { cliente, metodoPago, cuentaTransferenciaId, items } = parsed.data;
+    const { cliente, clienteTelefono, metodoPago, cuentaTransferenciaId, items } = parsed.data;
 
     let sucursalId;
     try {
@@ -340,6 +370,7 @@ router.post(
             sucursalId,
             usuarioId: req.usuario.id,
             cliente,
+            clienteTelefono,
             metodoPago,
             cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? cuentaTransferenciaId : null,
             comprobanteUrl,
@@ -347,11 +378,15 @@ router.post(
             total,
             items: { create: itemsData },
           },
-          include: { items: true, cuentaTransferencia: { select: { nombre: true } } },
+          include: {
+            items: true,
+            cuentaTransferencia: { select: { nombre: true } },
+            sucursal: { select: { nombre: true, telefono: true } },
+          },
         });
       });
 
-      res.status(201).json(venta);
+      res.status(201).json(await conWhatsappContacto(venta));
     } catch (err) {
       if (err.message.startsWith('STOCK_INSUFICIENTE')) {
         return res.status(409).json({ error: `Stock insuficiente para SKU ${err.message.split(':')[1]}.` });

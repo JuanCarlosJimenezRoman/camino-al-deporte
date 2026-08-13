@@ -565,6 +565,11 @@ model Venta {
   usuarioId   Int         @map("usuario_id")
   usuario     Usuario     @relation(fields: [usuarioId], references: [id])
   cliente     String?
+  // Teléfono del cliente capturado en el punto de venta (tiendas físicas),
+  // para mandarle el ticket digital por WhatsApp al momento de la compra.
+  // Opcional: sigue siendo válido registrar una venta de mostrador sin
+  // captar el teléfono.
+  clienteTelefono String? @map("cliente_telefono")
   total       Decimal     @default(0) @db.Decimal(10, 2)
 
   metodoPago  MetodoPago  @default(EFECTIVO) @map("metodo_pago")

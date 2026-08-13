@@ -20,6 +20,8 @@ interface CuentaTransferencia {
 interface VentaItem {
   id: number;
   cantidad: number;
+  precioUnitario: string;
+  subtotal: string;
   variante: {
     sku: string;
     color: string | null;
@@ -32,6 +34,8 @@ interface Venta {
   id: number;
   folio: string;
   cliente: string | null;
+  // Teléfono capturado en el punto de venta para mandar el ticket digital.
+  clienteTelefono: string | null;
   total: string;
   estado: string;
   metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
@@ -39,7 +43,11 @@ interface Venta {
   cuentaTransferencia: { nombre: string } | null;
   createdAt: string;
   usuario: { nombre: string };
-  sucursal: { nombre: string };
+  sucursal: { nombre: string; telefono?: string | null };
+  // Número que se muestra como "contáctanos" dentro del ticket: el WhatsApp
+  // propio de la sucursal si lo tiene, si no el general de la tienda. Ya
+  // viene resuelto desde el backend (ver GET/POST /ventas).
+  whatsappContacto: string | null;
   items: VentaItem[];
 }
 
@@ -79,6 +87,52 @@ const METODOS_PAGO = [
   { valor: 'TRANSFERENCIA', etiqueta: 'Transferencia' },
 ] as const;
 
+// Ticket digital para ventas de tienda física: se manda por WhatsApp con el
+// mismo mecanismo de click-to-chat que ya se usa para el pago de pedidos en
+// línea (ver app/tienda/pedidos/[id]/page.tsx) — no hay envío automático,
+// el cajero abre el link con el mensaje ya armado y lo manda desde su
+// WhatsApp. Aquí el número del link SÍ es el del cliente (a diferencia de
+// pedidos en línea, donde el cliente le escribe a la tienda): el ticket va
+// del negocio hacia el cliente.
+function formatearTelefonoWhatsapp(telefono: string): string {
+  let digitos = telefono.replace(/\D/g, '');
+  if (digitos.length === 10) digitos = '52' + digitos; // sin código de país -> asumimos México
+  return digitos;
+}
+
+function construirTicketTexto(venta: Venta): string {
+  const articulos = venta.items
+    .map((it) => {
+      const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
+      return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${it.subtotal}`;
+    })
+    .join('\n');
+  const etiquetaPago = METODOS_PAGO.find((m) => m.valor === venta.metodoPago)?.etiqueta || venta.metodoPago;
+
+  return [
+    'Ticket de compra — Camino al Deporte',
+    `Folio: ${venta.folio}`,
+    `Fecha: ${new Date(venta.createdAt).toLocaleString('es-MX')}`,
+    venta.sucursal?.nombre ? `Sucursal: ${venta.sucursal.nombre}` : '',
+    '',
+    'Artículos:',
+    articulos,
+    '',
+    `Total: $${venta.total}`,
+    `Método de pago: ${etiquetaPago}`,
+    '',
+    '¡Gracias por tu compra!',
+    venta.whatsappContacto ? `Dudas o cambios, contáctanos: ${venta.whatsappContacto}` : '',
+  ].join('\n');
+}
+
+function construirLinkTicket(venta: Venta): string | null {
+  if (!venta.clienteTelefono) return null;
+  const numero = formatearTelefonoWhatsapp(venta.clienteTelefono);
+  if (!numero) return null;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(construirTicketTexto(venta))}`;
+}
+
 export default function VentasPage() {
   const { usuario } = useAuth();
   // El vendedor (VENTAS) solo puede vender desde su propia sucursal
@@ -108,10 +162,17 @@ export default function VentasPage() {
 
   // Venta local (producto disponible en la sucursal propia)
   const [cliente, setCliente] = useState('');
+  // Opcional: solo se pide para poder mandar el ticket digital por WhatsApp
+  // al terminar la venta. Sin él, la venta se registra igual.
+  const [clienteTelefono, setClienteTelefono] = useState('');
   const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
   const [efectivoRecibido, setEfectivoRecibido] = useState('');
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
   const [comprobante, setComprobante] = useState<File | null>(null);
+
+  // Link de WhatsApp del ticket de la última venta registrada, para
+  // ofrecerlo justo después de cobrar (ver registrarVenta).
+  const [ticketLink, setTicketLink] = useState<string | null>(null);
 
   // Apartado (producto solo disponible en otra sucursal): no se vende
   // directamente, se aparta para el cliente y el stock se reserva en la
@@ -222,10 +283,12 @@ export default function VentasPage() {
     }
 
     setGuardando(true);
+    setTicketLink(null);
     try {
       const datos = {
         sucursalId: Number(sucursalId),
         cliente: cliente || undefined,
+        clienteTelefono: clienteTelefono.trim() || undefined,
         metodoPago,
         cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? Number(cuentaTransferenciaId) : undefined,
         items: [
@@ -244,15 +307,17 @@ export default function VentasPage() {
       formData.append('datos', JSON.stringify(datos));
       if (comprobante) formData.append('comprobante', comprobante);
 
-      await apiUpload('/ventas', formData);
+      const creada = await apiUpload<Venta>('/ventas', formData);
 
       setMensaje(
         metodoPago === 'EFECTIVO' && cambio !== null && cambio > 0
           ? `Venta registrada. Cambio a dar: $${cambio.toFixed(2)}.`
           : 'Venta registrada.'
       );
+      setTicketLink(construirLinkTicket(creada));
       limpiarSeleccion();
       setCliente('');
+      setClienteTelefono('');
       setMetodoPago('EFECTIVO');
       setCuentaTransferenciaId('');
       setComprobante(null);
@@ -277,6 +342,7 @@ export default function VentasPage() {
     }
     setGuardando(true);
     setMensaje(null);
+    setTicketLink(null);
     try {
       await api('/apartados', {
         method: 'POST',
@@ -464,6 +530,15 @@ export default function VentasPage() {
                   <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
                 </div>
 
+                <label style={{ fontSize: 13 }}>Teléfono del cliente (opcional)</label>
+                <div style={{ marginBottom: 10 }}>
+                  <input
+                    value={clienteTelefono}
+                    onChange={(e) => setClienteTelefono(e.target.value)}
+                    placeholder="10 dígitos, para mandarle el ticket por WhatsApp"
+                  />
+                </div>
+
                 <label style={{ fontSize: 13 }}>Método de pago</label>
                 <select
                   value={metodoPago}
@@ -557,6 +632,14 @@ export default function VentasPage() {
 
             {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
 
+            {ticketLink && (
+              <div style={{ marginBottom: 10 }}>
+                <a href={ticketLink} target="_blank" rel="noreferrer" className="btn">
+                  Enviar ticket por WhatsApp
+                </a>
+              </div>
+            )}
+
             {esLocal ? (
               <button className="btn" onClick={registrarVenta} disabled={!seleccion || guardando}>
                 {guardando ? 'Guardando...' : 'Registrar venta'}
@@ -628,11 +711,13 @@ export default function VentasPage() {
             <th>Estado</th>
             <th>Vendedor</th>
             <th>Fecha</th>
+            <th>Ticket</th>
           </tr>
         </thead>
         <tbody>
           {ventas.map((v) => {
             const primerItem = v.items?.[0];
+            const linkTicket = construirLinkTicket(v);
             return (
               <tr key={v.id}>
                 <td>
@@ -666,12 +751,21 @@ export default function VentasPage() {
                 <td>{v.estado}</td>
                 <td>{v.usuario?.nombre}</td>
                 <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+                <td>
+                  {linkTicket ? (
+                    <a href={linkTicket} target="_blank" rel="noreferrer">
+                      Enviar
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </td>
               </tr>
             );
           })}
           {ventas.length === 0 && (
             <tr>
-              <td colSpan={10} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={11} style={{ color: 'var(--color-muted)' }}>
                 Sin ventas registradas.
               </td>
             </tr>
