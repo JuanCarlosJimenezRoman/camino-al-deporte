@@ -48,6 +48,11 @@ interface Venta {
   // propio de la sucursal si lo tiene, si no el general de la tienda. Ya
   // viene resuelto desde el backend (ver GET/POST /ventas).
   whatsappContacto: string | null;
+  // Resultado del envío automático por WhatsApp Business Platform (Cloud
+  // API), solo presente en la respuesta de POST /ventas. Si enviado=false
+  // (no configurado todavía, o Meta rechazó el mensaje), se ofrece el link
+  // manual de wa.me como respaldo — ver construirLinkTicket.
+  ticketDigital?: { enviado: boolean; error?: string } | null;
   items: VentaItem[];
 }
 
@@ -309,12 +314,22 @@ export default function VentasPage() {
 
       const creada = await apiUpload<Venta>('/ventas', formData);
 
-      setMensaje(
+      const baseMensaje =
         metodoPago === 'EFECTIVO' && cambio !== null && cambio > 0
           ? `Venta registrada. Cambio a dar: $${cambio.toFixed(2)}.`
-          : 'Venta registrada.'
-      );
-      setTicketLink(construirLinkTicket(creada));
+          : 'Venta registrada.';
+
+      if (creada.ticketDigital?.enviado) {
+        // Ya se mandó solo por la API de WhatsApp — no se ofrece el botón
+        // manual para no arriesgar mandar el ticket dos veces.
+        setMensaje(`${baseMensaje} Ticket enviado automáticamente por WhatsApp.`);
+        setTicketLink(null);
+      } else {
+        // Sin API configurada (o falló el envío): se ofrece el link manual
+        // de siempre como respaldo, si el cliente dejó su teléfono.
+        setMensaje(baseMensaje);
+        setTicketLink(construirLinkTicket(creada));
+      }
       limpiarSeleccion();
       setCliente('');
       setClienteTelefono('');

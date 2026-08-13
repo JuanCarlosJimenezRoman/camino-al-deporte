@@ -44,7 +44,14 @@ const sucursalSchema = z.object({
   nombre: z.string().min(1),
   codigo: z.string().min(1).optional(),
   direccion: z.string().optional(),
-  telefono: z.string().optional(),
+  // .nullable() además de .optional(): la pantalla de edición manda
+  // explícitamente null al querer borrar un número ya capturado (no solo
+  // omitir el campo), tanto para telefono como para whatsappPhoneNumberId.
+  telefono: z.string().optional().nullable(),
+  // ID de WhatsApp Business Platform (Cloud API) de esta sucursal, para el
+  // envío automático del ticket digital — ver config/whatsapp.js. NO es el
+  // número de teléfono visible.
+  whatsappPhoneNumberId: z.string().optional().nullable(),
   esBodegaCentral: z.boolean().optional(),
 });
 

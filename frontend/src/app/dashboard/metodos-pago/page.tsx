@@ -139,6 +139,12 @@ function ProveedoresCuentasCard() {
 function WhatsappTiendaCard() {
   const [numero, setNumero] = useState('');
   const [numeroGuardado, setNumeroGuardado] = useState('');
+  // ID de WhatsApp Business Platform (Cloud API) del número general de la
+  // tienda, usado como respaldo cuando una sucursal no tiene uno propio
+  // capturado (ver /dashboard/sucursales) — con esto el ticket digital se
+  // manda solo, sin que el cajero tenga que abrir WhatsApp.
+  const [phoneNumberId, setPhoneNumberId] = useState('');
+  const [phoneNumberIdGuardado, setPhoneNumberIdGuardado] = useState('');
   const [costoEnvio, setCostoEnvio] = useState('0');
   const [costoEnvioGuardado, setCostoEnvioGuardado] = useState('0');
   const [cargando, setCargando] = useState(true);
@@ -148,10 +154,14 @@ function WhatsappTiendaCard() {
   const [mensajeEnvio, setMensajeEnvio] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ whatsappTienda: string | null; costoEnvio: string | number }>('/configuracion-tienda')
+    api<{ whatsappTienda: string | null; whatsappPhoneNumberId: string | null; costoEnvio: string | number }>(
+      '/configuracion-tienda'
+    )
       .then((data) => {
         setNumero(data.whatsappTienda || '');
         setNumeroGuardado(data.whatsappTienda || '');
+        setPhoneNumberId(data.whatsappPhoneNumberId || '');
+        setPhoneNumberIdGuardado(data.whatsappPhoneNumberId || '');
         setCostoEnvio(String(data.costoEnvio ?? '0'));
         setCostoEnvioGuardado(String(data.costoEnvio ?? '0'));
       })
@@ -162,8 +172,12 @@ function WhatsappTiendaCard() {
     setGuardandoNumero(true);
     setMensajeNumero(null);
     try {
-      await api('/configuracion-tienda', { method: 'PUT', body: JSON.stringify({ whatsappTienda: numero || null }) });
+      await api('/configuracion-tienda', {
+        method: 'PUT',
+        body: JSON.stringify({ whatsappTienda: numero || null, whatsappPhoneNumberId: phoneNumberId || null }),
+      });
       setNumeroGuardado(numero);
+      setPhoneNumberIdGuardado(phoneNumberId);
       setMensajeNumero('Guardado.');
     } catch (err) {
       setMensajeNumero(err instanceof ApiError ? err.message : 'Error al guardar.');
@@ -211,7 +225,26 @@ function WhatsappTiendaCard() {
               onChange={(e) => setNumero(e.target.value)}
               style={{ maxWidth: 220 }}
             />
-            <button className="btn" onClick={guardarNumero} disabled={guardandoNumero || numero === numeroGuardado}>
+          </div>
+
+          <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 8 }}>
+            <strong>WhatsApp Cloud API — Phone Number ID (opcional, técnico)</strong> — respaldo general para el
+            ticket digital automático cuando una sucursal no tiene uno propio (ver Sucursales). Solo si ya
+            conectaste este número a WhatsApp Business Platform en Meta Business Manager; no es el número de
+            arriba, es el "Phone Number ID" que da Meta.
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+            <input
+              placeholder="Ej. 109876543212345"
+              value={phoneNumberId}
+              onChange={(e) => setPhoneNumberId(e.target.value)}
+              style={{ maxWidth: 220 }}
+            />
+            <button
+              className="btn"
+              onClick={guardarNumero}
+              disabled={guardandoNumero || (numero === numeroGuardado && phoneNumberId === phoneNumberIdGuardado)}
+            >
               {guardandoNumero ? 'Guardando...' : 'Guardar'}
             </button>
             {mensajeNumero && <span style={{ fontSize: 13 }}>{mensajeNumero}</span>}

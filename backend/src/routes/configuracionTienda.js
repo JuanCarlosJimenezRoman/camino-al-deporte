@@ -26,6 +26,10 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 
 const schema = z.object({
   whatsappTienda: z.string().optional().nullable(),
+  // ID de WhatsApp Business Platform (Cloud API) usado como respaldo
+  // general cuando una sucursal no tiene uno propio — ver
+  // Sucursal.whatsappPhoneNumberId y config/whatsapp.js.
+  whatsappPhoneNumberId: z.string().optional().nullable(),
   costoEnvio: z.coerce.number().min(0).optional(),
 });
 
@@ -41,6 +45,9 @@ router.put('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (
     where: { id: actual.id },
     data: {
       ...(('whatsappTienda' in req.body) ? { whatsappTienda: parsed.data.whatsappTienda || null } : {}),
+      ...(('whatsappPhoneNumberId' in req.body)
+        ? { whatsappPhoneNumberId: parsed.data.whatsappPhoneNumberId || null }
+        : {}),
       ...(('costoEnvio' in req.body) ? { costoEnvio: parsed.data.costoEnvio ?? 0 } : {}),
     },
   });

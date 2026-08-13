@@ -76,6 +76,12 @@ model Sucursal {
   codigo          String?  @unique
   direccion       String?
   telefono        String?
+  // ID del número de WhatsApp Business Platform (Cloud API de Meta) de esta
+  // sucursal, para mandar el ticket digital automáticamente por API en vez
+  // del link manual de wa.me — NO es el número de teléfono visible, es el
+  // "Phone Number ID" que da Meta al conectar el número. Mientras esté
+  // vacío, se sigue usando el envío manual (ver whatsapp.js y ventas.js).
+  whatsappPhoneNumberId String? @map("whatsapp_phone_number_id")
   esBodegaCentral Boolean  @default(false) @map("es_bodega_central")
   activo          Boolean  @default(true)
   createdAt       DateTime @default(now()) @map("created_at")
@@ -888,6 +894,11 @@ model PedidoItem {
 model ConfiguracionTienda {
   id             Int      @id @default(autoincrement())
   whatsappTienda String?  @map("whatsapp_tienda")
+  // ID de WhatsApp Business Platform (Cloud API) usado como número general
+  // de la tienda cuando una sucursal no tiene uno propio capturado — mismo
+  // rol de respaldo que whatsappTienda pero para el envío automático (ver
+  // Sucursal.whatsappPhoneNumberId).
+  whatsappPhoneNumberId String? @map("whatsapp_phone_number_id")
   // Costo de envío fijo que se suma al total de cada pedido nuevo (ver
   // Pedido.costoEnvio). v1: un solo monto para toda la tienda; a futuro se
   // piensa volver dinámico (por zona, peso, etc.).

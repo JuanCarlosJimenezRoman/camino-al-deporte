@@ -6,11 +6,14 @@ const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { manejarSubidaImagen } = require('../middleware/uploadImagen');
 const { subirImagen } = require('../config/cloudinary');
+const { enviarTicketVenta } = require('../config/whatsapp');
 
 const router = express.Router();
 
 const ROLES_VENTAS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 const ROLES_ADMIN = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
+
+const ETIQUETA_METODO_PAGO = { EFECTIVO: 'Efectivo', TARJETA: 'Tarjeta', TRANSFERENCIA: 'Transferencia' };
 
 // Manda la galería completa (solo url/color/esPrincipal) en vez de una sola
 // foto: como una foto puede estar etiquetada para un color de variante
@@ -37,14 +40,21 @@ function esAdmin(rol) {
 // WhatsApp general configurado en el dashboard (configuracionTienda) si esa
 // sucursal no tiene uno capturado, para que el ticket nunca se quede sin un
 // número de contacto.
-async function conWhatsappContacto(venta) {
-  if (!venta) return venta;
-  if (venta.sucursal?.telefono) {
-    return { ...venta, whatsappContacto: venta.sucursal.telefono };
-  }
-  const config = await prisma.configuracionTienda.findFirst();
-  return { ...venta, whatsappContacto: config?.whatsappTienda || null };
+// Igual que conWhatsappContacto, pero además resuelve con qué "Phone
+// Number ID" de WhatsApp Business Platform hay que mandar el ticket
+// automático por API (ver config/whatsapp.js) — mismo criterio de respaldo:
+// primero el de la sucursal, si no tiene, el general de la tienda. Junta
+// las dos resoluciones en una sola consulta a configuracionTienda para no
+// repetirla.
+async function resolverWhatsappVenta(venta) {
+  const faltaSucursal = !venta.sucursal?.telefono || !venta.sucursal?.whatsappPhoneNumberId;
+  const config = faltaSucursal ? await prisma.configuracionTienda.findFirst() : null;
+  return {
+    whatsappContacto: venta.sucursal?.telefono || config?.whatsappTienda || null,
+    whatsappPhoneNumberId: venta.sucursal?.whatsappPhoneNumberId || config?.whatsappPhoneNumberId || null,
+  };
 }
+
 async function conWhatsappContactoVarios(ventas) {
   const config = await prisma.configuracionTienda.findFirst();
   return ventas.map((v) => ({
@@ -325,6 +335,11 @@ router.post(
     }
 
     try {
+      // Descripción de cada artículo (nombre + talla/color) para el resumen
+      // del ticket, tanto el manual (link wa.me) como el automático por API
+      // — se arma aquí porque es donde ya se resuelve cada existencia.
+      const articulosTicket = [];
+
       const venta = await prisma.$transaction(async (tx) => {
         let total = 0;
         const itemsData = [];
@@ -332,7 +347,7 @@ router.post(
         for (const item of items) {
           const existencia = await tx.existencia.findFirst({
             where: { sucursalId, varianteId: item.varianteId, proveedorId: item.proveedorId },
-            include: { variante: true },
+            include: { variante: { include: { producto: true, talla: true } } },
           });
           if (!existencia) throw new Error(`SIN_EXISTENCIA:${item.varianteId}`);
           if (existencia.stockActual < item.cantidad) {
@@ -359,6 +374,11 @@ router.post(
             },
           });
 
+          const detalle = [existencia.variante.talla?.valor, existencia.variante.color].filter(Boolean).join('/');
+          articulosTicket.push(
+            `${existencia.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${item.cantidad}`
+          );
+
           itemsData.push({ ...item, subtotal });
         }
 
@@ -381,12 +401,32 @@ router.post(
           include: {
             items: true,
             cuentaTransferencia: { select: { nombre: true } },
-            sucursal: { select: { nombre: true, telefono: true } },
+            sucursal: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
           },
         });
       });
 
-      res.status(201).json(await conWhatsappContacto(venta));
+      const { whatsappContacto, whatsappPhoneNumberId } = await resolverWhatsappVenta(venta);
+
+      // Envío automático por WhatsApp Business Platform, solo si el cliente
+      // dejó su teléfono y ya hay un Phone Number ID configurado (sucursal o
+      // tienda). Si no está configurado, o si Meta rechaza el envío por
+      // cualquier motivo, no se cae la venta — el frontend sigue ofreciendo
+      // el link manual de wa.me como respaldo (ver whatsappContacto arriba).
+      let ticketDigital = { enviado: false, error: 'SIN_TELEFONO' };
+      if (clienteTelefono) {
+        ticketDigital = await enviarTicketVenta({
+          phoneNumberId: whatsappPhoneNumberId,
+          telefonoCliente: clienteTelefono,
+          folio: venta.folio,
+          sucursal: venta.sucursal?.nombre,
+          articulos: articulosTicket.join(', '),
+          total: String(venta.total),
+          metodoPago: ETIQUETA_METODO_PAGO[metodoPago] || metodoPago,
+        });
+      }
+
+      res.status(201).json({ ...venta, whatsappContacto, ticketDigital });
     } catch (err) {
       if (err.message.startsWith('STOCK_INSUFICIENTE')) {
         return res.status(409).json({ error: `Stock insuficiente para SKU ${err.message.split(':')[1]}.` });
