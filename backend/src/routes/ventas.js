@@ -409,7 +409,20 @@ router.post(
             items: { create: itemsData },
           },
           include: {
-            items: true,
+            // Igual que en GET / y GET /historial: el frontend arma el texto
+            // del ticket (construirTicketTexto) leyendo variante/producto/
+            // talla de cada renglón justo con la respuesta de este POST, sin
+            // volver a pedir la venta. Si aquí solo viniera "items: true"
+            // (sin esta relación anidada), esos campos salen undefined y el
+            // frontend truena al armar el ticket — pero SOLO cuando sí hay
+            // teléfono de cliente capturado, porque solo entonces arma el
+            // link del ticket (con teléfono vacío se salta ese paso).
+            items: {
+              include: {
+                variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+                proveedor: { select: { id: true, nombre: true } },
+              },
+            },
             cuentaTransferencia: { select: { nombre: true } },
             sucursal: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
           },
