@@ -408,42 +408,57 @@ router.post(
         });
       });
 
-      const { whatsappContacto, whatsappPhoneNumberId } = await resolverWhatsappVenta(venta);
-
-      // Genera el PDF del ticket y lo sube a Cloudinary — best-effort: si
-      // algo falla aquí (Cloudinary caído, PDF/ZIP no habilitado en la
-      // cuenta, etc.) la venta ya quedó registrada de todas formas, solo no
-      // habrá ticket en PDF para esta venta. Se guarda en la venta para
-      // poder reabrirlo/reenviarlo después desde el historial.
+      // A partir de aquí la venta YA quedó registrada (la transacción de
+      // arriba ya se guardó en la base de datos y ya se descontó el stock).
+      // Todo lo que sigue es "extra" para el ticket digital — si algo de
+      // esto falla, la venta NO debe reportarse como error al cajero, solo
+      // se pierde el envío/generación automática del ticket. Por eso todo
+      // este bloque va envuelto en su propio try/catch, que nunca deja que
+      // un error aquí se propague al catch general de la ruta.
+      let whatsappContacto = null;
+      let whatsappPhoneNumberId = null;
       let ticketPdfUrl = null;
-      let ticketPdfError = null;
-      try {
-        const pdfBuffer = await generarTicketPdf(venta, itemsParaTicket, whatsappContacto);
-        const subida = await subirPdf(pdfBuffer, 'tickets');
-        ticketPdfUrl = subida.url;
-        await prisma.venta.update({
-          where: { id: venta.id },
-          data: { ticketPdfUrl: subida.url, ticketPdfPublicId: subida.publicId },
-        });
-      } catch (err) {
-        ticketPdfError = err.message;
-      }
-
-      // Envío automático por WhatsApp Business Platform, solo si el cliente
-      // dejó su teléfono, ya se generó el PDF, y hay un Phone Number ID
-      // configurado (sucursal o tienda). Si algo de esto falta, o si Meta
-      // rechaza el envío, no se cae la venta — el frontend sigue ofreciendo
-      // el link manual de wa.me y/o el PDF para mandar a mano.
       let ticketDigital = { enviado: false, error: 'SIN_TELEFONO' };
-      if (clienteTelefono) {
-        ticketDigital = ticketPdfUrl
-          ? await enviarTicketVenta({
-              phoneNumberId: whatsappPhoneNumberId,
-              telefonoCliente: clienteTelefono,
-              folio: venta.folio,
-              pdfUrl: ticketPdfUrl,
-            })
-          : { enviado: false, error: ticketPdfError || 'SIN_PDF' };
+      try {
+        ({ whatsappContacto, whatsappPhoneNumberId } = await resolverWhatsappVenta(venta));
+
+        // Genera el PDF del ticket y lo sube a Cloudinary — best-effort: si
+        // algo falla aquí (Cloudinary caído, PDF/ZIP no habilitado en la
+        // cuenta, etc.) la venta ya quedó registrada de todas formas, solo no
+        // habrá ticket en PDF para esta venta. Se guarda en la venta para
+        // poder reabrirlo/reenviarlo después desde el historial.
+        let ticketPdfError = null;
+        try {
+          const pdfBuffer = await generarTicketPdf(venta, itemsParaTicket, whatsappContacto);
+          const subida = await subirPdf(pdfBuffer, 'tickets');
+          ticketPdfUrl = subida.url;
+          await prisma.venta.update({
+            where: { id: venta.id },
+            data: { ticketPdfUrl: subida.url, ticketPdfPublicId: subida.publicId },
+          });
+        } catch (err) {
+          ticketPdfError = err.message;
+          console.error('Error generando/subiendo el PDF del ticket:', err);
+        }
+
+        // Envío automático por WhatsApp Business Platform, solo si el cliente
+        // dejó su teléfono, ya se generó el PDF, y hay un Phone Number ID
+        // configurado (sucursal o tienda). Si algo de esto falta, o si Meta
+        // rechaza el envío, no se cae la venta — el frontend sigue ofreciendo
+        // el link manual de wa.me y/o el PDF para mandar a mano.
+        if (clienteTelefono) {
+          ticketDigital = ticketPdfUrl
+            ? await enviarTicketVenta({
+                phoneNumberId: whatsappPhoneNumberId,
+                telefonoCliente: clienteTelefono,
+                folio: venta.folio,
+                pdfUrl: ticketPdfUrl,
+              })
+            : { enviado: false, error: ticketPdfError || 'SIN_PDF' };
+        }
+      } catch (err) {
+        console.error('Error preparando el ticket digital (la venta ya se registró):', err);
+        ticketDigital = { enviado: false, error: 'ERROR_TICKET_DIGITAL' };
       }
 
       res.status(201).json({ ...venta, whatsappContacto, ticketDigital, ticketPdfUrl });
