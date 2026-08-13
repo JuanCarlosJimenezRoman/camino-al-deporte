@@ -104,6 +104,13 @@ export const PERMISOS = {
   // Quién surte cada producto y los pagos que se les hace: mismos roles que
   // administran inventario/productos.
   proveedores: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
+  // Bandeja de solicitudes de permiso: ADMIN_PRINCIPAL/DESARROLLO aprueban o
+  // rechazan; INVENTARIO solo ve el estado de las que él mismo mandó (ver
+  // GET /solicitudes, que filtra distinto según el rol).
+  solicitudes: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
+  // Bitácora completa de entradas/salidas de inventario (todas las
+  // variantes, no solo una) — mismos roles que administran inventario.
+  inventarioHistorial: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

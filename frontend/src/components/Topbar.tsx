@@ -22,6 +22,7 @@ const TITULOS: Record<string, string> = {
   '/dashboard/catalogos': 'Marcas y tallas',
   '/dashboard/proveedores': 'Proveedores',
   '/dashboard/inventario': 'Inventario',
+  '/dashboard/inventario/historial': 'Historial de inventario',
   '/dashboard/ventas': 'Ventas',
   '/dashboard/ventas/corte-dia': 'Corte del día',
   '/dashboard/ventas/historial': 'Historial de ventas',
@@ -31,6 +32,7 @@ const TITULOS: Record<string, string> = {
   '/dashboard/sucursales': 'Sucursales',
   '/dashboard/usuarios': 'Usuarios',
   '/dashboard/perfil': 'Mi perfil',
+  '/dashboard/solicitudes': 'Solicitudes',
 };
 
 const ROL_LABEL: Record<string, string> = {

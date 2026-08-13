@@ -24,6 +24,19 @@ interface Talla {
   valor: string;
   tipo: string;
   orden: number;
+  activo: boolean;
+}
+
+// Cuando INVENTARIO intenta desactivar algo, el backend no lo aplica: crea
+// una solicitud pendiente de aprobación y responde 202 con esta forma en vez
+// del registro actualizado.
+interface RespuestaPendiente {
+  pendiente: true;
+  mensaje: string;
+}
+
+function esPendiente(resultado: unknown): resultado is RespuestaPendiente {
+  return !!resultado && typeof resultado === 'object' && (resultado as RespuestaPendiente).pendiente === true;
 }
 
 export default function CatalogosPage() {
@@ -87,8 +100,15 @@ function MarcasCard() {
 
   async function toggleActivo(m: Marca) {
     try {
-      await api(`/catalogos/marcas/${m.id}`, { method: 'PUT', body: JSON.stringify({ activo: !m.activo }) });
-      cargar();
+      const resultado = await api(`/catalogos/marcas/${m.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ activo: !m.activo }),
+      });
+      if (esPendiente(resultado)) {
+        setMensaje(resultado.mensaje);
+      } else {
+        cargar();
+      }
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar.');
     }
@@ -209,8 +229,15 @@ function CategoriasCard() {
 
   async function toggleActivo(c: Categoria) {
     try {
-      await api(`/catalogos/categorias/${c.id}`, { method: 'PUT', body: JSON.stringify({ activo: !c.activo }) });
-      cargar();
+      const resultado = await api(`/catalogos/categorias/${c.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ activo: !c.activo }),
+      });
+      if (esPendiente(resultado)) {
+        setMensaje(resultado.mensaje);
+      } else {
+        cargar();
+      }
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar.');
     }
@@ -332,8 +359,15 @@ function ModelosCard() {
 
   async function toggleActivo(m: Modelo) {
     try {
-      await api(`/catalogos/modelos/${m.id}`, { method: 'PUT', body: JSON.stringify({ activo: !m.activo }) });
-      cargarModelos();
+      const resultado = await api(`/catalogos/modelos/${m.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ activo: !m.activo }),
+      });
+      if (esPendiente(resultado)) {
+        setMensaje(resultado.mensaje);
+      } else {
+        cargarModelos();
+      }
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar.');
     }
@@ -410,7 +444,7 @@ function TallasCard() {
   const [mensaje, setMensaje] = useState<string | null>(null);
 
   async function cargar() {
-    setTallas(await api<Talla[]>('/catalogos/tallas'));
+    setTallas(await api<Talla[]>('/catalogos/tallas?todas=1'));
   }
 
   useEffect(() => {
@@ -441,6 +475,22 @@ function TallasCard() {
       cargar();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al editar la talla.');
+    }
+  }
+
+  async function toggleActivo(t: Talla) {
+    try {
+      const resultado = await api(`/catalogos/tallas/${t.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ activo: !t.activo }),
+      });
+      if (esPendiente(resultado)) {
+        setMensaje(resultado.mensaje);
+      } else {
+        cargar();
+      }
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al actualizar.');
     }
   }
 
@@ -494,6 +544,7 @@ function TallasCard() {
                   gap: 8,
                   padding: '4px 0',
                   borderBottom: '1px solid var(--color-border)',
+                  opacity: t.activo ? 1 : 0.5,
                 }}
               >
                 {editandoId === t.id ? (
@@ -528,6 +579,9 @@ function TallasCard() {
                       }}
                     >
                       Editar
+                    </button>
+                    <button className="btn-secondary btn" onClick={() => toggleActivo(t)}>
+                      {t.activo ? 'Desactivar' : 'Activar'}
                     </button>
                   </>
                 )}

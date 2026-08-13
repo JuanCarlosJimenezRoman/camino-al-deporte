@@ -46,6 +46,18 @@ function proveedorVacio() {
   return { nombre: '', contacto: '', telefono: '', banco: '', titular: '', numeroCuenta: '', notas: '' };
 }
 
+// Cuando INVENTARIO edita o desactiva un proveedor, el backend no lo aplica:
+// crea una solicitud pendiente de aprobación y responde 202 con esta forma
+// en vez del proveedor actualizado.
+interface RespuestaPendiente {
+  pendiente: true;
+  mensaje: string;
+}
+
+function esPendiente(resultado: unknown): resultado is RespuestaPendiente {
+  return !!resultado && typeof resultado === 'object' && (resultado as RespuestaPendiente).pendiente === true;
+}
+
 export default function ProveedoresPage() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
@@ -124,15 +136,21 @@ export default function ProveedoresPage() {
         notas: form.notas || undefined,
       };
       if (editandoId) {
-        await api(`/proveedores/${editandoId}`, { method: 'PUT', body: JSON.stringify(datos) });
-        setMensaje('Proveedor actualizado.');
+        const resultado = await api(`/proveedores/${editandoId}`, { method: 'PUT', body: JSON.stringify(datos) });
+        setMostrarForm(false);
+        if (esPendiente(resultado)) {
+          setMensaje(resultado.mensaje);
+        } else {
+          setMensaje('Proveedor actualizado.');
+          cargar();
+          if (editandoId === expandidoId) cargarDetalle(editandoId);
+        }
       } else {
         await api('/proveedores', { method: 'POST', body: JSON.stringify(datos) });
         setMensaje('Proveedor creado.');
+        setMostrarForm(false);
+        cargar();
       }
-      setMostrarForm(false);
-      cargar();
-      if (editandoId !== null && editandoId === expandidoId) cargarDetalle(editandoId);
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al guardar el proveedor.');
     } finally {
@@ -141,8 +159,12 @@ export default function ProveedoresPage() {
   }
 
   async function toggleActivo(p: Proveedor) {
-    await api(`/proveedores/${p.id}`, { method: 'PUT', body: JSON.stringify({ activo: !p.activo }) });
-    cargar();
+    const resultado = await api(`/proveedores/${p.id}`, { method: 'PUT', body: JSON.stringify({ activo: !p.activo }) });
+    if (esPendiente(resultado)) {
+      setMensaje(resultado.mensaje);
+    } else {
+      cargar();
+    }
   }
 
   return (
@@ -159,6 +181,8 @@ export default function ProveedoresPage() {
         mismo modelo lo surten distintos proveedores según el número. Al registrar una entrada de inventario
         también puedes indicar de qué proveedor vino ese lote.
       </p>
+
+      {mensaje && !mostrarForm && <p style={{ fontSize: 13, marginBottom: 16 }}>{mensaje}</p>}
 
       {mostrarForm && (
         <div className="card" style={{ marginBottom: 20, maxWidth: 480 }}>

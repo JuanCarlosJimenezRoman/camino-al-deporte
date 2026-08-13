@@ -6,6 +6,7 @@ const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { manejarSubidaImagen } = require('../middleware/uploadImagen');
 const { subirImagen } = require('../config/cloudinary');
+const { crearSolicitud } = require('../utils/solicitudes');
 
 const router = express.Router();
 
@@ -102,11 +103,30 @@ router.post('/', requireAuth, requireRole(...ROLES_PROVEEDORES), asyncHandler(as
   res.status(201).json(proveedor);
 }));
 
+// A diferencia de los catálogos (donde INVENTARIO solo necesita permiso para
+// desactivar), en proveedores INVENTARIO necesita permiso para CUALQUIER
+// edición — incluyendo reactivar — porque los datos de un proveedor incluyen
+// su cuenta bancaria (a dónde se le transfiere dinero al pagarle).
 router.put('/:id', requireAuth, requireRole(...ROLES_PROVEEDORES), asyncHandler(async (req, res) => {
   const parsed = proveedorSchema.partial().extend({ activo: z.boolean().optional() }).safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
+
+  if (req.usuario.rol === 'INVENTARIO') {
+    const proveedor = await prisma.proveedor.findUnique({ where: { id: Number(req.params.id) } });
+    if (!proveedor) return res.status(404).json({ error: 'Proveedor no encontrado.' });
+    const resultado = await crearSolicitud({
+      tipo: 'PROVEEDOR',
+      accion: parsed.data.activo === false ? 'DESACTIVAR' : 'EDITAR',
+      entidadId: proveedor.id,
+      entidadNombre: proveedor.nombre,
+      datosCambio: parsed.data,
+      solicitadoPorId: req.usuario.id,
+    });
+    return res.status(202).json(resultado);
+  }
+
   const proveedor = await prisma.proveedor.update({
     where: { id: Number(req.params.id) },
     data: parsed.data,

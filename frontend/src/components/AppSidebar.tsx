@@ -17,6 +17,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
+  History,
+  ShieldCheck,
   LucideIcon,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
@@ -64,6 +66,11 @@ export function AppSidebar({
       titulo: 'Operación',
       items: [
         puedeVer('inventario', rol) && { href: '/dashboard/inventario', label: 'Inventario', icon: Warehouse },
+        puedeVer('inventarioHistorial', rol) && {
+          href: '/dashboard/inventario/historial',
+          label: 'Historial de inventario',
+          icon: History,
+        },
         puedeVer('ventas', rol) && { href: '/dashboard/ventas', label: 'Ventas', icon: ShoppingCart },
         puedeVer('apartados', rol) && { href: '/dashboard/apartados', label: 'Apartados', icon: CalendarClock },
         puedeVer('pedidosOnline', rol) && {
@@ -93,6 +100,11 @@ export function AppSidebar({
           icon: CreditCard,
         },
         puedeVer('usuarios', rol) && { href: '/dashboard/usuarios', label: 'Usuarios', icon: Users },
+        puedeVer('solicitudes', rol) && {
+          href: '/dashboard/solicitudes',
+          label: 'Solicitudes',
+          icon: ShieldCheck,
+        },
       ].filter(Boolean) as NavLink[],
     },
   ].filter((s) => s.items.length > 0);

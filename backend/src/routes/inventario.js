@@ -249,6 +249,63 @@ router.post(
   })
 );
 
+// GET /inventario/movimientos?sucursalId=&tipo=&proveedorId=&fechaInicio=&fechaFin=&skuOProducto=
+// Historial completo de entradas/salidas/ajustes (y demás movimientos) de
+// TODAS las variantes, con fecha — la bitácora general de inventario, a
+// diferencia de GET /movimientos/:varianteId que es el historial de una sola
+// variante. Se monta ANTES de esa ruta para que "movimientos" sin id no se
+// confunda con un :varianteId.
+router.get(
+  '/movimientos',
+  requireAuth,
+  requireRole(...ROLES_INVENTARIO),
+  asyncHandler(async (req, res) => {
+    const { sucursalId, tipo, proveedorId, fechaInicio, fechaFin, skuOProducto } = req.query;
+
+    const where = {
+      ...(sucursalId ? { sucursalId: Number(sucursalId) } : {}),
+      ...(tipo ? { tipo: String(tipo) } : {}),
+      ...(proveedorId ? { proveedorId: Number(proveedorId) } : {}),
+      ...(skuOProducto
+        ? {
+            variante: {
+              OR: [
+                { sku: { contains: String(skuOProducto), mode: 'insensitive' } },
+                { producto: { nombre: { contains: String(skuOProducto), mode: 'insensitive' } } },
+              ],
+            },
+          }
+        : {}),
+    };
+    if (fechaInicio || fechaFin) {
+      where.createdAt = {};
+      if (fechaInicio) where.createdAt.gte = new Date(`${fechaInicio}T00:00:00.000Z`);
+      if (fechaFin) where.createdAt.lte = new Date(`${fechaFin}T23:59:59.999Z`);
+    }
+
+    const movimientos = await prisma.movimientoInventario.findMany({
+      where,
+      include: {
+        usuario: { select: { nombre: true, email: true } },
+        sucursal: { select: { nombre: true } },
+        proveedor: { select: { nombre: true } },
+        variante: {
+          select: {
+            sku: true,
+            color: true,
+            talla: { select: { valor: true } },
+            producto: { select: { nombre: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
+    res.json(movimientos);
+  })
+);
+
 // GET /inventario/movimientos/:varianteId - historial de una variante (todas las sucursales)
 router.get('/movimientos/:varianteId', requireAuth, asyncHandler(async (req, res) => {
   const movimientos = await prisma.movimientoInventario.findMany({

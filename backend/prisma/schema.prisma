@@ -59,6 +59,8 @@ model Usuario {
   pagosApartadoRegistrados  ApartadoPago[]  @relation("PagosApartadoRegistrados")
   pedidosValidados          Pedido[]        @relation("PedidosValidados")
   pagosProveedorRegistrados PagoProveedor[] @relation("PagosProveedorRegistrados")
+  solicitudesCreadas        SolicitudPermiso[] @relation("SolicitudesCreadas")
+  solicitudesRevisadas      SolicitudPermiso[] @relation("SolicitudesRevisadas")
 
   @@map("usuarios")
 }
@@ -159,6 +161,7 @@ model Talla {
   valor    String
   tipo     String            // "calzado" | "ropa" | "accesorio" | ...
   orden    Int               @default(0)
+  activo   Boolean           @default(true)
   variantes ProductoVariante[]
 
   @@unique([valor, tipo])
@@ -452,6 +455,61 @@ model PagoProveedor {
   createdAt             DateTime @default(now()) @map("created_at")
 
   @@map("pagos_proveedor")
+}
+
+// ---------------------------------------------------------------------------
+// Solicitudes de permiso: el rol INVENTARIO no puede desactivar catálogos
+// (marca/categoría/modelo/talla) ni editar o desactivar proveedores por su
+// cuenta — esas acciones quedan "en espera" aquí hasta que ADMIN_PRINCIPAL o
+// DESARROLLO las aprueben (y entonces sí se aplican) o las rechacen. Ver
+// routes/solicitudes.js y el helper crearSolicitudOAplicar en
+// routes/catalogos.js / routes/proveedores.js.
+// ---------------------------------------------------------------------------
+
+enum TipoSolicitud {
+  MARCA
+  CATEGORIA
+  MODELO
+  TALLA
+  PROVEEDOR
+}
+
+enum AccionSolicitud {
+  EDITAR
+  DESACTIVAR
+}
+
+enum EstadoSolicitud {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
+model SolicitudPermiso {
+  id             Int             @id @default(autoincrement())
+  tipo           TipoSolicitud
+  accion         AccionSolicitud
+  entidadId      Int             @map("entidad_id")
+  // Copia del nombre al momento de solicitar, para poder mostrarlo en la
+  // bandeja de solicitudes aunque el registro original cambie después.
+  entidadNombre  String?         @map("entidad_nombre")
+  // Para accion=EDITAR: los campos propuestos, tal cual se aplicarían con
+  // prisma.<modelo>.update({ data: datosCambio }) al aprobarse.
+  datosCambio    Json?           @map("datos_cambio")
+  motivo         String?
+
+  estado         EstadoSolicitud @default(PENDIENTE)
+
+  solicitadoPorId Int      @map("solicitado_por_id")
+  solicitadoPor   Usuario  @relation("SolicitudesCreadas", fields: [solicitadoPorId], references: [id])
+  solicitadoAt    DateTime @default(now()) @map("solicitado_at")
+
+  revisadoPorId   Int?      @map("revisado_por_id")
+  revisadoPor     Usuario?  @relation("SolicitudesRevisadas", fields: [revisadoPorId], references: [id])
+  revisadoAt      DateTime? @map("revisado_at")
+  notaRevision    String?   @map("nota_revision")
+
+  @@map("solicitudes_permiso")
 }
 
 // ---------------------------------------------------------------------------

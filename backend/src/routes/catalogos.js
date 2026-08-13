@@ -4,10 +4,20 @@ const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { crearSolicitud } = require('../utils/solicitudes');
 
 const router = express.Router();
 
 const ROLES_EDICION = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
+
+// INVENTARIO puede crear y editar catálogos libremente, pero NO desactivarlos
+// por su cuenta: desactivar oculta el catálogo de todo el sistema (por
+// ejemplo, del selector al dar de alta un producto), así que requiere
+// aprobación de ADMIN_PRINCIPAL/DESARROLLO. Reactivar (activo: true) sí se
+// permite directo — es la acción "segura" en sentido contrario.
+function esDesactivacion(rol, datos) {
+  return rol === 'INVENTARIO' && datos.activo === false;
+}
 
 // ---- Marcas ----------------------------------------------------------
 
@@ -38,6 +48,19 @@ router.put('/marcas/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHandl
   const schema = z.object({ nombre: z.string().min(1).optional(), activo: z.boolean().optional() });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+
+  if (esDesactivacion(req.usuario.rol, parsed.data)) {
+    const marca = await prisma.marca.findUnique({ where: { id: Number(req.params.id) } });
+    if (!marca) return res.status(404).json({ error: 'Marca no encontrada.' });
+    const resultado = await crearSolicitud({
+      tipo: 'MARCA',
+      accion: 'DESACTIVAR',
+      entidadId: marca.id,
+      entidadNombre: marca.nombre,
+      solicitadoPorId: req.usuario.id,
+    });
+    return res.status(202).json(resultado);
+  }
 
   try {
     const marca = await prisma.marca.update({ where: { id: Number(req.params.id) }, data: parsed.data });
@@ -81,6 +104,19 @@ router.put('/modelos/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHand
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
 
+  if (esDesactivacion(req.usuario.rol, parsed.data)) {
+    const modelo = await prisma.modelo.findUnique({ where: { id: Number(req.params.id) } });
+    if (!modelo) return res.status(404).json({ error: 'Modelo no encontrado.' });
+    const resultado = await crearSolicitud({
+      tipo: 'MODELO',
+      accion: 'DESACTIVAR',
+      entidadId: modelo.id,
+      entidadNombre: modelo.nombre,
+      solicitadoPorId: req.usuario.id,
+    });
+    return res.status(202).json(resultado);
+  }
+
   const modelo = await prisma.modelo.update({ where: { id: Number(req.params.id) }, data: parsed.data });
   res.json(modelo);
 }));
@@ -114,6 +150,19 @@ router.put('/categorias/:id', requireAuth, requireRole(...ROLES_EDICION), asyncH
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
 
+  if (esDesactivacion(req.usuario.rol, parsed.data)) {
+    const categoria = await prisma.categoria.findUnique({ where: { id: Number(req.params.id) } });
+    if (!categoria) return res.status(404).json({ error: 'Categoría no encontrada.' });
+    const resultado = await crearSolicitud({
+      tipo: 'CATEGORIA',
+      accion: 'DESACTIVAR',
+      entidadId: categoria.id,
+      entidadNombre: categoria.nombre,
+      solicitadoPorId: req.usuario.id,
+    });
+    return res.status(202).json(resultado);
+  }
+
   try {
     const categoria = await prisma.categoria.update({ where: { id: Number(req.params.id) }, data: parsed.data });
     res.json(categoria);
@@ -125,10 +174,15 @@ router.put('/categorias/:id', requireAuth, requireRole(...ROLES_EDICION), asyncH
 
 // ---- Tallas ----------------------------------------------------------
 
+// ?todas=1 incluye tallas desactivadas; por defecto solo activas (igual que
+// marcas/categorías/modelos).
 router.get('/tallas', requireAuth, asyncHandler(async (req, res) => {
   const { tipo } = req.query;
   const tallas = await prisma.talla.findMany({
-    where: tipo ? { tipo: String(tipo) } : undefined,
+    where: {
+      ...(req.query.todas ? {} : { activo: true }),
+      ...(tipo ? { tipo: String(tipo) } : {}),
+    },
     orderBy: [{ tipo: 'asc' }, { orden: 'asc' }],
   });
   res.json(tallas);
@@ -157,9 +211,23 @@ router.put('/tallas/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHandl
     valor: z.string().min(1).optional(),
     tipo: z.string().min(1).optional(),
     orden: z.number().int().optional(),
+    activo: z.boolean().optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+
+  if (esDesactivacion(req.usuario.rol, parsed.data)) {
+    const talla = await prisma.talla.findUnique({ where: { id: Number(req.params.id) } });
+    if (!talla) return res.status(404).json({ error: 'Talla no encontrada.' });
+    const resultado = await crearSolicitud({
+      tipo: 'TALLA',
+      accion: 'DESACTIVAR',
+      entidadId: talla.id,
+      entidadNombre: `${talla.valor} (${talla.tipo})`,
+      solicitadoPorId: req.usuario.id,
+    });
+    return res.status(202).json(resultado);
+  }
 
   try {
     const talla = await prisma.talla.update({ where: { id: Number(req.params.id) }, data: parsed.data });
