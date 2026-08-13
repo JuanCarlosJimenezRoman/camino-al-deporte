@@ -7,10 +7,17 @@ export function ProductoThumb({
   url,
   alt,
   size = 36,
+  fit = 'cover',
 }: {
   url?: string | null;
   alt: string;
   size?: number;
+  // 'cover' (por defecto) llena el cuadro recortando lo que sobre — bien
+  // para miniaturas uniformes en una tabla. 'contain' muestra la imagen
+  // completa sin recortar (deja espacio vacío si la foto no es cuadrada) —
+  // se usa en la vista previa grande de Ventas, donde sí importa ver el
+  // producto completo, no solo un recorte.
+  fit?: 'cover' | 'contain';
 }) {
   if (!url) {
     return (
@@ -30,7 +37,7 @@ export function ProductoThumb({
     <img
       src={url}
       alt={alt}
-      style={{ width: size, height: size, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
+      style={{ width: size, height: size, borderRadius: 6, objectFit: fit, flexShrink: 0 }}
     />
   );
 }

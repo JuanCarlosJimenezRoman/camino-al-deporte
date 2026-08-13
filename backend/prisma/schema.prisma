@@ -355,14 +355,16 @@ model TransferenciaInventario {
 }
 
 // Notificaciones dentro del sistema (sin correo/SMS por ahora — ver
-// docs/ARQUITECTURA.md). Un renglón por destinatario: si una transferencia
-// le interesa a 3 personas, se crean 3 notificaciones, una por usuario, cada
+// docs/ARQUITECTURA.md). Un renglón por destinatario: si un evento le
+// interesa a 3 personas, se crean 3 notificaciones, una por usuario, cada
 // una con su propio estado de "leída" independiente del resto.
 //
-// Por ahora solo las genera el flujo de "pedir a otra sucursal" desde Ventas
-// (ver POST /transferencias), pero el campo `tipo` es texto libre a propósito
-// para poder reutilizar esta misma tabla con otros eventos a futuro sin
-// necesitar una migración nueva.
+// Las genera: 1) una transferencia entre sucursales (INVENTARIO/ADMIN), y
+// 2) un apartado cuyo stock se reserva en una sucursal distinta a la que
+// atiende al cliente (ver POST /apartados) — la sucursal que "presta" el
+// producto necesita saber que se le apartó. El campo `tipo` es texto libre a
+// propósito para poder sumar más eventos a futuro sin necesitar una
+// migración nueva.
 model Notificacion {
   id              Int      @id @default(autoincrement())
   usuarioId       Int      @map("usuario_id")
@@ -372,10 +374,13 @@ model Notificacion {
   mensaje         String
   leida           Boolean  @default(false)
 
-  // Referencia opcional a la transferencia relacionada, para poder armar un
-  // enlace directo a "Transferencias" desde la notificación.
+  // Referencia opcional a la transferencia o al apartado relacionado, para
+  // poder armar un enlace directo desde la notificación (a lo más una de
+  // las dos aplica según el tipo de evento).
   transferenciaId Int?     @map("transferencia_id")
   transferencia   TransferenciaInventario? @relation(fields: [transferenciaId], references: [id])
+  apartadoId      Int?     @map("apartado_id")
+  apartado        Apartado? @relation(fields: [apartadoId], references: [id])
 
   createdAt       DateTime @default(now()) @map("created_at")
 
@@ -686,6 +691,7 @@ model Apartado {
 
   items           ApartadoItem[]
   pagos           ApartadoPago[]
+  notificaciones  Notificacion[]
 
   @@map("apartados")
 }

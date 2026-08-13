@@ -8,12 +8,12 @@ const { notificarPedidoSucursal } = require('../utils/notificaciones');
 
 const router = express.Router();
 
-// Quién puede mover mercancía libremente entre dos sucursales cualesquiera.
+// Quién puede mover mercancía entre sucursales. VENTAS NO tiene acceso a
+// esto: cuando un vendedor necesita algo que solo hay en otra sucursal, el
+// flujo es apartarlo para el cliente (ver POST /apartados, que reserva
+// stock en cualquier sucursal sin importar dónde se vende) — no crear una
+// transferencia por su cuenta.
 const ROLES_INVENTARIO = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
-// VENTAS también puede solicitar una transferencia, pero solo como "pedido
-// para vender": la sucursal destino se fuerza a la suya propia (ver POST /),
-// nunca puede mover mercancía entre otras dos sucursales que no sean la suya.
-const ROLES_SOLICITAR = [...ROLES_INVENTARIO, 'VENTAS'];
 
 // GET /transferencias - lista, filtrable por sucursal (origen o destino) y estado
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
@@ -49,10 +49,7 @@ const crearSchema = z.object({
   varianteId: z.number().int(),
   cantidad: z.number().int().positive(),
   sucursalOrigenId: z.number().int(),
-  // Opcional: INVENTARIO/ADMIN la mandan (pueden mover entre cualquier par
-  // de sucursales); para VENTAS se ignora lo que mande y se fuerza a su
-  // propia sucursal (ver abajo).
-  sucursalDestinoId: z.number().int().optional(),
+  sucursalDestinoId: z.number().int(),
   notas: z.string().optional(),
   // De qué bucket de proveedor sale el stock en el origen (null = "sin
   // proveedor"). Obligatorio: hay que decir siempre de cuál cuando la talla
@@ -63,28 +60,12 @@ const crearSchema = z.object({
 // POST /transferencias - solicita el envío: descuenta stock del origen de inmediato
 // (queda "en camino") y crea el registro en estado SOLICITADA. El stock del
 // destino solo sube cuando alguien confirma la recepción (POST /:id/recibir).
-//
-// INVENTARIO/ADMIN/DESARROLLO pueden mover mercancía entre cualquier par de
-// sucursales. VENTAS también puede solicitar una (para no perder una venta
-// cuando el producto que pide el cliente solo hay en otra sucursal), pero
-// forzado a que la sucursal destino sea siempre la suya propia — así un
-// vendedor no puede mover mercancía "de paso" entre otras dos sucursales.
-router.post('/', requireAuth, requireRole(...ROLES_SOLICITAR), asyncHandler(async (req, res) => {
+router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(async (req, res) => {
   const parsed = crearSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { varianteId, cantidad, sucursalOrigenId, notas, proveedorId } = parsed.data;
-
-  let sucursalDestinoId = parsed.data.sucursalDestinoId;
-  if (!ROLES_INVENTARIO.includes(req.usuario.rol)) {
-    if (!req.usuario.sucursalId) {
-      return res.status(400).json({ error: 'No tienes una sucursal asignada.' });
-    }
-    sucursalDestinoId = req.usuario.sucursalId;
-  } else if (!sucursalDestinoId) {
-    return res.status(400).json({ error: 'Falta sucursalDestinoId.' });
-  }
+  const { varianteId, cantidad, sucursalOrigenId, sucursalDestinoId, notas, proveedorId } = parsed.data;
 
   if (sucursalOrigenId === sucursalDestinoId) {
     return res.status(400).json({ error: 'La sucursal de origen y destino no pueden ser la misma.' });
@@ -218,12 +199,10 @@ router.post(
 );
 
 // POST /transferencias/:id/cancelar - si aún no se recibió, regresa el stock al origen
-// INVENTARIO/ADMIN pueden cancelar cualquiera; VENTAS solo puede cancelar la
-// que él mismo solicitó (ej. se equivocó de talla al pedirla).
 router.post(
   '/:id/cancelar',
   requireAuth,
-  requireRole(...ROLES_SOLICITAR),
+  requireRole(...ROLES_INVENTARIO),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
 
@@ -232,9 +211,6 @@ router.post(
         const transferencia = await tx.transferenciaInventario.findUnique({ where: { id } });
         if (!transferencia) throw new Error('NO_ENCONTRADA');
         if (transferencia.estado !== 'SOLICITADA') throw new Error('ESTADO_INVALIDO');
-        if (!ROLES_INVENTARIO.includes(req.usuario.rol) && transferencia.solicitadoPorId !== req.usuario.id) {
-          throw new Error('SIN_PERMISO');
-        }
 
         const existenciaOrigen = await tx.existencia.findFirst({
           where: {
@@ -278,16 +254,12 @@ router.post(
       .catch((err) => {
         if (err.message === 'NO_ENCONTRADA') return { error: 'NO_ENCONTRADA' };
         if (err.message === 'ESTADO_INVALIDO') return { error: 'ESTADO_INVALIDO' };
-        if (err.message === 'SIN_PERMISO') return { error: 'SIN_PERMISO' };
         throw err;
       });
 
     if (resultado.error === 'NO_ENCONTRADA') return res.status(404).json({ error: 'Transferencia no encontrada.' });
     if (resultado.error === 'ESTADO_INVALIDO') {
       return res.status(409).json({ error: 'Esta transferencia ya fue recibida o cancelada.' });
-    }
-    if (resultado.error === 'SIN_PERMISO') {
-      return res.status(403).json({ error: 'Solo puedes cancelar los pedidos que tú mismo solicitaste.' });
     }
 
     res.json(resultado);

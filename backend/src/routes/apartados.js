@@ -6,6 +6,7 @@ const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { manejarSubidaImagen } = require('../middleware/uploadImagen');
 const { subirImagen } = require('../config/cloudinary');
+const { notificarApartadoOtraSucursal } = require('../utils/notificaciones');
 
 const router = express.Router();
 
@@ -263,7 +264,7 @@ router.post(
         const pagoInicial = anticipo ? Math.min(anticipo.monto, total) : 0;
         const estadoInicial = pagoInicial >= total && total > 0 ? 'LIQUIDADO' : 'ACTIVO';
 
-        return tx.apartado.create({
+        const nuevoApartado = await tx.apartado.create({
           data: {
             folio,
             clienteId: cliente.id,
@@ -300,6 +301,17 @@ router.post(
             pagos: true,
           },
         });
+
+        // Si algún artículo se surtió de una sucursal distinta a la que
+        // atendió al cliente, esa sucursal necesita saber que se le
+        // apartó mercancía (y el admin, visibilidad total) — ver
+        // notas de POST /transferencias para el mismo criterio.
+        const sucursalesRemotas = Array.from(
+          new Set(itemsData.map((i) => i.sucursalStockId).filter((id) => id !== sucursalVentaId))
+        );
+        await notificarApartadoOtraSucursal(tx, nuevoApartado, sucursalesRemotas, req.usuario);
+
+        return nuevoApartado;
       });
 
       res.status(201).json({ ...apartado, ...calcularSaldo(apartado) });

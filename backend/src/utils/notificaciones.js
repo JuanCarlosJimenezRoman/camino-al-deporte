@@ -49,4 +49,53 @@ async function notificarPedidoSucursal(tx, transferencia, solicitante) {
   });
 }
 
-module.exports = { notificarPedidoSucursal };
+// Igual que arriba, pero para un apartado cuyo stock se reservó (total o
+// parcialmente) en una sucursal distinta a la que atendió al cliente — ver
+// POST /apartados. Un mismo apartado puede tener artículos de varias
+// sucursales de stock distintas; `sucursalesStockIds` ya viene deduplicado
+// desde el caller con las que de verdad son remotas (no la de venta).
+//
+// `solicitante` es req.usuario (el payload del JWT), igual que en
+// notificarPedidoSucursal.
+async function notificarApartadoOtraSucursal(tx, apartado, sucursalesStockIds, solicitante) {
+  if (sucursalesStockIds.length === 0) return;
+
+  const destinatarios = await tx.usuario.findMany({
+    where: {
+      activo: true,
+      OR: [
+        { rol: { nombre: { in: ['ADMIN_PRINCIPAL', 'DESARROLLO'] } } },
+        { sucursalId: { in: sucursalesStockIds } },
+        { sucursalId: apartado.sucursalVentaId },
+      ],
+    },
+    select: { id: true },
+  });
+
+  const idsUnicos = Array.from(new Set(destinatarios.map((u) => u.id))).filter((id) => id !== solicitante.id);
+  if (idsUnicos.length === 0) return;
+
+  const [usuarioSolicitante, sucursalVenta, sucursalesStock] = await Promise.all([
+    tx.usuario.findUnique({ where: { id: solicitante.id }, select: { nombre: true } }),
+    tx.sucursal.findUnique({ where: { id: apartado.sucursalVentaId } }),
+    tx.sucursal.findMany({ where: { id: { in: sucursalesStockIds } } }),
+  ]);
+
+  const nombresStock = sucursalesStock.map((s) => s.nombre).join(', ') || 'otra sucursal';
+  const titulo = `Apartado con stock de otra sucursal — ${apartado.folio}`;
+  const mensaje =
+    `${usuarioSolicitante?.nombre ?? 'Alguien'} apartó mercancía de ${nombresStock} ` +
+    `para un cliente atendido en ${sucursalVenta?.nombre ?? 'otra sucursal'}.`;
+
+  await tx.notificacion.createMany({
+    data: idsUnicos.map((usuarioId) => ({
+      usuarioId,
+      tipo: 'APARTADO_OTRA_SUCURSAL',
+      titulo,
+      mensaje,
+      apartadoId: apartado.id,
+    })),
+  });
+}
+
+module.exports = { notificarPedidoSucursal, notificarApartadoOtraSucursal };

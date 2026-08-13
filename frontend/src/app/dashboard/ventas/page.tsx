@@ -67,22 +67,6 @@ interface Existencia {
   };
 }
 
-// Un pedido (transferencia) creado desde Ventas para traer stock de otra
-// sucursal — ver POST /transferencias.
-interface Transferencia {
-  id: number;
-  folio: string;
-  cantidad: number;
-  estado: string;
-  createdAt: string;
-  sucursalOrigenId: number;
-  sucursalDestinoId: number;
-  variante: { sku: string; producto: { nombre: string }; talla: { valor: string } | null; color: string | null };
-  sucursalOrigen: { nombre: string };
-  sucursalDestino: { nombre: string };
-  solicitadoPor: { nombre: string };
-}
-
 // Identifica un bucket concreto (variante + proveedor + sucursal) para usarlo
 // como key/value, ya que un mismo varianteId puede repetirse.
 function claveExistencia(e: Existencia) {
@@ -121,17 +105,22 @@ export default function VentasPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [cantidad, setCantidad] = useState(1);
+
+  // Venta local (producto disponible en la sucursal propia)
   const [cliente, setCliente] = useState('');
   const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
+  const [efectivoRecibido, setEfectivoRecibido] = useState('');
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
   const [comprobante, setComprobante] = useState<File | null>(null);
+
+  // Apartado (producto solo disponible en otra sucursal): no se vende
+  // directamente, se aparta para el cliente y el stock se reserva en la
+  // sucursal donde sí hay — ver POST /apartados.
+  const [clienteNombreApartado, setClienteNombreApartado] = useState('');
+  const [clienteTelefonoApartado, setClienteTelefonoApartado] = useState('');
+
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
-
-  // Pedidos (transferencias) que esta sucursal ya solicitó y siguen en
-  // camino — para que el vendedor vea que no se perdió el pedido, sin tener
-  // que ir a la pantalla de Transferencias (que ni siquiera puede ver).
-  const [pedidosPendientes, setPedidosPendientes] = useState<Transferencia[]>([]);
 
   useEffect(() => {
     api<Sucursal[]>('/sucursales').then((data) => {
@@ -146,13 +135,6 @@ export default function VentasPage() {
   async function cargar() {
     const v = await api<Venta[]>('/ventas');
     setVentas(v);
-    if (sucursalId) {
-      const t = await api<Transferencia[]>(`/transferencias?sucursalId=${sucursalId}&estado=SOLICITADA`);
-      // El endpoint trae las que tienen esta sucursal como origen O destino;
-      // aquí solo interesan las que ESTA sucursal pidió (destino), las que
-      // le piden a ella se atienden desde Transferencias (rol INVENTARIO).
-      setPedidosPendientes(t.filter((p) => p.sucursalDestinoId === Number(sucursalId)));
-    }
   }
 
   useEffect(() => {
@@ -165,7 +147,8 @@ export default function VentasPage() {
 
   // Búsqueda con debounce: espera 300ms sin teclear antes de consultar, para
   // no mandar una petición por cada letra. Busca en todas las sucursales
-  // (sin ?sucursalId=) — así se puede pedir a otra si no hay en la propia.
+  // (sin ?sucursalId=) — así se ve de un vistazo si lo que pide el cliente
+  // está en la sucursal propia o solo en otra.
   // Si ya hay una selección hecha (el texto es solo el nombre que se puso al
   // elegir un resultado, no algo que el usuario esté escribiendo), no vuelve
   // a buscar — si no, el buscador se reabriría solo justo después de elegir.
@@ -203,9 +186,19 @@ export default function VentasPage() {
     setSeleccion(null);
     setBusqueda('');
     setResultados([]);
+    setCantidad(1);
+    setEfectivoRecibido('');
   }
 
+  // El vendedor (VENTAS o admin probando con esa sucursal) nunca vende
+  // directamente algo que no está físicamente en la sucursal elegida — si
+  // el resultado es de otra sucursal, la única acción disponible es
+  // apartarlo (ver más abajo), nunca "Registrar venta".
   const esLocal = seleccion ? seleccion.sucursalId === Number(sucursalId) : true;
+
+  const precioUnitario = seleccion ? Number(seleccion.variante.producto.precioVenta) : 0;
+  const totalVenta = precioUnitario * cantidad;
+  const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - totalVenta : null;
 
   async function registrarVenta() {
     if (!seleccion || !sucursalId) return;
@@ -216,6 +209,16 @@ export default function VentasPage() {
     if (metodoPago === 'TRANSFERENCIA' && !comprobante) {
       setMensaje('Falta la foto del comprobante de transferencia.');
       return;
+    }
+    if (metodoPago === 'EFECTIVO') {
+      if (!efectivoRecibido.trim()) {
+        setMensaje('Captura cuánto efectivo recibiste, para calcular el cambio.');
+        return;
+      }
+      if (cambio !== null && cambio < 0) {
+        setMensaje(`El efectivo recibido no alcanza: faltan $${Math.abs(cambio).toFixed(2)}.`);
+        return;
+      }
     }
 
     setGuardando(true);
@@ -243,10 +246,13 @@ export default function VentasPage() {
 
       await apiUpload('/ventas', formData);
 
-      setMensaje('Venta registrada.');
+      setMensaje(
+        metodoPago === 'EFECTIVO' && cambio !== null && cambio > 0
+          ? `Venta registrada. Cambio a dar: $${cambio.toFixed(2)}.`
+          : 'Venta registrada.'
+      );
       limpiarSeleccion();
       setCliente('');
-      setCantidad(1);
       setMetodoPago('EFECTIVO');
       setCuentaTransferenciaId('');
       setComprobante(null);
@@ -259,44 +265,46 @@ export default function VentasPage() {
   }
 
   // Si el producto no está en la sucursal del vendedor pero sí en otra, en
-  // vez de venderlo se crea un pedido (transferencia) hacia la sucursal
-  // propia: no se pierde la venta, y se notifica al admin y al personal de
-  // ambas sucursales para que lo surtan (ver POST /transferencias).
-  async function crearPedido() {
+  // vez de venderlo (o de "pedirlo" aparte) se aparta para el cliente: el
+  // stock se reserva de inmediato en la sucursal donde sí hay (ver
+  // ApartadoItem.sucursalStockId) y se notifica a esa sucursal y al admin —
+  // reutiliza el mismo mecanismo de Apartados en vez de inventar uno nuevo.
+  async function crearApartado() {
     if (!seleccion || !sucursalId) return;
+    if (!clienteNombreApartado.trim() || !clienteTelefonoApartado.trim()) {
+      setMensaje('Captura nombre y teléfono del cliente para poder apartarlo.');
+      return;
+    }
     setGuardando(true);
     setMensaje(null);
     try {
-      await api('/transferencias', {
+      await api('/apartados', {
         method: 'POST',
         body: JSON.stringify({
-          varianteId: seleccion.variante.id,
-          proveedorId: seleccion.proveedorId,
-          cantidad,
-          sucursalOrigenId: seleccion.sucursalId,
-          sucursalDestinoId: Number(sucursalId),
-          notas: cliente ? `Pedido para venta — cliente: ${cliente}` : 'Pedido para venta',
+          clienteNuevo: { nombre: clienteNombreApartado.trim(), telefono: clienteTelefonoApartado.trim() },
+          sucursalVentaId: Number(sucursalId),
+          items: [
+            {
+              varianteId: seleccion.variante.id,
+              proveedorId: seleccion.proveedorId,
+              sucursalStockId: seleccion.sucursalId,
+              cantidad,
+              precioUnitario: precioUnitario,
+            },
+          ],
         }),
       });
-      setMensaje('Pedido creado: se notificó al admin y al personal de ambas sucursales.');
+      setMensaje(
+        `Apartado creado — se notificó a ${seleccion.sucursal?.nombre ?? 'la sucursal'} y al admin. Puedes ` +
+          'registrar el anticipo y darle seguimiento desde Apartados.'
+      );
       limpiarSeleccion();
-      setCliente('');
-      setCantidad(1);
-      cargar();
+      setClienteNombreApartado('');
+      setClienteTelefonoApartado('');
     } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'Error al crear el pedido.');
+      setMensaje(err instanceof ApiError ? err.message : 'Error al crear el apartado.');
     } finally {
       setGuardando(false);
-    }
-  }
-
-  async function cancelarPedido(id: number) {
-    if (!window.confirm('¿Cancelar este pedido?')) return;
-    try {
-      await api(`/transferencias/${id}/cancelar`, { method: 'POST' });
-      cargar();
-    } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'Error al cancelar el pedido.');
     }
   }
 
@@ -325,7 +333,7 @@ export default function VentasPage() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 20, maxWidth: 760 }}>
+      <div className="card" style={{ marginBottom: 20, maxWidth: 780 }}>
         <h2 style={{ fontSize: 15, marginBottom: 12 }}>Registrar venta rápida</h2>
 
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
@@ -433,7 +441,8 @@ export default function VentasPage() {
             {seleccion && !esLocal && (
               <p style={{ fontSize: 12, color: '#a15c00', marginTop: -4, marginBottom: 10 }}>
                 Este producto no está en tu sucursal — hay {seleccion.stockActual} en{' '}
-                {seleccion.sucursal?.nombre ?? 'otra sucursal'}. Puedes crear un pedido en vez de venderlo.
+                {seleccion.sucursal?.nombre ?? 'otra sucursal'}. No se puede vender directamente desde aquí; puedes
+                apartarlo para el cliente.
               </p>
             )}
 
@@ -442,13 +451,19 @@ export default function VentasPage() {
               <input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
             </div>
 
-            <label style={{ fontSize: 13 }}>Cliente {esLocal ? '(opcional)' : ''}</label>
-            <div style={{ marginBottom: 10 }}>
-              <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
-            </div>
+            {seleccion && (
+              <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 10 }}>
+                Total: ${totalVenta.toFixed(2)}
+              </p>
+            )}
 
-            {esLocal && (
+            {esLocal ? (
               <>
+                <label style={{ fontSize: 13 }}>Cliente (opcional)</label>
+                <div style={{ marginBottom: 10 }}>
+                  <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
+                </div>
+
                 <label style={{ fontSize: 13 }}>Método de pago</label>
                 <select
                   value={metodoPago}
@@ -461,6 +476,36 @@ export default function VentasPage() {
                     </option>
                   ))}
                 </select>
+
+                {metodoPago === 'EFECTIVO' && (
+                  <>
+                    <label style={{ fontSize: 13 }}>Efectivo recibido</label>
+                    <div style={{ marginBottom: 4 }}>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={efectivoRecibido}
+                        onChange={(e) => setEfectivoRecibido(e.target.value)}
+                        placeholder="$0.00"
+                      />
+                    </div>
+                    {efectivoRecibido.trim() && cambio !== null && (
+                      <p
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 600,
+                          marginBottom: 10,
+                          color: cambio < 0 ? '#c0392b' : '#1e7e34',
+                        }}
+                      >
+                        {cambio < 0
+                          ? `Falta efectivo: $${Math.abs(cambio).toFixed(2)}`
+                          : `Cambio a dar: $${cambio.toFixed(2)}`}
+                      </p>
+                    )}
+                  </>
+                )}
 
                 {metodoPago === 'TRANSFERENCIA' && (
                   <>
@@ -489,6 +534,25 @@ export default function VentasPage() {
                   </>
                 )}
               </>
+            ) : (
+              <>
+                <label style={{ fontSize: 13 }}>Nombre del cliente</label>
+                <div style={{ marginBottom: 10 }}>
+                  <input
+                    value={clienteNombreApartado}
+                    onChange={(e) => setClienteNombreApartado(e.target.value)}
+                    placeholder="Nombre completo"
+                  />
+                </div>
+                <label style={{ fontSize: 13 }}>Teléfono del cliente</label>
+                <div style={{ marginBottom: 10 }}>
+                  <input
+                    value={clienteTelefonoApartado}
+                    onChange={(e) => setClienteTelefonoApartado(e.target.value)}
+                    placeholder="10 dígitos"
+                  />
+                </div>
+              </>
             )}
 
             {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
@@ -498,16 +562,18 @@ export default function VentasPage() {
                 {guardando ? 'Guardando...' : 'Registrar venta'}
               </button>
             ) : (
-              <button className="btn" onClick={crearPedido} disabled={!seleccion || guardando}>
-                {guardando ? 'Enviando...' : 'Pedir a mi sucursal'}
+              <button className="btn" onClick={crearApartado} disabled={!seleccion || guardando}>
+                {guardando ? 'Guardando...' : 'Apartar para el cliente'}
               </button>
             )}
           </div>
 
-          {/* Imagen grande del producto elegido, a la derecha del formulario */}
+          {/* Imagen grande del producto elegido, a la derecha del formulario.
+              object-fit: contain (vía fit="contain") para que se vea la foto
+              completa sin recortarla, aunque no sea cuadrada. */}
           <div
             style={{
-              flex: '0 0 200px',
+              flex: '0 0 220px',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -515,7 +581,26 @@ export default function VentasPage() {
               gap: 8,
             }}
           >
-            <ProductoThumb url={previewUrl} alt={seleccion?.variante.producto.nombre || ''} size={200} />
+            <div
+              style={{
+                width: 220,
+                height: 220,
+                borderRadius: 12,
+                background: '#fafafa',
+                border: '1px solid var(--color-border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 12,
+              }}
+            >
+              <ProductoThumb
+                url={previewUrl}
+                alt={seleccion?.variante.producto.nombre || ''}
+                size={196}
+                fit="contain"
+              />
+            </div>
             {seleccion && (
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{seleccion.variante.producto.nombre}</div>
@@ -529,40 +614,6 @@ export default function VentasPage() {
           </div>
         </div>
       </div>
-
-      {pedidosPendientes.length > 0 && (
-        <div className="card" style={{ marginBottom: 20, maxWidth: 760 }}>
-          <h2 style={{ fontSize: 14, marginBottom: 10 }}>Pedidos en camino a tu sucursal</h2>
-          <table style={{ minWidth: 0 }}>
-            <thead>
-              <tr>
-                <th>Folio</th>
-                <th>Producto</th>
-                <th>Cantidad</th>
-                <th>Desde</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {pedidosPendientes.map((p) => (
-                <tr key={p.id}>
-                  <td style={{ fontSize: 12 }}>{p.folio}</td>
-                  <td style={{ fontSize: 12 }}>
-                    {p.variante.producto.nombre} {p.variante.talla ? `(${p.variante.talla.valor})` : ''}
-                  </td>
-                  <td style={{ fontSize: 12 }}>{p.cantidad}</td>
-                  <td style={{ fontSize: 12 }}>{p.sucursalOrigen.nombre}</td>
-                  <td>
-                    <button className="btn-secondary btn" style={{ fontSize: 11 }} onClick={() => cancelarPedido(p.id)}>
-                      Cancelar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       <table>
         <thead>
