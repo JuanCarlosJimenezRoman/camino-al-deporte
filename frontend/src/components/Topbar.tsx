@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { NotificacionesBell } from '@/components/NotificacionesBell';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -67,6 +68,8 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
       <div className="flex-1 min-w-0">
         <h1 className="text-sm sm:text-base font-semibold leading-none truncate">{titulo}</h1>
       </div>
+
+      {usuario && <NotificacionesBell />}
 
       {usuario && (
         <DropdownMenu>

@@ -61,6 +61,7 @@ model Usuario {
   pagosProveedorRegistrados PagoProveedor[] @relation("PagosProveedorRegistrados")
   solicitudesCreadas        SolicitudPermiso[] @relation("SolicitudesCreadas")
   solicitudesRevisadas      SolicitudPermiso[] @relation("SolicitudesRevisadas")
+  notificaciones            Notificacion[]
 
   @@map("usuarios")
 }
@@ -348,8 +349,37 @@ model TransferenciaInventario {
   recibidoAt        DateTime? @map("recibido_at")
 
   movimientos       MovimientoInventario[]
+  notificaciones    Notificacion[]
 
   @@map("transferencias_inventario")
+}
+
+// Notificaciones dentro del sistema (sin correo/SMS por ahora — ver
+// docs/ARQUITECTURA.md). Un renglón por destinatario: si una transferencia
+// le interesa a 3 personas, se crean 3 notificaciones, una por usuario, cada
+// una con su propio estado de "leída" independiente del resto.
+//
+// Por ahora solo las genera el flujo de "pedir a otra sucursal" desde Ventas
+// (ver POST /transferencias), pero el campo `tipo` es texto libre a propósito
+// para poder reutilizar esta misma tabla con otros eventos a futuro sin
+// necesitar una migración nueva.
+model Notificacion {
+  id              Int      @id @default(autoincrement())
+  usuarioId       Int      @map("usuario_id")
+  usuario         Usuario  @relation(fields: [usuarioId], references: [id])
+  tipo            String
+  titulo          String
+  mensaje         String
+  leida           Boolean  @default(false)
+
+  // Referencia opcional a la transferencia relacionada, para poder armar un
+  // enlace directo a "Transferencias" desde la notificación.
+  transferenciaId Int?     @map("transferencia_id")
+  transferencia   TransferenciaInventario? @relation(fields: [transferenciaId], references: [id])
+
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("notificaciones")
 }
 
 // ---------------------------------------------------------------------------

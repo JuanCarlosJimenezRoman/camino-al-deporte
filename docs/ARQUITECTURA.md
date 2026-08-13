@@ -124,6 +124,38 @@ Este diseño evita que el stock "aparezca" en el destino antes de que la
 mercancía físicamente llegue, y dejaría rastro si algo se pierde en el
 camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 
+**Pedidos entre sucursales desde Ventas**: además de INVENTARIO/ADMIN
+(que pueden mover mercancía entre cualquier par de sucursales desde
+Transferencias), el rol VENTAS también puede crear una transferencia desde
+la propia pantalla de Ventas — pero solo como "pedido para completar una
+venta": la sucursal destino se fuerza siempre a la suya propia (nunca puede
+mover mercancía entre otras dos sucursales), y solo puede cancelar los
+pedidos que él mismo solicitó (ver `ROLES_SOLICITAR` en
+`routes/transferencias.js`). El flujo en la pantalla de Ventas es: la
+búsqueda de producto consulta TODAS las sucursales (`GET
+/inventario/existencias` sin `?sucursalId=`, ver siguiente sección); si el
+resultado elegido no es de la sucursal propia, en vez de "Registrar venta" el
+botón cambia a "Pedir a mi sucursal", que crea la transferencia. La venta en
+sí no se registra ahí — se completa después, normalmente, cuando la
+mercancía ya llegó.
+
+**Búsqueda global de existencias**: `GET /inventario/existencias` acepta
+`?sucursalId=` opcional. Con él, se comporta como siempre (incluye
+renglones placeholder en 0 para poder cargar el primer stock). Sin él, busca
+en todas las sucursales a la vez y cada renglón trae su propia `sucursal`
+— sin placeholders (no aplica el concepto fuera de una sucursal concreta).
+
+**Notificaciones dentro del sistema** (`notificaciones`, sin correo/SMS por
+ahora): un renglón por destinatario. Por ahora el único evento que las genera
+es crear un pedido entre sucursales (`utils/notificaciones.js`,
+`notificarPedidoSucursal`) — avisa a ADMIN_PRINCIPAL/DESARROLLO, al personal
+de la sucursal que tiene el stock (tiene que prepararlo/enviarlo) y al de la
+sucursal que lo pidió, excepto a quien lo solicitó. El campo `tipo` es texto
+libre a propósito para poder sumar más eventos a futuro sin migración nueva.
+El frontend las muestra con una campanita en la barra superior
+(`NotificacionesBell.tsx`), que revisa cada 60 segundos (no hay
+websockets/push todavía).
+
 ## Modelo de datos (resumen)
 
 - `roles`, `usuarios` (con `sucursal_id` opcional)
@@ -132,7 +164,8 @@ camino (queda "SOLICITADA" indefinidamente, visible como pendiente).
 - `productos`, `producto_variantes` (catálogo global: variante = talla/color + SKU de fábrica + código interno único — ver sección "SKU de fábrica vs. código interno")
 - `existencias` (stock por sucursal + variante + **proveedor**: un mismo talla/sucursal puede tener varios renglones, uno por cada proveedor que la ha surtido — ver sección de Proveedores)
 - `movimientos_inventario` (entradas, salidas, ajustes, ventas, devoluciones, transferencias, apartados)
-- `transferencias_inventario` (mover mercancía entre sucursales)
+- `transferencias_inventario` (mover mercancía entre sucursales; también usada como "pedido" desde Ventas)
+- `notificaciones` (in-app, un renglón por destinatario)
 - `ventas`, `venta_items` (atadas a una sucursal; con método de pago y comprobante)
 - `cuentas_transferencia` (catálogo de cuentas propias donde se reciben transferencias)
 - `clientes` (también cuentas de la tienda en línea, ver más abajo), `apartados`, `apartado_items`, `apartado_pagos` (layaway)

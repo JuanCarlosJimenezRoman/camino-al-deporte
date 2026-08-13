@@ -48,10 +48,17 @@ const IMAGEN_PRINCIPAL_INCLUDE = {
 // ?marcaId= ?categoriaId= ?modeloId= filtran por esos campos del producto.
 // ?tallaId= filtra directo por la talla de la variante — para poder ver de
 // un vistazo qué hay disponible, por ejemplo, en el número 27.
+//
+// ?sucursalId= ahora es OPCIONAL: si se omite, la búsqueda es "en todas las
+// sucursales" (usado por Ventas para ver dónde más hay stock de un producto
+// que no tiene localmente, y poder pedirlo — ver POST /transferencias). En
+// ese modo no se generan renglones placeholder (no tiene sentido enumerar
+// "0 en blanco" en cada sucursal para cada variante) y cada renglón trae su
+// propia `sucursal` para saber de cuál es.
 router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
   const { skuOProducto, sucursalId, proveedorId, marcaId, categoriaId, modeloId, tallaId } = req.query;
-  if (!sucursalId) return res.status(400).json({ error: 'Falta sucursalId.' });
   const filtroProveedorId = proveedorId ? Number(proveedorId) : null;
+  const busquedaGlobal = !sucursalId;
 
   const variantes = await prisma.productoVariante.findMany({
     where: {
@@ -77,8 +84,11 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
       talla: true,
       proveedor: { select: { id: true, nombre: true } },
       existencias: {
-        where: { sucursalId: Number(sucursalId) },
-        include: { proveedor: { select: { id: true, nombre: true } } },
+        where: busquedaGlobal ? {} : { sucursalId: Number(sucursalId) },
+        include: {
+          proveedor: { select: { id: true, nombre: true } },
+          sucursal: { select: { id: true, nombre: true } },
+        },
       },
     },
     orderBy: { sku: 'asc' },
@@ -92,6 +102,10 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
       : existencias;
 
     if (buckets.length === 0) {
+      // El placeholder (renglón en 0 para poder cargar el primer stock) solo
+      // aplica en modo "una sucursal": en modo global no tiene sentido, y
+      // además ahí no sabríamos en cuál sucursal mostrarlo.
+      if (busquedaGlobal) continue;
       // Si se filtra por proveedor y esta variante no tiene ese bucket en
       // esta sucursal, solo la mostramos (en 0) cuando ese proveedor es
       // justo el "por defecto" de la variante — si no, de plano no tiene
@@ -106,6 +120,7 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
       resultado.push({
         id: null,
         sucursalId: Number(sucursalId),
+        sucursal: null,
         proveedorId: variante.proveedorId,
         proveedor: variante.proveedor,
         stockActual: 0,
@@ -118,7 +133,8 @@ router.get('/existencias', requireAuth, asyncHandler(async (req, res) => {
     for (const ex of buckets) {
       resultado.push({
         id: ex.id,
-        sucursalId: Number(sucursalId),
+        sucursalId: ex.sucursalId,
+        sucursal: ex.sucursal,
         proveedorId: ex.proveedorId,
         proveedor: ex.proveedor,
         stockActual: ex.stockActual,
