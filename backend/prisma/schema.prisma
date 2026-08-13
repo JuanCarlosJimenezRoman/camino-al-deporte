@@ -576,6 +576,11 @@ model Venta {
   // Opcional: sigue siendo válido registrar una venta de mostrador sin
   // captar el teléfono.
   clienteTelefono String? @map("cliente_telefono")
+  // PDF del ticket digital (generado con pdfkit, subido a Cloudinary — ver
+  // utils/ticketPdf.js). Se guarda para poder reabrirlo/reenviarlo después
+  // desde el historial, sin tener que regenerarlo.
+  ticketPdfUrl      String? @map("ticket_pdf_url")
+  ticketPdfPublicId String? @map("ticket_pdf_public_id")
   total       Decimal     @default(0) @db.Decimal(10, 2)
 
   metodoPago  MetodoPago  @default(EFECTIVO) @map("metodo_pago")

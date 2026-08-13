@@ -42,47 +42,50 @@ Un token temporal de prueba caduca en 24 horas, así que hay que crear uno perma
 
 ## Paso 5 — Crear y aprobar la plantilla del ticket
 
-Meta obliga a usar una "plantilla" pre-aprobada porque el negocio manda el mensaje primero (el cliente no te escribió antes).
+Meta obliga a usar una "plantilla" pre-aprobada porque el negocio manda el mensaje primero (el cliente no te escribió antes). El ticket ahora es un **PDF adjunto** (no solo texto), así que la plantilla lleva un encabezado tipo "Documento" además del texto.
 
 1. En WhatsApp Manager → **Plantillas de mensajes** → **Crear plantilla**.
-2. Nombre: `ticket_digital_compra` (tiene que ser exactamente así, o el que pongas en `WHATSAPP_TICKET_TEMPLATE_NAME`).
+2. Nombre: `ticket_digital_compra_pdf` (tiene que ser exactamente así, o el que pongas en `WHATSAPP_TICKET_TEMPLATE_NAME`).
 3. Categoría: **Utilidad** (Utility).
 4. Idioma: **Español (MX)**.
-5. Cuerpo del mensaje — copia esto exactamente, incluyendo las variables `{{1}}` a `{{5}}`:
+5. Encabezado (Header): tipo **Documento**. Cuando te pida un archivo de ejemplo para la revisión, sube cualquier PDF de prueba (puedes usar el ejemplo que te compartí, `ticket-ejemplo.pdf`).
+6. Cuerpo del mensaje — copia esto exactamente, con la variable `{{1}}`:
 
    ```
-   🧾 Ticket de compra - Camino al Deporte
-
-   Folio: {{1}}
-   Sucursal: {{2}}
-   Artículos: {{3}}
-   Total: ${{4}} MXN
-   Método de pago: {{5}}
-
-   ¡Gracias por tu compra! Cualquier duda, contáctanos por este WhatsApp.
+   🧾 Aquí tienes tu ticket de compra ({{1}}) de Camino al Deporte. ¡Gracias por tu compra!
    ```
 
-6. Cuando Meta te pida un ejemplo para cada variable, usa algo como: `V-1723500000`, `Sucursal Centro`, `Tenis Runner Pro (26/Negro) x1`, `899.00`, `Efectivo`.
-7. Envía a revisión. Normalmente Meta aprueba en minutos, a veces hasta 24 horas. Si la rechaza, casi siempre es por el texto — ajusta y reenvía.
+7. Cuando Meta te pida un ejemplo para la variable, usa algo como: `V-1723500000`.
+8. Envía a revisión. Normalmente Meta aprueba en minutos, a veces hasta 24 horas. Si la rechaza, casi siempre es por el texto — ajusta y reenvía.
 
-## Paso 6 — Configurar el sistema
+## Paso 6 — Habilitar la entrega de PDF en Cloudinary
 
-Ya con el Phone Number ID (paso 3) y el token (paso 4):
+El sistema sube el PDF del ticket a Cloudinary (la misma cuenta que ya usas para las fotos de producto) y le manda a Meta el link para adjuntarlo. En cuentas gratuitas, Cloudinary bloquea por defecto la entrega pública de PDF/ZIP por seguridad — si no activas esto, el ticket se genera pero el link regresa error y el envío por WhatsApp falla.
+
+1. Entra a tu [dashboard de Cloudinary](https://cloudinary.com/console) → **Settings** → pestaña **Security**.
+2. Activa la opción **Allow delivery of PDF and ZIP files**.
+3. Guarda los cambios.
+
+## Paso 7 — Configurar el sistema
+
+Ya con el Phone Number ID (paso 3), el token (paso 4) y Cloudinary habilitado (paso 6):
 
 1. En el dashboard del sistema, ve a **Sucursales**, elige la sucursal, y pega el Phone Number ID en el campo "WhatsApp Cloud API — Phone Number ID". Si por ahora solo tienes un número para todo el negocio, pégalo en **Métodos de pago** en el campo del mismo nombre (sirve como respaldo general).
 2. En Render (o donde tengas el backend), agrega estas variables de entorno:
 
    ```
    WHATSAPP_ACCESS_TOKEN=<el token del paso 4>
-   WHATSAPP_TICKET_TEMPLATE_NAME=ticket_digital_compra
+   WHATSAPP_TICKET_TEMPLATE_NAME=ticket_digital_compra_pdf
    WHATSAPP_TICKET_TEMPLATE_LANG=es_MX
    ```
 
-3. Aplica la migración nueva de la base de datos (`npx prisma migrate deploy`, o se aplica sola si tu `start` de Render ya la corre).
-4. Reinicia el backend para que tome las variables nuevas.
+3. Aplica las migraciones nuevas de la base de datos (`npx prisma migrate deploy`, o se aplican solas si tu `start` de Render ya las corre).
+4. Reinicia el backend para que tome las variables nuevas (y para que instale `pdfkit`, la librería nueva que genera el PDF).
 
-## Paso 7 — Probar
+## Paso 8 — Probar
 
-Registra una venta de prueba con tu propio teléfono como "cliente". Si todo quedó bien conectado, te debería llegar el ticket por WhatsApp automáticamente y el sistema mostrará "Ticket enviado automáticamente por WhatsApp" en vez del botón manual.
+Registra una venta de prueba con tu propio teléfono como "cliente". Si todo quedó bien conectado, te debería llegar el ticket en PDF por WhatsApp automáticamente y el sistema mostrará "Ticket (PDF) enviado automáticamente por WhatsApp" en vez del botón manual.
 
-Si no llega, revisa en los logs del backend el mensaje de error que devuelve Meta (queda guardado en `ticketDigital.error` en la respuesta de la venta) — casi siempre dice exactamente qué falta (plantilla no aprobada todavía, número no verificado, token sin permisos, etc.).
+Si no llega, revisa en los logs del backend el mensaje de error que devuelve Meta (queda guardado en `ticketDigital.error` en la respuesta de la venta) — casi siempre dice exactamente qué falta (plantilla no aprobada todavía, número no verificado, token sin permisos, PDF/ZIP no habilitado en Cloudinary, etc.).
+
+Aunque el envío automático no esté configurado (o falle), el PDF se genera igual en cada venta y queda disponible con el botón "Ver ticket (PDF)" — tanto justo después de cobrar como en la columna "PDF" del historial de ventas.

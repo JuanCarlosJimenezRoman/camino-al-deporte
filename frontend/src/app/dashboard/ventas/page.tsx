@@ -53,6 +53,10 @@ interface Venta {
   // (no configurado todavía, o Meta rechazó el mensaje), se ofrece el link
   // manual de wa.me como respaldo — ver construirLinkTicket.
   ticketDigital?: { enviado: boolean; error?: string } | null;
+  // PDF del ticket (generado en el servidor, subido a Cloudinary). Se puede
+  // abrir/descargar siempre que se haya generado, aunque el envío
+  // automático por WhatsApp haya fallado o no esté configurado todavía.
+  ticketPdfUrl: string | null;
   items: VentaItem[];
 }
 
@@ -178,6 +182,10 @@ export default function VentasPage() {
   // Link de WhatsApp del ticket de la última venta registrada, para
   // ofrecerlo justo después de cobrar (ver registrarVenta).
   const [ticketLink, setTicketLink] = useState<string | null>(null);
+  // PDF del ticket de la última venta — se ofrece aparte del link de
+  // WhatsApp de arriba: sirve incluso si el envío automático falló, o si
+  // el cajero solo quiere verlo/imprimirlo.
+  const [ticketPdfUrl, setTicketPdfUrl] = useState<string | null>(null);
 
   // Apartado (producto solo disponible en otra sucursal): no se vende
   // directamente, se aparta para el cliente y el stock se reserva en la
@@ -289,6 +297,7 @@ export default function VentasPage() {
 
     setGuardando(true);
     setTicketLink(null);
+    setTicketPdfUrl(null);
     try {
       const datos = {
         sucursalId: Number(sucursalId),
@@ -319,14 +328,17 @@ export default function VentasPage() {
           ? `Venta registrada. Cambio a dar: $${cambio.toFixed(2)}.`
           : 'Venta registrada.';
 
+      setTicketPdfUrl(creada.ticketPdfUrl || null);
+
       if (creada.ticketDigital?.enviado) {
-        // Ya se mandó solo por la API de WhatsApp — no se ofrece el botón
-        // manual para no arriesgar mandar el ticket dos veces.
-        setMensaje(`${baseMensaje} Ticket enviado automáticamente por WhatsApp.`);
+        // Ya se mandó solo por la API de WhatsApp (con el PDF adjunto) — no
+        // se ofrece el botón manual para no arriesgar mandarlo dos veces.
+        setMensaje(`${baseMensaje} Ticket (PDF) enviado automáticamente por WhatsApp.`);
         setTicketLink(null);
       } else {
         // Sin API configurada (o falló el envío): se ofrece el link manual
-        // de siempre como respaldo, si el cliente dejó su teléfono.
+        // de siempre como respaldo, si el cliente dejó su teléfono — y el
+        // PDF por su cuenta, para verlo o mandarlo a mano.
         setMensaje(baseMensaje);
         setTicketLink(construirLinkTicket(creada));
       }
@@ -358,6 +370,7 @@ export default function VentasPage() {
     setGuardando(true);
     setMensaje(null);
     setTicketLink(null);
+    setTicketPdfUrl(null);
     try {
       await api('/apartados', {
         method: 'POST',
@@ -647,11 +660,18 @@ export default function VentasPage() {
 
             {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
 
-            {ticketLink && (
-              <div style={{ marginBottom: 10 }}>
-                <a href={ticketLink} target="_blank" rel="noreferrer" className="btn">
-                  Enviar ticket por WhatsApp
-                </a>
+            {(ticketLink || ticketPdfUrl) && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                {ticketLink && (
+                  <a href={ticketLink} target="_blank" rel="noreferrer" className="btn">
+                    Enviar ticket por WhatsApp
+                  </a>
+                )}
+                {ticketPdfUrl && (
+                  <a href={ticketPdfUrl} target="_blank" rel="noreferrer" className="btn-secondary btn">
+                    Ver ticket (PDF)
+                  </a>
+                )}
               </div>
             )}
 
@@ -727,6 +747,7 @@ export default function VentasPage() {
             <th>Vendedor</th>
             <th>Fecha</th>
             <th>Ticket</th>
+            <th>PDF</th>
           </tr>
         </thead>
         <tbody>
@@ -775,12 +796,21 @@ export default function VentasPage() {
                     '—'
                   )}
                 </td>
+                <td>
+                  {v.ticketPdfUrl ? (
+                    <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer">
+                      Ver
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </td>
               </tr>
             );
           })}
           {ventas.length === 0 && (
             <tr>
-              <td colSpan={11} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={12} style={{ color: 'var(--color-muted)' }}>
                 Sin ventas registradas.
               </td>
             </tr>

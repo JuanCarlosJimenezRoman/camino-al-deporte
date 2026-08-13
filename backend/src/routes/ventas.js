@@ -5,15 +5,14 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { manejarSubidaImagen } = require('../middleware/uploadImagen');
-const { subirImagen } = require('../config/cloudinary');
+const { subirImagen, subirPdf } = require('../config/cloudinary');
 const { enviarTicketVenta } = require('../config/whatsapp');
+const { generarTicketPdf } = require('../utils/ticketPdf');
 
 const router = express.Router();
 
 const ROLES_VENTAS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
 const ROLES_ADMIN = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
-
-const ETIQUETA_METODO_PAGO = { EFECTIVO: 'Efectivo', TARJETA: 'Tarjeta', TRANSFERENCIA: 'Transferencia' };
 
 // Manda la galería completa (solo url/color/esPrincipal) en vez de una sola
 // foto: como una foto puede estar etiquetada para un color de variante
@@ -335,10 +334,10 @@ router.post(
     }
 
     try {
-      // Descripción de cada artículo (nombre + talla/color) para el resumen
-      // del ticket, tanto el manual (link wa.me) como el automático por API
-      // — se arma aquí porque es donde ya se resuelve cada existencia.
-      const articulosTicket = [];
+      // Detalle de cada artículo (nombre + talla/color, cantidad, precio,
+      // subtotal) para armar la tabla del PDF del ticket — se junta aquí
+      // porque es donde ya se resuelve cada existencia.
+      const itemsParaTicket = [];
 
       const venta = await prisma.$transaction(async (tx) => {
         let total = 0;
@@ -375,9 +374,12 @@ router.post(
           });
 
           const detalle = [existencia.variante.talla?.valor, existencia.variante.color].filter(Boolean).join('/');
-          articulosTicket.push(
-            `${existencia.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${item.cantidad}`
-          );
+          itemsParaTicket.push({
+            descripcion: `${existencia.variante.producto.nombre}${detalle ? ` (${detalle})` : ''}`,
+            cantidad: item.cantidad,
+            precioUnitario: item.precioUnitario,
+            subtotal,
+          });
 
           itemsData.push({ ...item, subtotal });
         }
@@ -408,25 +410,43 @@ router.post(
 
       const { whatsappContacto, whatsappPhoneNumberId } = await resolverWhatsappVenta(venta);
 
-      // Envío automático por WhatsApp Business Platform, solo si el cliente
-      // dejó su teléfono y ya hay un Phone Number ID configurado (sucursal o
-      // tienda). Si no está configurado, o si Meta rechaza el envío por
-      // cualquier motivo, no se cae la venta — el frontend sigue ofreciendo
-      // el link manual de wa.me como respaldo (ver whatsappContacto arriba).
-      let ticketDigital = { enviado: false, error: 'SIN_TELEFONO' };
-      if (clienteTelefono) {
-        ticketDigital = await enviarTicketVenta({
-          phoneNumberId: whatsappPhoneNumberId,
-          telefonoCliente: clienteTelefono,
-          folio: venta.folio,
-          sucursal: venta.sucursal?.nombre,
-          articulos: articulosTicket.join(', '),
-          total: String(venta.total),
-          metodoPago: ETIQUETA_METODO_PAGO[metodoPago] || metodoPago,
+      // Genera el PDF del ticket y lo sube a Cloudinary — best-effort: si
+      // algo falla aquí (Cloudinary caído, PDF/ZIP no habilitado en la
+      // cuenta, etc.) la venta ya quedó registrada de todas formas, solo no
+      // habrá ticket en PDF para esta venta. Se guarda en la venta para
+      // poder reabrirlo/reenviarlo después desde el historial.
+      let ticketPdfUrl = null;
+      let ticketPdfError = null;
+      try {
+        const pdfBuffer = await generarTicketPdf(venta, itemsParaTicket, whatsappContacto);
+        const subida = await subirPdf(pdfBuffer, 'tickets');
+        ticketPdfUrl = subida.url;
+        await prisma.venta.update({
+          where: { id: venta.id },
+          data: { ticketPdfUrl: subida.url, ticketPdfPublicId: subida.publicId },
         });
+      } catch (err) {
+        ticketPdfError = err.message;
       }
 
-      res.status(201).json({ ...venta, whatsappContacto, ticketDigital });
+      // Envío automático por WhatsApp Business Platform, solo si el cliente
+      // dejó su teléfono, ya se generó el PDF, y hay un Phone Number ID
+      // configurado (sucursal o tienda). Si algo de esto falta, o si Meta
+      // rechaza el envío, no se cae la venta — el frontend sigue ofreciendo
+      // el link manual de wa.me y/o el PDF para mandar a mano.
+      let ticketDigital = { enviado: false, error: 'SIN_TELEFONO' };
+      if (clienteTelefono) {
+        ticketDigital = ticketPdfUrl
+          ? await enviarTicketVenta({
+              phoneNumberId: whatsappPhoneNumberId,
+              telefonoCliente: clienteTelefono,
+              folio: venta.folio,
+              pdfUrl: ticketPdfUrl,
+            })
+          : { enviado: false, error: ticketPdfError || 'SIN_PDF' };
+      }
+
+      res.status(201).json({ ...venta, whatsappContacto, ticketDigital, ticketPdfUrl });
     } catch (err) {
       if (err.message.startsWith('STOCK_INSUFICIENTE')) {
         return res.status(409).json({ error: `Stock insuficiente para SKU ${err.message.split(':')[1]}.` });

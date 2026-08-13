@@ -19,7 +19,13 @@
 const GRAPH_VERSION = 'v21.0';
 
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-const TEMPLATE_NAME = process.env.WHATSAPP_TICKET_TEMPLATE_NAME || 'ticket_digital_compra';
+// Plantilla con header tipo "documento" (el PDF del ticket) + un solo
+// parámetro de texto en el cuerpo (el folio) — el detalle de artículos,
+// total y método de pago ya no van como texto del mensaje, van dentro del
+// PDF (ver utils/ticketPdf.js). Nombre distinto al de la primera versión
+// (solo texto) porque Meta no deja cambiar la estructura de una plantilla
+// ya aprobada con el mismo nombre — ver la guía de configuración.
+const TEMPLATE_NAME = process.env.WHATSAPP_TICKET_TEMPLATE_NAME || 'ticket_digital_compra_pdf';
 const TEMPLATE_LANG = process.env.WHATSAPP_TICKET_TEMPLATE_LANG || 'es_MX';
 
 function whatsappApiConfigurada() {
@@ -35,20 +41,26 @@ function normalizarTelefono(telefono) {
 }
 
 /**
- * Manda el ticket digital de una venta ya registrada, usando la plantilla
- * aprobada por Meta. El orden de los parámetros de texto tiene que
- * coincidir exactamente con el orden de las variables {{1}}..{{5}} con las
- * que se dio de alta la plantilla (folio, sucursal, artículos, total,
- * método de pago) — ver la guía de configuración para el texto exacto.
+ * Manda el ticket digital (PDF) de una venta ya registrada, usando la
+ * plantilla aprobada por Meta: header tipo documento (el PDF, por link
+ * público) + el folio como único parámetro del cuerpo.
  *
+ * @param {object} datos
+ * @param {string} datos.phoneNumberId
+ * @param {string} datos.telefonoCliente
+ * @param {string} datos.folio
+ * @param {string} datos.pdfUrl - URL pública del PDF (ver config/cloudinary.js subirPdf).
  * @returns {Promise<{enviado: boolean, error?: string}>} nunca lanza.
  */
-async function enviarTicketVenta({ phoneNumberId, telefonoCliente, folio, sucursal, articulos, total, metodoPago }) {
+async function enviarTicketVenta({ phoneNumberId, telefonoCliente, folio, pdfUrl }) {
   if (!whatsappApiConfigurada()) {
     return { enviado: false, error: 'WHATSAPP_NO_CONFIGURADO' };
   }
   if (!phoneNumberId) {
     return { enviado: false, error: 'SUCURSAL_SIN_WHATSAPP_API' };
+  }
+  if (!pdfUrl) {
+    return { enviado: false, error: 'SIN_PDF' };
   }
   const numero = normalizarTelefono(telefonoCliente);
   if (!numero) {
@@ -71,14 +83,17 @@ async function enviarTicketVenta({ phoneNumberId, telefonoCliente, folio, sucurs
           language: { code: TEMPLATE_LANG },
           components: [
             {
-              type: 'body',
+              type: 'header',
               parameters: [
-                { type: 'text', text: String(folio ?? '—') },
-                { type: 'text', text: String(sucursal ?? '—') },
-                { type: 'text', text: String(articulos ?? '—') },
-                { type: 'text', text: String(total ?? '0') },
-                { type: 'text', text: String(metodoPago ?? '—') },
+                {
+                  type: 'document',
+                  document: { link: pdfUrl, filename: `ticket-${folio}.pdf` },
+                },
               ],
+            },
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: String(folio ?? '—') }],
             },
           ],
         },
