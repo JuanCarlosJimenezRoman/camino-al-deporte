@@ -86,6 +86,16 @@ clave/valor libres (sin tipo ni validación) — junto con precio de
 compra/venta, descripción, marca, modelo y categoría del producto. Todos
 estos campos extra son opcionales.
 
+Inventario muestra una sola fila por **producto** (no por variante): foto,
+marca, un resumen de las tallas/colores disponibles y el stock total sumado.
+El botón "Ver tallas" despliega el detalle por variante (SKU, talla, color,
+desglose de stock por proveedor) — ahí es donde viven los botones de
++Entrada/−Salida, igual que antes. Esto es puramente de presentación (la
+consulta a `/inventario/existencias` sigue trayendo un renglón por
+variante/proveedor; el agrupamiento por producto se hace en el frontend): con
+un producto que tiene muchas tallas, la vista inicial ya no repite foto/marca
+por cada una.
+
 ## Multi-sucursal / bodega
 
 El catálogo (producto, variante, SKU, precio) es **global**: el mismo SKU

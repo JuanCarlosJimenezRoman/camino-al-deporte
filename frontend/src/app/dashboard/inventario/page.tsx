@@ -55,8 +55,9 @@ interface Existencia {
     id: number;
     sku: string;
     color: string | null;
-    talla: { valor: string } | null;
+    talla: { valor: string; orden?: number } | null;
     producto: {
+      id: number;
       nombre: string;
       marca: { nombre: string };
       imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[];
@@ -67,6 +68,9 @@ interface Existencia {
     proveedor: { id: number; nombre: string } | null;
   };
 }
+
+type GrupoVariante = { variante: Existencia['variante']; buckets: Existencia[] };
+type GrupoProducto = { producto: Existencia['variante']['producto']; variantes: GrupoVariante[] };
 
 export default function InventarioPage() {
   const { usuario } = useAuth();
@@ -98,6 +102,11 @@ export default function InventarioPage() {
   const [salidaVarianteId, setSalidaVarianteId] = useState<number | null>(null);
   const [salidaCantidad, setSalidaCantidad] = useState('1');
   const [salidaProveedorId, setSalidaProveedorId] = useState('');
+  // Qué producto tiene desplegado el detalle por talla/color — la vista
+  // inicial solo muestra una fila por producto para no abrumar cuando tiene
+  // muchas variantes; el registro de entradas/salidas sigue viviendo a nivel
+  // de variante, adentro del desplegable.
+  const [productoAbiertoId, setProductoAbiertoId] = useState<number | null>(null);
 
   useEffect(() => {
     api<Sucursal[]>('/sucursales').then((data) => {
@@ -226,12 +235,27 @@ export default function InventarioPage() {
   // Agrupa los renglones (uno por proveedor) en uno por variante, para
   // mostrar una sola fila por talla con el desglose de stock por proveedor
   // adentro, en vez de repetir SKU/foto/marca por cada bucket.
-  const grupos = (() => {
-    const mapa = new Map<number, { variante: Existencia['variante']; buckets: Existencia[] }>();
+  const gruposVariante: GrupoVariante[] = (() => {
+    const mapa = new Map<number, GrupoVariante>();
     for (const e of existencias) {
       const existente = mapa.get(e.variante.id);
       if (existente) existente.buckets.push(e);
       else mapa.set(e.variante.id, { variante: e.variante, buckets: [e] });
+    }
+    return Array.from(mapa.values());
+  })();
+
+  // Y luego agrupa las variantes por producto, para la vista inicial: una
+  // sola fila por producto con sus tallas/colores resumidos, en vez de una
+  // fila por cada combinación de talla — eso era lo que hacía tediosa la
+  // vista al entrar cuando un producto tenía muchas tallas.
+  const gruposProducto: GrupoProducto[] = (() => {
+    const mapa = new Map<number, GrupoProducto>();
+    for (const g of gruposVariante) {
+      const pid = g.variante.producto.id;
+      const existente = mapa.get(pid);
+      if (existente) existente.variantes.push(g);
+      else mapa.set(pid, { producto: g.variante.producto, variantes: [g] });
     }
     return Array.from(mapa.values());
   })();
@@ -327,129 +351,211 @@ export default function InventarioPage() {
         <thead>
           <tr>
             <th></th>
-            <th>SKU</th>
             <th>Producto</th>
             <th>Marca</th>
-            <th>Talla</th>
-            <th>Proveedor</th>
-            <th>Stock</th>
-            {puedeEditar && <th>Acciones</th>}
+            <th>Tallas / colores</th>
+            <th>Stock total</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
-          {grupos.map(({ variante, buckets }) => {
-            const stockTotal = buckets.reduce((s, b) => s + b.stockActual, 0);
-            const minimo = buckets.reduce((max, b) => Math.max(max, b.stockMinimo), 0);
+          {gruposProducto.map(({ producto, variantes }) => {
+            const stockProducto = variantes.reduce(
+              (s, g) => s + g.buckets.reduce((s2, b) => s2 + b.stockActual, 0),
+              0
+            );
+            // Si cualquiera de las variantes está en o por debajo de su
+            // mínimo, se marca el total del producto para que salte a la
+            // vista sin tener que desplegar cada una a revisar.
+            const algunaBaja = variantes.some((g) => {
+              const total = g.buckets.reduce((s, b) => s + b.stockActual, 0);
+              const minimo = g.buckets.reduce((max, b) => Math.max(max, b.stockMinimo), 0);
+              return total <= minimo;
+            });
+            const etiquetas = variantes
+              .slice()
+              .sort((a, b) => (a.variante.talla?.orden ?? 0) - (b.variante.talla?.orden ?? 0))
+              .map((g) => {
+                const talla = g.variante.talla?.valor ?? 'sin talla';
+                return g.variante.color ? `${talla} (${g.variante.color})` : talla;
+              });
+            const abierto = productoAbiertoId === producto.id;
             return (
-              <Fragment key={variante.id}>
+              <Fragment key={producto.id}>
                 <tr>
                   <td>
-                    <ProductoThumb
-                      url={imagenPrincipal(variante.producto, variante.color)}
-                      alt={variante.producto?.nombre || ''}
-                    />
+                    <ProductoThumb url={imagenPrincipal(producto)} alt={producto?.nombre || ''} />
                   </td>
-                  <td>{variante.sku}</td>
-                  <td>{variante.producto?.nombre}</td>
-                  <td>{variante.producto?.marca?.nombre}</td>
-                  <td>{variante.talla?.valor ?? '—'}</td>
-                  <td style={{ fontSize: 12 }}>
-                    {buckets.map((b, i) => (
-                      <div key={b.id ?? `sin-${i}`}>
-                        {b.proveedor?.nombre ?? 'Sin proveedor'}: {b.stockActual}
-                      </div>
-                    ))}
+                  <td>{producto?.nombre}</td>
+                  <td>{producto?.marca?.nombre}</td>
+                  <td style={{ fontSize: 12, whiteSpace: 'normal' }}>{etiquetas.join(', ') || '—'}</td>
+                  <td className={algunaBaja ? 'stock-bajo' : ''}>{stockProducto}</td>
+                  <td>
+                    <button
+                      className="btn-secondary btn"
+                      onClick={() => setProductoAbiertoId(abierto ? null : producto.id)}
+                    >
+                      {abierto ? 'Ocultar' : 'Ver tallas'} ({variantes.length})
+                    </button>
                   </td>
-                  <td className={stockTotal <= minimo ? 'stock-bajo' : ''}>{stockTotal}</td>
-                  {puedeEditar && (
-                    <td style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn-secondary btn" onClick={() => abrirEntrada(variante)}>
-                        + Entrada
-                      </button>
-                      <button className="btn-secondary btn" onClick={() => abrirSalida(variante.id, buckets)}>
-                        − Salida
-                      </button>
-                    </td>
-                  )}
                 </tr>
-                {entradaVarianteId === variante.id && (
+                {abierto && (
                   <tr>
-                    <td colSpan={puedeEditar ? 8 : 7} style={{ background: '#fafafa' }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 0' }}>
-                        <span style={{ fontSize: 12 }}>Cantidad:</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={entradaCantidad}
-                          onChange={(ev) => setEntradaCantidad(ev.target.value)}
-                          style={{ maxWidth: 90 }}
-                        />
-                        <span style={{ fontSize: 12 }}>Proveedor:</span>
-                        <select
-                          value={entradaProveedorId}
-                          onChange={(ev) => setEntradaProveedorId(ev.target.value)}
-                          style={{ maxWidth: 180 }}
-                        >
-                          <option value="">Sin proveedor</option>
-                          {proveedores.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.nombre}
-                            </option>
-                          ))}
-                        </select>
-                        <button className="btn" onClick={confirmarEntrada}>
-                          Confirmar
-                        </button>
-                        <button className="btn-secondary btn" onClick={() => setEntradaVarianteId(null)}>
-                          Cancelar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {salidaVarianteId === variante.id && (
-                  <tr>
-                    <td colSpan={puedeEditar ? 8 : 7} style={{ background: '#fafafa' }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 0' }}>
-                        <span style={{ fontSize: 12 }}>Cantidad:</span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={salidaCantidad}
-                          onChange={(ev) => setSalidaCantidad(ev.target.value)}
-                          style={{ maxWidth: 90 }}
-                        />
-                        <span style={{ fontSize: 12 }}>De qué proveedor sale:</span>
-                        <select
-                          value={salidaProveedorId}
-                          onChange={(ev) => setSalidaProveedorId(ev.target.value)}
-                          style={{ maxWidth: 180 }}
-                        >
-                          <option value="">Selecciona...</option>
-                          {buckets
-                            .filter((b) => b.stockActual > 0)
-                            .map((b) => (
-                              <option key={b.id ?? 'sin'} value={b.proveedorId === null ? SIN_PROVEEDOR : b.proveedorId}>
-                                {b.proveedor?.nombre ?? 'Sin proveedor'} (stock: {b.stockActual})
-                              </option>
-                            ))}
-                        </select>
-                        <button className="btn" onClick={() => confirmarSalida(buckets)}>
-                          Confirmar
-                        </button>
-                        <button className="btn-secondary btn" onClick={() => setSalidaVarianteId(null)}>
-                          Cancelar
-                        </button>
-                      </div>
+                    <td colSpan={6} style={{ background: '#fafafa' }}>
+                      <table style={{ minWidth: 0 }}>
+                        <thead>
+                          <tr>
+                            <th>SKU</th>
+                            <th>Talla</th>
+                            <th>Color</th>
+                            <th>Proveedor</th>
+                            <th>Stock</th>
+                            {puedeEditar && <th>Acciones</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {variantes.map(({ variante, buckets }) => {
+                            const stockTotal = buckets.reduce((s, b) => s + b.stockActual, 0);
+                            const minimo = buckets.reduce((max, b) => Math.max(max, b.stockMinimo), 0);
+                            return (
+                              <Fragment key={variante.id}>
+                                <tr>
+                                  <td style={{ fontSize: 12, color: 'var(--color-muted)' }}>{variante.sku}</td>
+                                  <td>{variante.talla?.valor ?? '—'}</td>
+                                  <td>{variante.color ?? '—'}</td>
+                                  <td style={{ fontSize: 12 }}>
+                                    {buckets.map((b, i) => (
+                                      <div key={b.id ?? `sin-${i}`}>
+                                        {b.proveedor?.nombre ?? 'Sin proveedor'}: {b.stockActual}
+                                      </div>
+                                    ))}
+                                  </td>
+                                  <td className={stockTotal <= minimo ? 'stock-bajo' : ''}>{stockTotal}</td>
+                                  {puedeEditar && (
+                                    <td style={{ display: 'flex', gap: 6, whiteSpace: 'nowrap' }}>
+                                      <button className="btn-secondary btn" onClick={() => abrirEntrada(variante)}>
+                                        + Entrada
+                                      </button>
+                                      <button
+                                        className="btn-secondary btn"
+                                        onClick={() => abrirSalida(variante.id, buckets)}
+                                      >
+                                        − Salida
+                                      </button>
+                                    </td>
+                                  )}
+                                </tr>
+                                {entradaVarianteId === variante.id && (
+                                  <tr>
+                                    <td colSpan={puedeEditar ? 6 : 5} style={{ background: '#f2f2f2' }}>
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          gap: 8,
+                                          alignItems: 'center',
+                                          flexWrap: 'wrap',
+                                          padding: '6px 0',
+                                        }}
+                                      >
+                                        <span style={{ fontSize: 12 }}>Cantidad:</span>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          value={entradaCantidad}
+                                          onChange={(ev) => setEntradaCantidad(ev.target.value)}
+                                          style={{ maxWidth: 90 }}
+                                        />
+                                        <span style={{ fontSize: 12 }}>Proveedor:</span>
+                                        <select
+                                          value={entradaProveedorId}
+                                          onChange={(ev) => setEntradaProveedorId(ev.target.value)}
+                                          style={{ maxWidth: 180 }}
+                                        >
+                                          <option value="">Sin proveedor</option>
+                                          {proveedores.map((p) => (
+                                            <option key={p.id} value={p.id}>
+                                              {p.nombre}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <button className="btn" onClick={confirmarEntrada}>
+                                          Confirmar
+                                        </button>
+                                        <button
+                                          className="btn-secondary btn"
+                                          onClick={() => setEntradaVarianteId(null)}
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                {salidaVarianteId === variante.id && (
+                                  <tr>
+                                    <td colSpan={puedeEditar ? 6 : 5} style={{ background: '#f2f2f2' }}>
+                                      <div
+                                        style={{
+                                          display: 'flex',
+                                          gap: 8,
+                                          alignItems: 'center',
+                                          flexWrap: 'wrap',
+                                          padding: '6px 0',
+                                        }}
+                                      >
+                                        <span style={{ fontSize: 12 }}>Cantidad:</span>
+                                        <input
+                                          type="number"
+                                          min={1}
+                                          value={salidaCantidad}
+                                          onChange={(ev) => setSalidaCantidad(ev.target.value)}
+                                          style={{ maxWidth: 90 }}
+                                        />
+                                        <span style={{ fontSize: 12 }}>De qué proveedor sale:</span>
+                                        <select
+                                          value={salidaProveedorId}
+                                          onChange={(ev) => setSalidaProveedorId(ev.target.value)}
+                                          style={{ maxWidth: 180 }}
+                                        >
+                                          <option value="">Selecciona...</option>
+                                          {buckets
+                                            .filter((b) => b.stockActual > 0)
+                                            .map((b) => (
+                                              <option
+                                                key={b.id ?? 'sin'}
+                                                value={b.proveedorId === null ? SIN_PROVEEDOR : b.proveedorId}
+                                              >
+                                                {b.proveedor?.nombre ?? 'Sin proveedor'} (stock: {b.stockActual})
+                                              </option>
+                                            ))}
+                                        </select>
+                                        <button className="btn" onClick={() => confirmarSalida(buckets)}>
+                                          Confirmar
+                                        </button>
+                                        <button
+                                          className="btn-secondary btn"
+                                          onClick={() => setSalidaVarianteId(null)}
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </td>
                   </tr>
                 )}
               </Fragment>
             );
           })}
-          {grupos.length === 0 && (
+          {gruposProducto.length === 0 && (
             <tr>
-              <td colSpan={puedeEditar ? 8 : 7} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={6} style={{ color: 'var(--color-muted)' }}>
                 Sin existencias registradas en esta sucursal.
               </td>
             </tr>
