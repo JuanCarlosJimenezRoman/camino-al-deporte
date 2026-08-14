@@ -77,6 +77,29 @@ async function obtenerDetalleSneaker(identificador) {
   return normalizarDetalle(producto);
 }
 
+// La descripción que trae KicksDB es copy de marketing en inglés con HTML
+// crudo (ej. "...<br><br>The Nike Ja 3..."), pensado para un sitio que sí
+// interpreta HTML. En el catálogo (tienda en línea y admin) la descripción
+// se muestra como texto plano — mostrarla tal cual dejaba los "<br>"
+// literales en pantalla. Aquí se convierten los saltos de línea a saltos
+// de verdad y se quita cualquier otra etiqueta, para que lo que llegue al
+// formulario de alta (campo editable "Descripción") ya sea texto limpio
+// que se pueda usar tal cual, recortar o borrar antes de guardar.
+function limpiarDescripcion(html) {
+  if (!html) return null;
+  const texto = String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return texto || null;
+}
+
 function normalizarResultadoBusqueda(p) {
   return {
     idExterno: p.id,
@@ -105,7 +128,7 @@ function normalizarDetalle(p) {
     sku: p.sku,
     imagen: p.image,
     colorway: p.colorway ?? p.metadata?.colorway ?? null,
-    descripcion: p.description ?? null,
+    descripcion: limpiarDescripcion(p.description),
     galeria: p.gallery ?? p.images ?? [],
     // Mejor esfuerzo: se intentan varios nombres de campo comunes para la
     // talla. Se incluye también "raw" con el objeto tal cual vino de
