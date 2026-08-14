@@ -644,23 +644,41 @@ resto del sistema.
 (enlazado desde Productos → "Buscar en KicksDB", junto a "Importar /
 exportar Excel"). Flujo de dos pasos: 1) buscar y elegir un resultado
 (`GET /buscar-externo`), 2) formulario pre-llenado (nombre, marca, modelo,
-colorway, género, imagen) donde solo falta capturar categoría, precios,
-sucursal y las tallas/stock que se tienen físicamente — cada fila de talla
+colorway, género, imagen) donde falta capturar categoría, precios, sucursal
+y las tallas/stock/proveedor que se tienen físicamente — cada fila de talla
 es texto libre + un selector de tipo (MENS/WMNS/GS/PS/TD/ropa/general, ver
 sección de tallas segmentadas arriba), no un catálogo cerrado, porque lo
 normal es que la primera vez que se importa un modelo aparezcan tallas que
 tu catálogo de `tallas` todavía no tiene — el backend las crea solas
 (`POST /importar-externo`, igual que hace el importador de Excel).
 
-*Pendiente para una siguiente iteración:* el shape exacto de la respuesta
-de KicksDB para tallas/variantes (`GET /buscar-externo/:idExterno`) se
-documentó a partir de su documentación pública, sin poder probarse en vivo
-con una API key real durante el desarrollo — la búsqueda (paso 1) sí debería
-funcionar tal cual. Como el formulario de alta no depende de ese detalle
-(las tallas se capturan a mano), esto no bloquea usar la función; solo
-significa que, si `normalizarDetalle()` trae algún campo distinto al
-esperado (por ejemplo el nombre exacto del campo de colorway), toca
-ajustarlo en `utils/kicksdb.js` una vez que se pruebe con datos reales.
+Ya se probó en vivo con una API key real y funciona; de ahí salieron dos
+ajustes:
+
+- **Proveedor por talla**: al principio el formulario no lo pedía, así que
+  las variantes/existencias se creaban sin proveedor y aparecían como
+  "Proveedor: sin asignar" en pedidos en línea aunque después se "asignara"
+  desde Productos — eso solo actualizaba el proveedor por defecto de la
+  variante, no el renglón de `Existencia` que de verdad se lee al vender
+  (ver más abajo por qué). Ahora el formulario sí pide proveedor por talla y
+  `POST /importar-externo` lo guarda en ambos lados desde el alta.
+- **SKU con más de un código de estilo**: KicksDB a veces regresa el campo
+  `sku` con dos códigos de estilo juntos separados por "/" (ej. "IM1346-001
+  / IM1347-001") cuando agrupa dos releases muy parecidos bajo el mismo
+  producto. Guardarlo tal cual dejaba ese texto completo como SKU de la
+  variante. `primerEstilo()` en el frontend detecta el caso, usa solo el
+  primer código como default y muestra un aviso con los demás para que la
+  persona decida (puede que en realidad sean dos productos/SKUs distintos).
+
+**Por qué "asignar proveedor" en Productos no bastaba:** `ProductoVariante.
+proveedorId` es el proveedor "por defecto" de esa talla, pero Inventario,
+Ventas y los pedidos en línea leen el proveedor de cada renglón de
+`Existencia` (puede haber más de un proveedor surtiendo la misma talla en la
+misma sucursal — ver sección de Proveedores). Por eso
+`PUT /productos/:id/variantes/:varianteId` ahora, al fijar un proveedor,
+también clasifica los renglones de `Existencia` de esa variante que sigan
+sin proveedor (`proveedorId` null) — sin tocar los que ya estén clasificados
+con otro proveedor distinto.
 
 ## Por qué esta pila tecnológica
 

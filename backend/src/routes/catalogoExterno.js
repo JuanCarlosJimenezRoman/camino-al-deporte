@@ -97,6 +97,14 @@ const varianteImportSchema = z.object({
   sku: z.string().min(1),
   stockInicial: z.number().int().nonnegative().default(0),
   stockMinimo: z.number().int().nonnegative().default(0),
+  // De qué proveedor sale este lote. Antes no existía este campo aquí: el
+  // producto se creaba sin proveedor y había que "asignarlo" después desde
+  // Productos, pero eso solo actualizaba el proveedor por defecto de la
+  // variante, no el renglón de Existencia que de verdad se usa al vender
+  // (en tienda en línea o en Ventas) — por eso aparecía como
+  // "Proveedor: sin asignar" en pedidos en línea aunque ya se hubiera
+  // asignado ahí. Ahora se captura desde el alta.
+  proveedorId: z.number().int().nullable().optional(),
 });
 
 const importarExternoSchema = z.object({
@@ -255,13 +263,21 @@ router.post(
 
           const codigoInterno = await generarCodigoInterno(tx, { sku: v.sku, tallaValor: v.talla || null, color: v.color });
           const variante = await tx.productoVariante.create({
-            data: { productoId: producto.id, tallaId, color: v.color || null, sku: v.sku, codigoInterno },
+            data: {
+              productoId: producto.id,
+              tallaId,
+              color: v.color || null,
+              sku: v.sku,
+              codigoInterno,
+              proveedorId: v.proveedorId ?? null,
+            },
           });
 
           await tx.existencia.create({
             data: {
               sucursalId: datos.sucursalId,
               varianteId: variante.id,
+              proveedorId: v.proveedorId ?? null,
               stockActual: v.stockInicial,
               stockMinimo: v.stockMinimo,
             },

@@ -277,14 +277,36 @@ router.put(
     }
 
     try {
-      const variante = await prisma.productoVariante.update({
-        where: { id: Number(req.params.varianteId) },
-        data: parsed.data,
-        include: {
-          talla: true,
-          proveedor: { select: { id: true, nombre: true } },
-          existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
-        },
+      const variante = await prisma.$transaction(async (tx) => {
+        const actualizada = await tx.productoVariante.update({
+          where: { id: Number(req.params.varianteId) },
+          data: parsed.data,
+        });
+
+        // Si se está fijando un proveedor, de paso se clasifican los
+        // renglones de Existencia de esta variante que todavía no tienen
+        // proveedor (proveedorId null) — nunca se sobreescribe uno que ya
+        // está clasificado con otro proveedor distinto. Esto es necesario
+        // porque Inventario, Ventas y los pedidos en línea leen el
+        // proveedor de CADA renglón de existencia (puede haber más de un
+        // proveedor surtiendo la misma talla), no el "por defecto" que se
+        // acaba de guardar arriba — sin esto, "asignar proveedor" desde
+        // Productos no se reflejaba ahí (aparecía "sin asignar").
+        if (parsed.data.proveedorId != null) {
+          await tx.existencia.updateMany({
+            where: { varianteId: actualizada.id, proveedorId: null },
+            data: { proveedorId: parsed.data.proveedorId },
+          });
+        }
+
+        return tx.productoVariante.findUnique({
+          where: { id: actualizada.id },
+          include: {
+            talla: true,
+            proveedor: { select: { id: true, nombre: true } },
+            existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
+          },
+        });
       });
       res.json(variante);
     } catch (err) {

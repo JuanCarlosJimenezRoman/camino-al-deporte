@@ -47,18 +47,39 @@ interface Categoria {
   id: number;
   nombre: string;
 }
+interface Proveedor {
+  id: number;
+  nombre: string;
+}
 
 interface VarianteExternaForm {
   talla: string;
   tipoTalla: string;
   color: string;
   sku: string;
+  proveedorId: string;
   stockInicial: string;
   stockMinimo: string;
 }
 
 function nuevaVarianteForm(skuBase: string): VarianteExternaForm {
-  return { talla: '', tipoTalla: 'MENS', color: '', sku: skuBase, stockInicial: '1', stockMinimo: '0' };
+  return { talla: '', tipoTalla: 'MENS', color: '', sku: skuBase, proveedorId: '', stockInicial: '1', stockMinimo: '0' };
+}
+
+// KicksDB a veces regresa más de un código de estilo en un solo campo "sku"
+// (ej. "IM1346-001 / IM1347-001") cuando agrupa dos releases muy parecidos
+// bajo el mismo producto. Si eso se guarda tal cual, el SKU de la variante
+// queda con el texto completo (rompe cualquier búsqueda/edición posterior
+// por SKU) — aquí se detecta y se usa solo el primer código como default,
+// dejando los demás para avisar en pantalla y que el usuario decida.
+function primerEstilo(skuCrudo: string | null | undefined): { sku: string; estilos: string[] } {
+  const crudo = (skuCrudo || '').trim();
+  if (!crudo) return { sku: '', estilos: [] };
+  const partes = crudo
+    .split('/')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return { sku: partes[0] || crudo, estilos: partes.length > 1 ? partes : [] };
 }
 
 const TIPOS_TALLA = [
@@ -89,6 +110,11 @@ export default function BuscarExternoPage() {
 
   const [sucursales, setSucursales] = useState<Sucursal[] | null>(null);
   const [categorias, setCategorias] = useState<Categoria[] | null>(null);
+  const [proveedores, setProveedores] = useState<Proveedor[] | null>(null);
+  // Si KicksDB regresó más de un código de estilo para el producto elegido
+  // (ver primerEstilo), se avisa aquí en vez de guardarlos todos pegados en
+  // un solo SKU.
+  const [avisoEstilos, setAvisoEstilos] = useState<string[] | null>(null);
 
   // Formulario de alta (se pre-llena al elegir un resultado)
   const [nombre, setNombre] = useState('');
@@ -116,6 +142,9 @@ export default function BuscarExternoPage() {
     }
     if (!categorias) {
       setCategorias(await api<Categoria[]>('/catalogos/categorias'));
+    }
+    if (!proveedores) {
+      setProveedores(await api<Proveedor[]>('/proveedores').catch(() => []));
     }
   }
 
@@ -166,7 +195,9 @@ export default function BuscarExternoPage() {
       setColorway(detalle.colorway || '');
       setGenero(detalle.genero || r.genero || '');
       setIncluirGaleria(true);
-      setVariantes([nuevaVarianteForm(detalle.sku || r.sku || '')]);
+      const { sku: skuLimpio, estilos } = primerEstilo(detalle.sku || r.sku);
+      setVariantes([nuevaVarianteForm(skuLimpio)]);
+      setAvisoEstilos(estilos.length > 1 ? estilos : null);
     } catch (err) {
       setErrorDetalle(
         err instanceof ApiError ? err.message : 'No se pudo traer el detalle de este producto desde KicksDB.'
@@ -181,7 +212,8 @@ export default function BuscarExternoPage() {
   }
 
   function agregarVariante() {
-    setVariantes((prev) => [...prev, nuevaVarianteForm(seleccionado?.sku || '')]);
+    const { sku: skuLimpio } = primerEstilo(seleccionado?.sku);
+    setVariantes((prev) => [...prev, nuevaVarianteForm(skuLimpio)]);
   }
 
   function quitarVariante(i: number) {
@@ -193,6 +225,7 @@ export default function BuscarExternoPage() {
     setResultado(null);
     setMensajeGuardar(null);
     setVariantes([]);
+    setAvisoEstilos(null);
   }
 
   async function guardar() {
@@ -242,6 +275,7 @@ export default function BuscarExternoPage() {
             tipoTalla: v.tipoTalla || undefined,
             color: v.color || undefined,
             sku: v.sku.trim(),
+            proveedorId: v.proveedorId ? Number(v.proveedorId) : undefined,
             stockInicial: Number(v.stockInicial) || 0,
             stockMinimo: Number(v.stockMinimo) || 0,
           })),
@@ -435,8 +469,26 @@ export default function BuscarExternoPage() {
           <label style={{ fontSize: 13, fontWeight: 600 }}>Tallas que tienes físicamente</label>
           <p style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2, marginBottom: 4 }}>
             El SKU viene pre-llenado con el de fábrica; en calzado puede repetirse entre varias tallas del mismo lote,
-            es normal. Si la talla no existe todavía en tu catálogo, se crea sola.
+            es normal. Si la talla no existe todavía en tu catálogo, se crea sola. Elige también el proveedor de cada
+            talla — si no lo asignas aquí, el pedido en línea que la venda mostrará "sin asignar".
           </p>
+          {avisoEstilos && (
+            <p
+              style={{
+                fontSize: 12,
+                color: '#a15c00',
+                background: '#fff4e5',
+                border: '1px solid #f0d9b5',
+                borderRadius: 6,
+                padding: '6px 8px',
+                marginBottom: 8,
+              }}
+            >
+              KicksDB regresó más de un código de estilo para este producto ({avisoEstilos.join(', ')}) — se usó "
+              {avisoEstilos[0]}" por defecto. Revisa si es el correcto o cámbialo a mano en el SKU de cada talla
+              (puede que en realidad sean dos productos distintos, no una sola talla).
+            </p>
+          )}
           {variantes.map((v, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input
@@ -468,6 +520,18 @@ export default function BuscarExternoPage() {
                 placeholder="SKU"
                 style={{ maxWidth: 140 }}
               />
+              <select
+                value={v.proveedorId}
+                onChange={(e) => actualizarVariante(i, { proveedorId: e.target.value })}
+                style={{ maxWidth: 160 }}
+              >
+                <option value="">Sin proveedor</option>
+                {proveedores?.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </select>
               <input
                 type="number"
                 min={0}
