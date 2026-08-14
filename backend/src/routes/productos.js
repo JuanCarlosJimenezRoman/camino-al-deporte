@@ -30,6 +30,10 @@ const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orde
 // Importante: se monta ANTES de "GET /:id" para que rutas como
 // /productos/plantilla-excel no se confundan con un id de producto.
 router.use('/', require('./productosImportExport'));
+// Igual que arriba: /productos/buscar-externo y /productos/importar-externo
+// (catálogo de sneakers vía KicksDB) también deben montarse antes de
+// "GET /:id" — ver docs/ARQUITECTURA.md.
+router.use('/', require('./catalogoExterno'));
 
 // GET /productos - todos los roles autenticados pueden consultar
 // ?marcaId= ?categoriaId= ?modeloId= filtran por esos campos directos del

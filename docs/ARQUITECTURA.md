@@ -597,6 +597,60 @@ frontend pueda elegir la foto que corresponde al color de cada renglón —
 importante porque desde que el stock se separó por proveedor cada fila ya es
 por variante concreta (talla+color), no por producto genérico.
 
+## Catálogo externo (KicksDB): dar de alta sneakers sin capturarlos a mano
+
+Hoy dar de alta un producto nuevo significa buscar en Google/StockX el
+nombre, marca, modelo, colorway, SKU e imagen, y transcribirlos a mano (al
+Excel o al formulario). [KicksDB](https://kicks.dev/) agrega datos de
+StockX, GOAT y otras fuentes en una sola API de búsqueda por nombre o SKU,
+así que se puede automatizar toda esa parte y dejar que la persona solo
+capture lo que de verdad es específico de "lo que tengo físicamente": talla,
+color, stock y precio.
+
+**Flujo pensado:**
+
+```
+Buscar "GT Cut 3" en KicksDB → elegir el resultado correcto →
+  se pre-llenan nombre/marca/modelo/colorway/imagen/SKU →
+  la persona solo captura talla + stock + precio → Guardar
+```
+
+**Backend (v1, sin frontend todavía):**
+
+- `GET /productos/buscar-externo?q=` — busca en KicksDB (fuente StockX) por
+  nombre o SKU. Requiere rol INVENTARIO/ADMIN_PRINCIPAL/DESARROLLO, igual
+  que el resto de altas de catálogo.
+- `GET /productos/buscar-externo/:idExterno` — ficha completa de un
+  resultado (colorway, descripción, galería, tallas si KicksDB las trae).
+- `POST /productos/importar-externo` — crea el producto (o le agrega una
+  talla nueva si el nombre+marca ya existe, igual que la importación por
+  Excel) a partir de los datos que se le manden: reutiliza los mismos
+  helpers "buscar o crear marca/categoría/modelo/talla" de
+  `utils/importarProductos.js`. La imagen se descarga de la URL externa y se
+  vuelve a subir a Cloudinary (no se depende de que la URL de StockX/GOAT
+  siga viva). Los campos que KicksDB trae pero que `Producto` no tiene como
+  columna propia (colorway, género, id/SKU de KicksDB) se guardan en
+  `atributosExtra` — el mismo mecanismo pensado para "campos personalizados"
+  en vez de forzar una migración por cada campo nuevo que traiga la API.
+
+Vive en `backend/src/routes/catalogoExterno.js` y
+`backend/src/utils/kicksdb.js`, montado dentro de `productos.js` (como
+`productosImportExport.js`). Requiere la variable de entorno
+`KICKSDB_API_KEY` (cuenta en kicks.dev, plan gratis = 1,000 requests/mes);
+mientras no esté configurada, `buscar-externo` responde 503 sin afectar el
+resto del sistema.
+
+*Pendiente para una siguiente iteración (no incluido en este primer corte):*
+el shape exacto de la respuesta de KicksDB para tallas/variantes se
+documentó a partir de su documentación pública, sin poder probarla en vivo
+con una API key real — antes de construir la pantalla en el frontend, vale
+la pena pegarle a `GET /productos/buscar-externo?q=...` y
+`GET /productos/buscar-externo/:idExterno` con Postman/curl usando una key
+real para confirmar los nombres de campo y ajustar
+`normalizarDetalle()` en `utils/kicksdb.js` si hace falta. También falta la
+pantalla de frontend ("Buscar sneaker" → "Agregar a mi inventario") que
+llame a estos tres endpoints.
+
 ## Por qué esta pila tecnológica
 
 - **PostgreSQL**: ya lo pediste explícitamente y ya tienes experiencia con él

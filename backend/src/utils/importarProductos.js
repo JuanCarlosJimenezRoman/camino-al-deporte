@@ -274,4 +274,16 @@ async function ejecutarImportacion(filasCrudas, { sucursalId, usuarioId }) {
   };
 }
 
-module.exports = { analizarImportacion, ejecutarImportacion };
+// buscarOCrear* y buscarProductoExistente también se exportan para
+// reutilizarse desde routes/catalogoExterno.js (alta de productos vía
+// KicksDB): es el mismo patrón "buscar o crear" catálogo que ya usaba la
+// importación por Excel, no tiene sentido duplicarlo.
+module.exports = {
+  analizarImportacion,
+  ejecutarImportacion,
+  buscarOCrearMarca,
+  buscarOCrearCategoria,
+  buscarOCrearModelo,
+  buscarOCrearTalla,
+  buscarProductoExistente,
+};
