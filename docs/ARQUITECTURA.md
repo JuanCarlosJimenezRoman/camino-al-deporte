@@ -640,16 +640,27 @@ Vive en `backend/src/routes/catalogoExterno.js` y
 mientras no esté configurada, `buscar-externo` responde 503 sin afectar el
 resto del sistema.
 
-*Pendiente para una siguiente iteración (no incluido en este primer corte):*
-el shape exacto de la respuesta de KicksDB para tallas/variantes se
-documentó a partir de su documentación pública, sin poder probarla en vivo
-con una API key real — antes de construir la pantalla en el frontend, vale
-la pena pegarle a `GET /productos/buscar-externo?q=...` y
-`GET /productos/buscar-externo/:idExterno` con Postman/curl usando una key
-real para confirmar los nombres de campo y ajustar
-`normalizarDetalle()` en `utils/kicksdb.js` si hace falta. También falta la
-pantalla de frontend ("Buscar sneaker" → "Agregar a mi inventario") que
-llame a estos tres endpoints.
+**Frontend:** `frontend/src/app/dashboard/productos/buscar-externo/page.tsx`
+(enlazado desde Productos → "Buscar en KicksDB", junto a "Importar /
+exportar Excel"). Flujo de dos pasos: 1) buscar y elegir un resultado
+(`GET /buscar-externo`), 2) formulario pre-llenado (nombre, marca, modelo,
+colorway, género, imagen) donde solo falta capturar categoría, precios,
+sucursal y las tallas/stock que se tienen físicamente — cada fila de talla
+es texto libre + un selector de tipo (MENS/WMNS/GS/PS/TD/ropa/general, ver
+sección de tallas segmentadas arriba), no un catálogo cerrado, porque lo
+normal es que la primera vez que se importa un modelo aparezcan tallas que
+tu catálogo de `tallas` todavía no tiene — el backend las crea solas
+(`POST /importar-externo`, igual que hace el importador de Excel).
+
+*Pendiente para una siguiente iteración:* el shape exacto de la respuesta
+de KicksDB para tallas/variantes (`GET /buscar-externo/:idExterno`) se
+documentó a partir de su documentación pública, sin poder probarse en vivo
+con una API key real durante el desarrollo — la búsqueda (paso 1) sí debería
+funcionar tal cual. Como el formulario de alta no depende de ese detalle
+(las tallas se capturan a mano), esto no bloquea usar la función; solo
+significa que, si `normalizarDetalle()` trae algún campo distinto al
+esperado (por ejemplo el nombre exacto del campo de colorway), toca
+ajustarlo en `utils/kicksdb.js` una vez que se pruebe con datos reales.
 
 ## Por qué esta pila tecnológica
 

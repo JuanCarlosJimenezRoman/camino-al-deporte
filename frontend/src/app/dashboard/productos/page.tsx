@@ -574,6 +574,9 @@ export default function ProductosPage() {
         <h1 style={{ fontSize: 22 }}>Productos</h1>
         {puedeCrear && (
           <div style={{ display: 'flex', gap: 8 }}>
+            <Link href="/dashboard/productos/buscar-externo" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
+              Buscar en KicksDB
+            </Link>
             <Link href="/dashboard/productos/importar" className="btn-secondary btn" style={{ textDecoration: 'none' }}>
               Importar / exportar Excel
             </Link>
