@@ -7,9 +7,10 @@ const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-// Quién administra los pedidos de la tienda en línea: los mismos roles que
-// ya manejan ventas/apartados en tienda física.
-const ROLES_PEDIDOS = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'];
+// Quién administra los pedidos de la tienda en línea. Por el momento VENTAS
+// no tiene acceso (se le puede volver a dar más adelante si hace falta) —
+// ver frontend/src/lib/auth.tsx, PERMISOS.pedidosOnline, mismo criterio.
+const ROLES_PEDIDOS = ['ADMIN_PRINCIPAL', 'DESARROLLO'];
 
 // Manda la galería completa (solo url/color/esPrincipal) en vez de una sola
 // foto: como una foto puede estar etiquetada para un color de variante

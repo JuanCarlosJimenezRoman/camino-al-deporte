@@ -97,7 +97,9 @@ export const PERMISOS = {
   cuentasTransferencia: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   apartados: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   historialVentas: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
-  pedidosOnline: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  // Por el momento VENTAS no tiene acceso a pedidos en línea (se le puede
+  // volver a dar más adelante si hace falta).
+  pedidosOnline: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   // Reseñas de clientes de la tienda en línea: mismos roles que administran
   // pedidos en línea, ya que son parte de esa misma operación.
   resenas: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],

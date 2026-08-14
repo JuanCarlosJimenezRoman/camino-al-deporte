@@ -129,7 +129,11 @@ function formVacioProducto(): EditProductoForm {
 
 export default function ProductosPage() {
   const { usuario } = useAuth();
-  const puedeCrear = usuario ? puedeVer('inventario', usuario.rol) : false;
+  // VENTAS puede entrar a Productos para consultar (nombre, SKU, existencia),
+  // pero por el momento no debe poder editar nada aquí: ni cambiar fotos, ni
+  // editar el producto, ni dar de alta tallas nuevas — mismo criterio que en
+  // Inventario, donde ese rol tampoco ve los botones de Entrada/Salida.
+  const puedeCrear = usuario ? puedeVer('inventario', usuario.rol) && usuario.rol !== 'VENTAS' : false;
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
