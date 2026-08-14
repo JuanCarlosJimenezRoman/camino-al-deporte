@@ -10,7 +10,12 @@ export default function Home() {
 
   useEffect(() => {
     if (cargando) return;
-    router.replace(usuario ? '/dashboard' : '/login');
+    // El dominio raíz lo puede visitar cualquier cliente (ej. si borra
+    // "/tienda" de la URL) — a un visitante sin sesión de empleado lo
+    // mandamos al catálogo público, no al login del personal. El login
+    // sigue existiendo en /login, solo que ya no es lo primero que ve
+    // cualquiera que llegue al dominio.
+    router.replace(usuario ? '/dashboard' : '/tienda');
   }, [cargando, usuario, router]);
 
   return null;
