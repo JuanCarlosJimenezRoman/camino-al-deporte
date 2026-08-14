@@ -85,6 +85,7 @@ export default function BuscarExternoPage() {
 
   const [seleccionado, setSeleccionado] = useState<DetalleSneaker | null>(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const [errorDetalle, setErrorDetalle] = useState<string | null>(null);
 
   const [sucursales, setSucursales] = useState<Sucursal[] | null>(null);
   const [categorias, setCategorias] = useState<Categoria[] | null>(null);
@@ -147,9 +148,15 @@ export default function BuscarExternoPage() {
     setCargandoDetalle(true);
     setResultado(null);
     setMensajeGuardar(null);
+    setErrorDetalle(null);
+    setSeleccionado(null);
     await cargarCatalogosSiHaceFalta();
     try {
-      const detalle = await api<DetalleSneaker>(`/productos/buscar-externo/${encodeURIComponent(r.idExterno)}`);
+      const detalle = await api<DetalleSneaker | null>(`/productos/buscar-externo/${encodeURIComponent(r.idExterno)}`);
+      if (!detalle) {
+        setErrorDetalle('KicksDB no regresó datos para este producto. Prueba con otro resultado o vuelve a buscar.');
+        return;
+      }
       setSeleccionado(detalle);
       setNombre(detalle.titulo || r.titulo || '');
       setMarca(detalle.marca || r.marca || '');
@@ -161,7 +168,7 @@ export default function BuscarExternoPage() {
       setIncluirGaleria(true);
       setVariantes([nuevaVarianteForm(detalle.sku || r.sku || '')]);
     } catch (err) {
-      setMensajeGuardar(
+      setErrorDetalle(
         err instanceof ApiError ? err.message : 'No se pudo traer el detalle de este producto desde KicksDB.'
       );
     } finally {
@@ -321,6 +328,12 @@ export default function BuscarExternoPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {errorDetalle && !seleccionado && (
+        <div className="card" style={{ marginBottom: 20, maxWidth: 640, borderColor: 'var(--color-danger)' }}>
+          <p style={{ fontSize: 13, color: 'var(--color-danger)' }}>{errorDetalle}</p>
         </div>
       )}
 

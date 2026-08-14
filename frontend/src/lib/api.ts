@@ -30,7 +30,11 @@ export async function api<T = unknown>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.error || `Error ${res.status}`, res.status);
+    const base = body.error || `Error ${res.status}`;
+    // Algunas rutas (ej. KicksDB en catalogoExterno.js) mandan un campo
+    // "detalle" aparte con el mensaje de la causa real (útil para pantallas
+    // de uso interno, sin tener que ir a los logs del servidor cada vez).
+    throw new ApiError(body.detalle ? `${base} — ${body.detalle}` : base, res.status);
   }
 
   if (res.status === 204) return undefined as T;

@@ -50,7 +50,16 @@ router.get(
       res.json({ data: resultados });
     } catch (err) {
       console.error('Error consultando KicksDB (buscar-externo):', err);
-      res.status(502).json({ error: 'No se pudo consultar KicksDB en este momento.' });
+      // Se manda err.message al frontend (no solo un mensaje genérico):
+      // esta es una pantalla de uso interno (roles de catálogo/inventario),
+      // así que vale más poder ver "KicksDB respondió 401: ..." en pantalla
+      // que tener que ir a los logs de Render cada vez. Ver comentario en
+      // utils/kicksdb.js sobre por qué el detalle de la respuesta de KicksDB
+      // no se pudo verificar en vivo durante el desarrollo.
+      res.status(err.status && err.status < 500 ? err.status : 502).json({
+        error: 'No se pudo consultar KicksDB en este momento.',
+        detalle: err.message,
+      });
     }
   })
 );
@@ -71,7 +80,10 @@ router.get(
       res.json(detalle);
     } catch (err) {
       console.error('Error consultando KicksDB (detalle):', err);
-      res.status(502).json({ error: 'No se pudo consultar el detalle en KicksDB en este momento.' });
+      res.status(err.status && err.status < 500 ? err.status : 502).json({
+        error: 'No se pudo consultar el detalle en KicksDB en este momento.',
+        detalle: err.message,
+      });
     }
   })
 );
