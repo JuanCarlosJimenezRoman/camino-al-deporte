@@ -338,8 +338,12 @@ export default function VentasPage() {
       } else {
         // Sin API configurada (o falló el envío): se ofrece el link manual
         // de siempre como respaldo, si el cliente dejó su teléfono — y el
-        // PDF por su cuenta, para verlo o mandarlo a mano.
-        setMensaje(baseMensaje);
+        // PDF por su cuenta, para verlo o mandarlo a mano. Si sí se capturó
+        // teléfono, mostramos también el motivo por el que no se mandó solo
+        // (viene de config/whatsapp.js) para poder diagnosticar sin tener
+        // que ir a revisar los logs del backend.
+        const motivo = creada.clienteTelefono && creada.ticketDigital?.error ? ` (${creada.ticketDigital.error})` : '';
+        setMensaje(`${baseMensaje}${motivo}`);
         setTicketLink(construirLinkTicket(creada));
       }
       limpiarSeleccion();
