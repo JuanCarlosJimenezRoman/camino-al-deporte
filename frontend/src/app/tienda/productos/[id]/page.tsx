@@ -183,7 +183,12 @@ export default function ProductoDetallePage() {
           <p className="mt-2 text-xl font-bold">${producto.precioVenta}</p>
 
           {producto.descripcion && (
-            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{producto.descripcion}</p>
+            // whitespace-pre-line: la descripción puede traer saltos de párrafo
+            // (\n\n) - por default el navegador los colapsa y todo se ve
+            // pegado en un solo bloque; esto hace que sí se respeten.
+            <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+              {producto.descripcion}
+            </p>
           )}
 
           <div className="mt-6">

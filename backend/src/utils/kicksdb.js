@@ -74,7 +74,50 @@ async function obtenerDetalleSneaker(identificador) {
   // Según el endpoint, el producto puntual puede regresar envuelto en
   // "data" o directo — se soportan ambos casos.
   const producto = data?.data && !Array.isArray(data.data) ? data.data : data?.data?.[0] ?? data;
-  return normalizarDetalle(producto);
+  const detalle = normalizarDetalle(producto);
+  if (detalle?.descripcion) {
+    detalle.descripcion = await traducirAlEspanol(detalle.descripcion);
+  }
+  return detalle;
+}
+
+// La descripción de KicksDB viene en inglés (copy de marketing de StockX).
+// Se traduce con el endpoint no oficial y gratuito de Google Translate (no
+// requiere cuenta ni API key propia — a diferencia de KICKSDB_API_KEY, no
+// hay nada que configurar). Si algún día deja de responder o Juan prefiere
+// una traducción con más calidad, se puede cambiar por la API oficial de
+// Google Cloud Translation o DeepL (esas sí piden cuenta y API key).
+//
+// Se traduce párrafo por párrafo (en vez del texto completo de una sola
+// vez) para conservar los saltos de línea entre párrafos, que el traductor
+// no siempre respeta si se le manda todo junto.
+async function traducirAlEspanol(texto) {
+  const parrafos = texto.split(/\n{2,}/);
+  const traducidos = await Promise.all(parrafos.map(traducirParrafo));
+  return traducidos.join('\n\n');
+}
+
+async function traducirParrafo(parrafo) {
+  if (!parrafo.trim()) return parrafo;
+  try {
+    const url = new URL('https://translate.googleapis.com/translate_a/single');
+    url.searchParams.set('client', 'gtx');
+    url.searchParams.set('sl', 'en');
+    url.searchParams.set('tl', 'es');
+    url.searchParams.set('dt', 't');
+    url.searchParams.set('q', parrafo);
+    const resp = await fetch(url);
+    if (!resp.ok) return parrafo;
+    const data = await resp.json();
+    const traducido = (data?.[0] || []).map((segmento) => segmento[0]).join('');
+    return traducido || parrafo;
+  } catch (err) {
+    // Si falla la traducción (endpoint caído, sin red saliente, etc.) se
+    // deja el párrafo en inglés en vez de tronar toda la importación — el
+    // campo sigue siendo editable a mano en el formulario.
+    console.error('No se pudo traducir un párrafo de la descripción:', err.message);
+    return parrafo;
+  }
 }
 
 // La descripción que trae KicksDB es copy de marketing en inglés con HTML
