@@ -82,15 +82,23 @@ async function obtenerDetalleSneaker(identificador) {
 }
 
 // La descripción de KicksDB viene en inglés (copy de marketing de StockX).
-// Se traduce con el endpoint no oficial y gratuito de Google Translate (no
-// requiere cuenta ni API key propia — a diferencia de KICKSDB_API_KEY, no
-// hay nada que configurar). Si algún día deja de responder o Juan prefiere
-// una traducción con más calidad, se puede cambiar por la API oficial de
-// Google Cloud Translation o DeepL (esas sí piden cuenta y API key).
+// Se prueban DOS traductores gratuitos, en orden, sin necesitar cuenta ni
+// API key propia (a diferencia de KICKSDB_API_KEY, no hay nada que
+// configurar):
+//   1. El endpoint no oficial de Google Translate — el más usado para este
+//      truco, pero algunos proveedores de hosting (Render incluido, a
+//      veces) caen en rangos de IP que Google bloquea para este endpoint
+//      "prestado" (no es la API oficial), así que puede fallar en silencio
+//      devolviendo un error o una respuesta vacía.
+//   2. MyMemory (api.mymemory.translated.net) — esa sí es una API pública
+//      pensada para consumirse por servidor, más confiable para este caso,
+//      aunque limita cada consulta a ~500 caracteres en el plan gratuito
+//      sin correo (por eso se parte en trozos más chicos que un párrafo).
+// Si ambos fallan, se deja el texto en inglés (el campo sigue siendo
+// editable a mano en el formulario) en vez de tronar la importación.
 //
 // Se traduce párrafo por párrafo (en vez del texto completo de una sola
-// vez) para conservar los saltos de línea entre párrafos, que el traductor
-// no siempre respeta si se le manda todo junto.
+// vez) para conservar los saltos de línea entre párrafos.
 async function traducirAlEspanol(texto) {
   const parrafos = texto.split(/\n{2,}/);
   const traducidos = await Promise.all(parrafos.map(traducirParrafo));
@@ -99,25 +107,82 @@ async function traducirAlEspanol(texto) {
 
 async function traducirParrafo(parrafo) {
   if (!parrafo.trim()) return parrafo;
+
   try {
-    const url = new URL('https://translate.googleapis.com/translate_a/single');
-    url.searchParams.set('client', 'gtx');
-    url.searchParams.set('sl', 'en');
-    url.searchParams.set('tl', 'es');
-    url.searchParams.set('dt', 't');
-    url.searchParams.set('q', parrafo);
-    const resp = await fetch(url);
-    if (!resp.ok) return parrafo;
-    const data = await resp.json();
-    const traducido = (data?.[0] || []).map((segmento) => segmento[0]).join('');
-    return traducido || parrafo;
+    return await traducirConGoogle(parrafo);
   } catch (err) {
-    // Si falla la traducción (endpoint caído, sin red saliente, etc.) se
-    // deja el párrafo en inglés en vez de tronar toda la importación — el
-    // campo sigue siendo editable a mano en el formulario.
-    console.error('No se pudo traducir un párrafo de la descripción:', err.message);
-    return parrafo;
+    console.error('Traducción con Google Translate falló, se intenta con MyMemory:', err.message);
   }
+
+  try {
+    return await traducirConMyMemory(parrafo);
+  } catch (err) {
+    console.error('Traducción con MyMemory también falló, se deja el texto en inglés:', err.message);
+  }
+
+  return parrafo;
+}
+
+async function traducirConGoogle(texto) {
+  const url = new URL('https://translate.googleapis.com/translate_a/single');
+  url.searchParams.set('client', 'gtx');
+  url.searchParams.set('sl', 'en');
+  url.searchParams.set('tl', 'es');
+  url.searchParams.set('dt', 't');
+  url.searchParams.set('q', texto);
+  // Sin un User-Agent "de navegador" este endpoint no oficial a veces
+  // responde 403 — Google lo sirve para el sitio translate.google.com, no
+  // para llamadas de servidor a servidor.
+  const resp = await fetch(url, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    },
+  });
+  if (!resp.ok) throw new Error(`Google Translate respondió ${resp.status}`);
+  const data = await resp.json();
+  const traducido = (data?.[0] || []).map((segmento) => segmento[0]).join('');
+  if (!traducido.trim()) throw new Error('Google Translate regresó una respuesta vacía');
+  return traducido;
+}
+
+// MyMemory sí está pensada para uso por API, pero limita cada consulta a
+// ~500 caracteres en el plan gratuito sin correo — se parte el párrafo en
+// trozos por oración (no a la mitad de una palabra) antes de mandarlo.
+async function traducirConMyMemory(texto) {
+  const trozos = partirEnTrozos(texto, 480);
+  const traducidos = [];
+  for (const trozo of trozos) {
+    const url = new URL('https://api.mymemory.translated.net/get');
+    url.searchParams.set('q', trozo);
+    url.searchParams.set('langpair', 'en|es');
+    // eslint-disable-next-line no-await-in-loop
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`MyMemory respondió ${resp.status}`);
+    // eslint-disable-next-line no-await-in-loop
+    const data = await resp.json();
+    const traducido = data?.responseData?.translatedText;
+    if (!traducido) throw new Error('MyMemory regresó una respuesta vacía');
+    traducidos.push(traducido);
+  }
+  return traducidos.join(' ');
+}
+
+function partirEnTrozos(texto, maxLargo) {
+  const oraciones = texto.split(/(?<=[.!?])\s+/);
+  const trozos = [];
+  let actual = '';
+  for (const oracion of oraciones) {
+    const conOracion = actual ? `${actual} ${oracion}` : oracion;
+    if (conOracion.length > maxLargo && actual) {
+      trozos.push(actual.trim());
+      actual = oracion;
+    } else {
+      actual = conOracion;
+    }
+  }
+  if (actual.trim()) trozos.push(actual.trim());
+  return trozos;
 }
 
 // La descripción que trae KicksDB es copy de marketing en inglés con HTML
