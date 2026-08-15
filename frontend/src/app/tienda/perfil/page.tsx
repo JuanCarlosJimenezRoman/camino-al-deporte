@@ -2,7 +2,7 @@
 
 import { useEffect, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthCliente } from '@/lib/authCliente';
+import { useAuthCliente, Cliente } from '@/lib/authCliente';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { claseBotonPrimario } from '@/components/tienda/ui';
 
@@ -46,7 +46,7 @@ export default function PerfilPage() {
     setMensajeDatos(null);
     setGuardandoDatos(true);
     try {
-      const actualizado = await apiTienda<typeof cliente>('/tienda/auth/me', {
+      const actualizado = await apiTienda<Cliente>('/tienda/auth/me', {
         method: 'PUT',
         body: JSON.stringify({ nombre, telefono, email }),
       });
