@@ -272,26 +272,29 @@ const ventaSchema = z
     clienteTelefono: z.string().optional(),
     metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']).default('EFECTIVO'),
     cuentaTransferenciaId: z.number().int().optional(),
-    items: z.array(ventaItemSchema).min(1),
-    // Descuento libre (% o $) que el vendedor captura al momento de la
-    // venta — sin código, a diferencia de los cupones de la tienda en línea.
-    // El monto real ($) se calcula en el servidor a partir de estos dos
-    // campos, nunca se confía en un total ya descontado que mande el
-    // cliente (ver más abajo).
+    // Efectivo que el cliente entregó — solo tiene sentido con EFECTIVO, se
+    // usa nada más para calcular y guardar el cambio dado (se muestra en el
+    // ticket digital).
+    efectivoRecibido: z.number().nonnegative().optional(),
+    // Descuento libre que el vendedor puede capturar al cobrar (opcional).
+    // descuentoValor es el % o el monto tal cual lo tecleó el cajero, según
+    // descuentoTipo — el monto real en pesos (descuentoMonto) lo calcula y
+    // valida el servidor, nunca se confía en lo que mande el cliente.
     descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).optional(),
-    descuentoValor: z.number().positive().optional(),
+    descuentoValor: z.number().nonnegative().optional(),
     descuentoMotivo: z.string().optional(),
+    items: z.array(ventaItemSchema).min(1),
   })
   .refine((d) => d.metodoPago !== 'TRANSFERENCIA' || !!d.cuentaTransferenciaId, {
     message: 'cuentaTransferenciaId es requerido cuando el método de pago es transferencia.',
     path: ['cuentaTransferenciaId'],
   })
-  .refine((d) => !d.descuentoTipo || d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
-    message: 'Un descuento por porcentaje no puede ser mayor a 100.',
+  .refine((d) => !d.descuentoTipo || (d.descuentoValor !== undefined && d.descuentoValor > 0), {
+    message: 'descuentoValor es requerido y debe ser mayor a 0 cuando se manda descuentoTipo.',
     path: ['descuentoValor'],
   })
-  .refine((d) => !d.descuentoTipo || d.descuentoValor != null, {
-    message: 'Falta el valor del descuento.',
+  .refine((d) => d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
+    message: 'El descuento por porcentaje no puede ser mayor a 100.',
     path: ['descuentoValor'],
   });
 
@@ -324,8 +327,17 @@ router.post(
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
-    const { cliente, clienteTelefono, metodoPago, cuentaTransferenciaId, items, descuentoTipo, descuentoValor, descuentoMotivo } =
-      parsed.data;
+    const {
+      cliente,
+      clienteTelefono,
+      metodoPago,
+      cuentaTransferenciaId,
+      efectivoRecibido,
+      descuentoTipo,
+      descuentoValor,
+      descuentoMotivo,
+      items,
+    } = parsed.data;
 
     let sucursalId;
     try {
@@ -365,7 +377,7 @@ router.post(
       const itemsParaTicket = [];
 
       const venta = await prisma.$transaction(async (tx) => {
-        let total = 0;
+        let subtotal = 0;
         const itemsData = [];
 
         for (const item of items) {
@@ -378,8 +390,8 @@ router.post(
             throw new Error(`STOCK_INSUFICIENTE:${existencia.variante.sku}`);
           }
 
-          const subtotal = item.cantidad * item.precioUnitario;
-          total += subtotal;
+          const subtotalItem = item.cantidad * item.precioUnitario;
+          subtotal += subtotalItem;
 
           await tx.existencia.update({
             where: { id: existencia.id },
@@ -403,24 +415,28 @@ router.post(
             descripcion: `${existencia.variante.producto.nombre}${detalle ? ` (${detalle})` : ''}`,
             cantidad: item.cantidad,
             precioUnitario: item.precioUnitario,
-            subtotal,
+            subtotal: subtotalItem,
           });
 
-          itemsData.push({ ...item, subtotal });
+          itemsData.push({ ...item, subtotal: subtotalItem });
         }
 
-        // Descuento libre del vendedor: el monto real en pesos siempre se
-        // calcula aquí en el servidor a partir del subtotal ya sumado
-        // arriba — nunca se confía en un total con descuento que mande el
-        // cliente, para que nadie pueda manipular el precio final desde el
-        // navegador. Nunca puede exceder el subtotal de los artículos.
+        // Descuento libre que capturó el cajero (opcional): el monto real
+        // en pesos SIEMPRE se calcula aquí a partir del subtotal ya
+        // validado, nunca se confía en un "descuentoMonto" mandado por el
+        // cliente — y nunca puede dejar el total en negativo.
         let descuentoMonto = 0;
-        if (descuentoTipo && descuentoValor != null) {
-          descuentoMonto = descuentoTipo === 'PORCENTAJE' ? total * (descuentoValor / 100) : descuentoValor;
-          descuentoMonto = Math.max(0, Math.min(descuentoMonto, total));
-          descuentoMonto = Math.round(descuentoMonto * 100) / 100;
+        if (descuentoTipo === 'PORCENTAJE') {
+          descuentoMonto = subtotal * ((descuentoValor ?? 0) / 100);
+        } else if (descuentoTipo === 'MONTO') {
+          descuentoMonto = descuentoValor ?? 0;
         }
-        const totalConDescuento = total - descuentoMonto;
+        descuentoMonto = Math.min(descuentoMonto, subtotal);
+        const total = subtotal - descuentoMonto;
+
+        if (metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined && efectivoRecibido < total) {
+          throw new Error(`EFECTIVO_INSUFICIENTE:${(total - efectivoRecibido).toFixed(2)}`);
+        }
 
         const folio = `V-${Date.now()}`;
 
@@ -435,11 +451,12 @@ router.post(
             cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? cuentaTransferenciaId : null,
             comprobanteUrl,
             comprobantePublicId,
-            total: totalConDescuento,
-            descuentoTipo: descuentoTipo || null,
-            descuentoValor: descuentoValor ?? null,
+            total,
+            descuentoTipo: descuentoTipo ?? null,
+            descuentoValor: descuentoTipo ? descuentoValor : null,
             descuentoMonto,
-            descuentoMotivo: descuentoMotivo || null,
+            descuentoMotivo: descuentoTipo ? descuentoMotivo || null : null,
+            efectivoRecibido: metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined ? efectivoRecibido : null,
             items: { create: itemsData },
           },
           include: {
@@ -459,6 +476,9 @@ router.post(
             },
             cuentaTransferencia: { select: { nombre: true } },
             sucursal: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
+            // Vendedor que registró la venta, para mostrarlo en el ticket
+            // digital.
+            usuario: { select: { nombre: true } },
           },
         });
       });
@@ -523,6 +543,9 @@ router.post(
       }
       if (err.message.startsWith('SIN_EXISTENCIA')) {
         return res.status(409).json({ error: 'Esa variante no tiene existencia registrada en esta sucursal.' });
+      }
+      if (err.message.startsWith('EFECTIVO_INSUFICIENTE')) {
+        return res.status(400).json({ error: `El efectivo recibido no alcanza. Faltan $${err.message.split(':')[1]}.` });
       }
       throw err;
     }

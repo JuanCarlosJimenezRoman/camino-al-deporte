@@ -37,12 +37,6 @@ interface Venta {
   // Teléfono capturado en el punto de venta para mandar el ticket digital.
   clienteTelefono: string | null;
   total: string;
-  // Descuento libre que el vendedor capturó al registrar la venta (ver
-  // Venta.descuentoTipo/Valor/Monto). descuentoMonto es lo que ya se restó
-  // del total; "0" cuando no hubo descuento.
-  descuentoTipo?: 'PORCENTAJE' | 'MONTO' | null;
-  descuentoValor?: string | null;
-  descuentoMonto?: string;
   estado: string;
   metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
   comprobanteUrl: string | null;
@@ -50,6 +44,14 @@ interface Venta {
   createdAt: string;
   usuario: { nombre: string };
   sucursal: { nombre: string; telefono?: string | null };
+  // Descuento libre que el cajero puede aplicar al cobrar (opcional).
+  descuentoTipo: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoValor: string | null;
+  descuentoMonto: string;
+  descuentoMotivo: string | null;
+  // Efectivo entregado por el cliente, solo con metodoPago = EFECTIVO — se
+  // usa para mostrar el cambio dado en el ticket.
+  efectivoRecibido: string | null;
   // Número que se muestra como "contáctanos" dentro del ticket: el WhatsApp
   // propio de la sucursal si lo tiene, si no el general de la tienda. Ya
   // viene resuelto desde el backend (ver GET/POST /ventas).
@@ -123,18 +125,29 @@ function construirTicketTexto(venta: Venta): string {
     })
     .join('\n');
   const etiquetaPago = METODOS_PAGO.find((m) => m.valor === venta.metodoPago)?.etiqueta || venta.metodoPago;
+  const descuentoMonto = Number(venta.descuentoMonto || 0);
+  const cambio =
+    venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null
+      ? Number(venta.efectivoRecibido) - Number(venta.total)
+      : null;
 
   return [
     'Ticket de compra — Camino al Deporte',
     `Folio: ${venta.folio}`,
     `Fecha: ${new Date(venta.createdAt).toLocaleString('es-MX')}`,
     venta.sucursal?.nombre ? `Sucursal: ${venta.sucursal.nombre}` : '',
+    venta.usuario?.nombre ? `Vendedor: ${venta.usuario.nombre}` : '',
     '',
     'Artículos:',
     articulos,
     '',
+    descuentoMonto > 0
+      ? `Descuento${venta.descuentoTipo === 'PORCENTAJE' ? ` (${venta.descuentoValor}%)` : ''}: -$${descuentoMonto.toFixed(2)}`
+      : '',
     `Total: $${venta.total}`,
     `Método de pago: ${etiquetaPago}`,
+    venta.efectivoRecibido != null ? `Efectivo recibido: $${Number(venta.efectivoRecibido).toFixed(2)}` : '',
+    cambio !== null ? `Cambio: $${cambio.toFixed(2)}` : '',
     '',
     '¡Gracias por tu compra!',
     venta.whatsappContacto ? `Dudas o cambios, contáctanos: ${venta.whatsappContacto}` : '',
@@ -185,10 +198,10 @@ export default function VentasPage() {
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
   const [comprobante, setComprobante] = useState<File | null>(null);
 
-  // Descuento libre (% o $) que el vendedor puede capturar al momento de la
-  // venta — sin código, a diferencia de los cupones de la tienda en línea
-  // (ver /dashboard/cupones). El monto real se recalcula y valida en el
-  // servidor; aquí solo se muestra una vista previa.
+  // Descuento libre (opcional): oculto por default, se abre con
+  // "¿Aplicar descuento?" para no estorbar en la venta normal (sin
+  // descuento). El monto real en pesos lo calcula y valida el servidor, acá
+  // solo se manda el % o el monto que teclea el cajero.
   const [aplicarDescuento, setAplicarDescuento] = useState(false);
   const [descuentoTipo, setDescuentoTipo] = useState<'PORCENTAJE' | 'MONTO'>('PORCENTAJE');
   const [descuentoValor, setDescuentoValor] = useState('');
@@ -290,22 +303,19 @@ export default function VentasPage() {
   const esLocal = seleccion ? seleccion.sucursalId === Number(sucursalId) : true;
 
   const precioUnitario = seleccion ? Number(seleccion.variante.producto.precioVenta) : 0;
-  const totalVenta = precioUnitario * cantidad;
-  // Vista previa del descuento — el monto real siempre se recalcula y
-  // valida en el servidor (ver POST /ventas), esto es solo para que el
-  // cajero vea de una vez cuánto le va a cobrar al cliente.
+  const subtotalVenta = precioUnitario * cantidad;
+  // Solo es una vista previa para el cajero — el monto real en pesos
+  // siempre lo recalcula y valida el servidor (ver POST /ventas).
+  const descuentoValorNum = Number(descuentoValor) || 0;
   const descuentoMontoPreview =
-    aplicarDescuento && descuentoValor
-      ? Math.max(
-          0,
-          Math.min(
-            descuentoTipo === 'PORCENTAJE' ? totalVenta * (Number(descuentoValor) / 100) : Number(descuentoValor),
-            totalVenta
-          )
+    aplicarDescuento && descuentoValorNum > 0
+      ? Math.min(
+          descuentoTipo === 'PORCENTAJE' ? subtotalVenta * (descuentoValorNum / 100) : descuentoValorNum,
+          subtotalVenta
         )
       : 0;
-  const totalAPagar = totalVenta - descuentoMontoPreview;
-  const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - totalAPagar : null;
+  const totalVenta = subtotalVenta - descuentoMontoPreview;
+  const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - totalVenta : null;
 
   async function registrarVenta() {
     if (!seleccion || !sucursalId) return;
@@ -327,6 +337,14 @@ export default function VentasPage() {
         return;
       }
     }
+    if (aplicarDescuento && descuentoValorNum <= 0) {
+      setMensaje('Captura el % o el monto del descuento, o desactiva "Aplicar descuento".');
+      return;
+    }
+    if (aplicarDescuento && descuentoTipo === 'PORCENTAJE' && descuentoValorNum > 100) {
+      setMensaje('El descuento por porcentaje no puede ser mayor a 100%.');
+      return;
+    }
 
     setGuardando(true);
     setTicketLink(null);
@@ -338,6 +356,10 @@ export default function VentasPage() {
         clienteTelefono: clienteTelefono.trim() || undefined,
         metodoPago,
         cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? Number(cuentaTransferenciaId) : undefined,
+        efectivoRecibido: metodoPago === 'EFECTIVO' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+        descuentoTipo: aplicarDescuento && descuentoValorNum > 0 ? descuentoTipo : undefined,
+        descuentoValor: aplicarDescuento && descuentoValorNum > 0 ? descuentoValorNum : undefined,
+        descuentoMotivo: aplicarDescuento && descuentoMotivo.trim() ? descuentoMotivo.trim() : undefined,
         items: [
           {
             varianteId: seleccion.variante.id,
@@ -348,9 +370,6 @@ export default function VentasPage() {
             proveedorId: seleccion.proveedorId,
           },
         ],
-        ...(aplicarDescuento && descuentoValor
-          ? { descuentoTipo, descuentoValor: Number(descuentoValor), descuentoMotivo: descuentoMotivo || undefined }
-          : {}),
       };
 
       const formData = new FormData();
@@ -585,25 +604,35 @@ export default function VentasPage() {
               <input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
             </div>
 
-            {seleccion && esLocal && (
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={aplicarDescuento}
-                    onChange={(e) => setAplicarDescuento(e.target.checked)}
-                  />
-                  Aplicar descuento
-                </label>
-                {aplicarDescuento && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'flex-end' }}>
+            {seleccion && (
+              <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 4 }}>
+                {descuentoMontoPreview > 0 ? (
+                  <>
+                    Subtotal: ${subtotalVenta.toFixed(2)} — Descuento: -${descuentoMontoPreview.toFixed(2)}
+                    <br />
+                    Total: ${totalVenta.toFixed(2)}
+                  </>
+                ) : (
+                  <>Total: ${totalVenta.toFixed(2)}</>
+                )}
+              </p>
+            )}
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
+                Aplicar descuento
+              </label>
+              {aplicarDescuento && (
+                <div style={{ marginTop: 6, paddingLeft: 4 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
                     <select
                       value={descuentoTipo}
-                      onChange={(e) => setDescuentoTipo(e.target.value as 'PORCENTAJE' | 'MONTO')}
-                      style={{ maxWidth: 130 }}
+                      onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}
+                      style={{ maxWidth: 80 }}
                     >
-                      <option value="PORCENTAJE">Porcentaje (%)</option>
-                      <option value="MONTO">Monto fijo ($)</option>
+                      <option value="PORCENTAJE">%</option>
+                      <option value="MONTO">$</option>
                     </select>
                     <input
                       type="number"
@@ -611,29 +640,17 @@ export default function VentasPage() {
                       step="0.01"
                       value={descuentoValor}
                       onChange={(e) => setDescuentoValor(e.target.value)}
-                      placeholder={descuentoTipo === 'PORCENTAJE' ? '%' : '$'}
-                      style={{ maxWidth: 100 }}
-                    />
-                    <input
-                      value={descuentoMotivo}
-                      onChange={(e) => setDescuentoMotivo(e.target.value)}
-                      placeholder="Motivo (opcional)"
+                      placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
                     />
                   </div>
-                )}
-              </div>
-            )}
-
-            {seleccion && (
-              <div style={{ marginTop: -4, marginBottom: 10 }}>
-                {descuentoMontoPreview > 0 && (
-                  <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>
-                    Subtotal: ${totalVenta.toFixed(2)} — Descuento: -${descuentoMontoPreview.toFixed(2)}
-                  </p>
-                )}
-                <p style={{ fontSize: 13, fontWeight: 600 }}>Total: ${totalAPagar.toFixed(2)}</p>
-              </div>
-            )}
+                  <input
+                    value={descuentoMotivo}
+                    onChange={(e) => setDescuentoMotivo(e.target.value)}
+                    placeholder="Motivo del descuento (opcional)"
+                  />
+                </div>
+              )}
+            </div>
 
             {esLocal ? (
               <>
@@ -855,14 +872,7 @@ export default function VentasPage() {
                 </td>
                 <td>{v.sucursal?.nombre}</td>
                 <td>{v.cliente || '—'}</td>
-                <td>
-                  ${v.total}
-                  {v.descuentoMonto && Number(v.descuentoMonto) > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
-                      descuento -${v.descuentoMonto}
-                    </div>
-                  )}
-                </td>
+                <td>${v.total}</td>
                 <td>
                   {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
                   {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}

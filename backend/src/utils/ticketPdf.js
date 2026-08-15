@@ -29,7 +29,7 @@ function moneda(valor) {
 }
 
 /**
- * @param {{folio: string, createdAt: Date|string, total: number|string, metodoPago: string, sucursal?: {nombre?: string}}} venta
+ * @param {{folio: string, createdAt: Date|string, total: number|string, metodoPago: string, sucursal?: {nombre?: string}, usuario?: {nombre?: string}, descuentoTipo?: string|null, descuentoValor?: number|string|null, descuentoMonto?: number|string, descuentoMotivo?: string|null, efectivoRecibido?: number|string|null}} venta
  * @param {Array<{descripcion: string, cantidad: number, precioUnitario: number|string, subtotal: number|string}>} items
  * @param {string|null} [whatsappContacto] - número a mostrar como "dudas o cambios"
  * @returns {Promise<Buffer>}
@@ -89,6 +89,7 @@ async function generarTicketPdf(venta, items, whatsappContacto) {
     dato('Folio:', venta.folio);
     dato('Fecha:', new Date(venta.createdAt).toLocaleString('es-MX'));
     if (venta.sucursal?.nombre) dato('Sucursal:', venta.sucursal.nombre);
+    if (venta.usuario?.nombre) dato('Vendedor:', venta.usuario.nombre);
     lineaSeparadora();
 
     // Tabla de artículos
@@ -124,23 +125,54 @@ async function generarTicketPdf(venta, items, whatsappContacto) {
 
     lineaSeparadora();
 
-    // Total y método de pago
-    doc.font('Helvetica-Bold').fontSize(13);
-    const yTotal = doc.y;
-    doc.text('TOTAL', left, yTotal);
-    doc.text(`$${moneda(venta.total)}`, right - COL_IMPORTE, yTotal, { width: COL_IMPORTE, align: 'right' });
-    doc.y = yTotal + doc.heightOfString('TOTAL', { fontSize: 13 }) + 6;
-    doc.x = left;
+    // Fila de "etiqueta: valor" con las mismas dos columnas que el total —
+    // se usa para Subtotal, Descuento, Método de pago, Efectivo recibido y
+    // Cambio, para no repetir el mismo cálculo de posiciones cinco veces.
+    const filaMonto = (etiqueta, valor, { boldEtiqueta = false, boldValor = false, fontSize = 9 } = {}) => {
+      doc.fontSize(fontSize);
+      const yFila = doc.y;
+      doc.font(boldEtiqueta ? 'Helvetica-Bold' : 'Helvetica').text(etiqueta, left, yFila);
+      doc.font(boldValor ? 'Helvetica-Bold' : 'Helvetica').text(valor, right - COL_IMPORTE, yFila, {
+        width: COL_IMPORTE,
+        align: 'right',
+      });
+      doc.y = yFila + doc.heightOfString(etiqueta, { fontSize }) + 4;
+      doc.x = left;
+    };
 
-    doc.font('Helvetica-Bold').fontSize(9);
-    const yPago = doc.y;
-    doc.text('Método de pago:', left, yPago);
-    doc.font('Helvetica').text(ETIQUETA_METODO_PAGO[venta.metodoPago] || venta.metodoPago, right - COL_IMPORTE, yPago, {
-      width: COL_IMPORTE,
-      align: 'right',
-    });
-    doc.y = yPago + doc.heightOfString('Método de pago:', { fontSize: 9 }) + 4;
-    doc.x = left;
+    // Subtotal y descuento (solo si el cajero aplicó uno) — el subtotal se
+    // recalcula sumando los renglones, ya que venta.total viene con el
+    // descuento ya aplicado.
+    const descuentoMonto = Number(venta.descuentoMonto || 0);
+    if (descuentoMonto > 0) {
+      const subtotalItems = items.reduce((acc, it) => acc + Number(it.subtotal), 0);
+      filaMonto('Subtotal', `$${moneda(subtotalItems)}`);
+      const etiquetaDescuento =
+        venta.descuentoTipo === 'PORCENTAJE' ? `Descuento (${Number(venta.descuentoValor)}%)` : 'Descuento';
+      filaMonto(etiquetaDescuento, `-$${moneda(descuentoMonto)}`);
+      if (venta.descuentoMotivo) {
+        doc
+          .font('Helvetica')
+          .fontSize(8)
+          .fillColor('#555555')
+          .text(`Motivo: ${venta.descuentoMotivo}`, left, doc.y, { width: contentWidth });
+        doc.fillColor('#000000');
+        doc.moveDown(0.2);
+        doc.x = left;
+      }
+    }
+
+    // Total
+    filaMonto('TOTAL', `$${moneda(venta.total)}`, { boldEtiqueta: true, boldValor: true, fontSize: 13 });
+
+    // Método de pago y, si fue en efectivo, cuánto se recibió y el cambio
+    // que se dio.
+    filaMonto('Método de pago:', ETIQUETA_METODO_PAGO[venta.metodoPago] || venta.metodoPago);
+    if (venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null) {
+      const cambio = Number(venta.efectivoRecibido) - Number(venta.total);
+      filaMonto('Efectivo recibido:', `$${moneda(venta.efectivoRecibido)}`);
+      filaMonto('Cambio:', `$${moneda(cambio)}`, { boldValor: true });
+    }
 
     lineaSeparadora();
 

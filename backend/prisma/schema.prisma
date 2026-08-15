@@ -603,6 +603,11 @@ model Venta {
   descuentoMonto  Decimal        @default(0) @map("descuento_monto") @db.Decimal(10, 2)
   descuentoMotivo String?        @map("descuento_motivo")
 
+  // Efectivo que el cliente entregó, solo cuando metodoPago = EFECTIVO — se
+  // guarda para poder mostrar "cambio dado" en el ticket digital (el cambio
+  // se calcula como efectivoRecibido - total, no se guarda aparte).
+  efectivoRecibido Decimal? @map("efectivo_recibido") @db.Decimal(10, 2)
+
   metodoPago  MetodoPago  @default(EFECTIVO) @map("metodo_pago")
   // Solo aplica cuando metodoPago = TRANSFERENCIA
   cuentaTransferenciaId Int? @map("cuenta_transferencia_id")
