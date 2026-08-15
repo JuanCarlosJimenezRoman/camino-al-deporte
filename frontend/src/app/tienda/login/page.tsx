@@ -60,7 +60,12 @@ function TiendaLoginForm() {
         </div>
 
         <div>
-          <label className={labelClase}>Contraseña</label>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className={labelClase}>Contraseña</label>
+            <Link href="/tienda/recuperar" className="text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
           <input
             type="password"
             required

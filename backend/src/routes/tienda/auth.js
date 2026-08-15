@@ -1,10 +1,12 @@
 const express = require('express');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const prisma = require('../../db');
 const { requireClienteAuth } = require('../../middleware/authCliente');
 const { asyncHandler } = require('../../utils/asyncHandler');
+const { enviarCodigoRecuperacion } = require('../../config/whatsapp');
 
 const router = express.Router();
 
@@ -157,6 +159,101 @@ router.put('/password', requireClienteAuth, asyncHandler(async (req, res) => {
 
   const passwordHash = await bcrypt.hash(parsed.data.passwordNueva, 10);
   await prisma.cliente.update({ where: { id: cliente.id }, data: { passwordHash } });
+  res.json({ ok: true });
+}));
+
+const TOKEN_VIGENCIA_MIN = 30;
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+const olvidePasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+// POST /tienda/auth/olvide-password
+//
+// Genera un token de un solo uso y lo manda por WhatsApp (link a
+// /tienda/restablecer?token=...) al teléfono registrado del cliente. La
+// respuesta es siempre la misma exista o no la cuenta, para no revelar qué
+// correos están registrados (mismo criterio que el resto del sistema).
+router.post('/olvide-password', asyncHandler(async (req, res) => {
+  const parsed = olvidePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Ingresa un correo válido.' });
+  }
+
+  const mensajeGenerico = {
+    ok: true,
+    mensaje: 'Si el correo está registrado, te enviamos un mensaje de WhatsApp con instrucciones para restablecer tu contraseña.',
+  };
+
+  const cliente = await prisma.cliente.findFirst({ where: { email: parsed.data.email } });
+  if (!cliente || !cliente.passwordHash || !cliente.activo) {
+    return res.json(mensajeGenerico);
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  await prisma.clienteResetToken.create({
+    data: {
+      clienteId: cliente.id,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + TOKEN_VIGENCIA_MIN * 60 * 1000),
+    },
+  });
+
+  // Best-effort: si el envío por WhatsApp falla o no está configurado, el
+  // token ya quedó creado y la respuesta al cliente no cambia (no delatamos
+  // si la cuenta existe ni si el envío falló). Ver config/whatsapp.js.
+  try {
+    const config = await prisma.configuracionTienda.findFirst();
+    const enlace = `${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/tienda/restablecer?token=${token}`;
+    await enviarCodigoRecuperacion({
+      phoneNumberId: config?.whatsappPhoneNumberId || null,
+      telefonoCliente: cliente.telefono,
+      enlace,
+    });
+  } catch (err) {
+    console.error('Error enviando WhatsApp de recuperación de contraseña:', err);
+  }
+
+  res.json(mensajeGenerico);
+}));
+
+const restablecerSchema = z.object({
+  token: z.string().min(1),
+  passwordNueva: z.string().min(6, 'La nueva contraseña debe tener al menos 6 caracteres.'),
+});
+
+// POST /tienda/auth/restablecer
+router.post('/restablecer', asyncHandler(async (req, res) => {
+  const parsed = restablecerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const { token, passwordNueva } = parsed.data;
+
+  const registro = await prisma.clienteResetToken.findFirst({
+    where: { tokenHash: hashToken(token), usedAt: null, expiresAt: { gt: new Date() } },
+  });
+  if (!registro) {
+    return res.status(400).json({ error: 'El enlace ya no es válido. Solicita uno nuevo.' });
+  }
+
+  const passwordHash = await bcrypt.hash(passwordNueva, 10);
+  await prisma.$transaction([
+    prisma.cliente.update({ where: { id: registro.clienteId }, data: { passwordHash } }),
+    prisma.clienteResetToken.update({ where: { id: registro.id }, data: { usedAt: new Date() } }),
+    // Cualquier otro enlace pendiente para este cliente también queda
+    // inválido: si alguien más pidió otro token después, no debe poder
+    // usarse un enlace anterior ya superado.
+    prisma.clienteResetToken.updateMany({
+      where: { clienteId: registro.clienteId, usedAt: null, id: { not: registro.id } },
+      data: { usedAt: new Date() },
+    }),
+  ]);
+
   res.json({ ok: true });
 }));
 

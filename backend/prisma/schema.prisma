@@ -690,8 +690,25 @@ model Cliente {
   apartados Apartado[]
   pedidos   Pedido[]
   cuponUsos CuponUso[]
+  resetTokens ClienteResetToken[]
 
   @@map("clientes")
+}
+
+// Tokens de un solo uso para "olvidé mi contraseña" (ver
+// routes/tienda/auth.js). Se guarda el hash del token, nunca el token en
+// claro — igual que con las contraseñas — para que una fuga de la base de
+// datos no permita restablecer cuentas directamente.
+model ClienteResetToken {
+  id        Int       @id @default(autoincrement())
+  clienteId Int       @map("cliente_id")
+  cliente   Cliente   @relation(fields: [clienteId], references: [id])
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("cliente_reset_tokens")
 }
 
 enum EstadoApartado {

@@ -28,6 +28,14 @@ const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
 const TEMPLATE_NAME = process.env.WHATSAPP_TICKET_TEMPLATE_NAME || 'ticket_digital_compra_pdf';
 const TEMPLATE_LANG = process.env.WHATSAPP_TICKET_TEMPLATE_LANG || 'es_MX';
 
+// Plantilla aparte para "olvidé mi contraseña": header de texto + un solo
+// parámetro en el cuerpo (el link de restablecimiento). Nombre y plantilla
+// distintos a la del ticket porque el contenido y el propósito no tienen
+// nada que ver — cada plantilla se aprueba por separado en Meta Business
+// Manager.
+const RESET_TEMPLATE_NAME = process.env.WHATSAPP_RESET_TEMPLATE_NAME || 'recuperar_password_cliente';
+const RESET_TEMPLATE_LANG = process.env.WHATSAPP_RESET_TEMPLATE_LANG || 'es_MX';
+
 function whatsappApiConfigurada() {
   return Boolean(ACCESS_TOKEN);
 }
@@ -110,4 +118,64 @@ async function enviarTicketVenta({ phoneNumberId, telefonoCliente, folio, pdfUrl
   }
 }
 
-module.exports = { whatsappApiConfigurada, normalizarTelefono, enviarTicketVenta };
+/**
+ * Manda el link para restablecer la contraseña de un cliente de la tienda
+ * en línea, usando la plantilla aprobada por Meta: un solo parámetro de
+ * texto en el cuerpo (el link, con el token de un solo uso).
+ *
+ * @param {object} datos
+ * @param {string} datos.phoneNumberId
+ * @param {string} datos.telefonoCliente
+ * @param {string} datos.enlace - URL pública de /tienda/restablecer?token=...
+ * @returns {Promise<{enviado: boolean, error?: string}>} nunca lanza.
+ */
+async function enviarCodigoRecuperacion({ phoneNumberId, telefonoCliente, enlace }) {
+  if (!whatsappApiConfigurada()) {
+    return { enviado: false, error: 'WHATSAPP_NO_CONFIGURADO' };
+  }
+  if (!phoneNumberId) {
+    return { enviado: false, error: 'TIENDA_SIN_WHATSAPP_API' };
+  }
+  if (!enlace) {
+    return { enviado: false, error: 'SIN_ENLACE' };
+  }
+  const numero = normalizarTelefono(telefonoCliente);
+  if (!numero) {
+    return { enviado: false, error: 'TELEFONO_INVALIDO' };
+  }
+
+  try {
+    const resp = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: numero,
+        type: 'template',
+        template: {
+          name: RESET_TEMPLATE_NAME,
+          language: { code: RESET_TEMPLATE_LANG },
+          components: [
+            {
+              type: 'body',
+              parameters: [{ type: 'text', text: enlace }],
+            },
+          ],
+        },
+      }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      return { enviado: false, error: data?.error?.message || `Error HTTP ${resp.status}` };
+    }
+    return { enviado: true };
+  } catch (err) {
+    return { enviado: false, error: err.message };
+  }
+}
+
+module.exports = { whatsappApiConfigurada, normalizarTelefono, enviarTicketVenta, enviarCodigoRecuperacion };
