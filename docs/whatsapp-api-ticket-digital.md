@@ -1,8 +1,10 @@
 # Ticket digital automático por WhatsApp — guía de configuración
 
-Esta guía es para conectar tu número real de WhatsApp Business a la API de Meta (WhatsApp Business Platform / Cloud API), para que el ticket digital se mande solo al registrar una venta, sin que el cajero tenga que abrir WhatsApp.
+Esta guía es para conectar tu número real de WhatsApp Business a la API de Meta (WhatsApp Business Platform / Cloud API), para que el ticket digital se mande solo al registrar una venta o un apartado, sin que el cajero tenga que abrir WhatsApp.
 
-**Mientras no termines esta configuración, el sistema sigue funcionando igual que antes**: al registrar la venta aparece el botón "Enviar ticket por WhatsApp" para mandarlo a mano. No se rompe nada por avanzar esto poco a poco.
+**Mientras no termines esta configuración, el sistema sigue funcionando igual que antes**: al registrar la venta o el apartado aparece el botón "Enviar por WhatsApp" para mandarlo a mano. No se rompe nada por avanzar esto poco a poco.
+
+Hay **dos plantillas distintas** que configurar (Paso 5 y Paso 9): una para el ticket de venta y otra para el comprobante de apartado — el texto de cada mensaje es diferente (el de apartado menciona el saldo pendiente), así que Meta exige aprobarlas por separado. Puedes activar una sin la otra; cada una funciona de forma independiente.
 
 ## Antes de empezar
 
@@ -89,3 +91,29 @@ Registra una venta de prueba con tu propio teléfono como "cliente". Si todo que
 Si no llega, revisa en los logs del backend el mensaje de error que devuelve Meta (queda guardado en `ticketDigital.error` en la respuesta de la venta) — casi siempre dice exactamente qué falta (plantilla no aprobada todavía, número no verificado, token sin permisos, PDF/ZIP no habilitado en Cloudinary, etc.).
 
 Aunque el envío automático no esté configurado (o falle), el PDF se genera igual en cada venta y queda disponible con el botón "Ver ticket (PDF)" — tanto justo después de cobrar como en la columna "PDF" del historial de ventas.
+
+## Paso 9 — Comprobante de apartado (plantilla aparte)
+
+Todo lo anterior configura el ticket de **venta**. El comprobante de **apartado** (al crearlo y en cada abono) usa una plantilla distinta, porque el texto es diferente (menciona el saldo pendiente, no "gracias por tu compra") y Meta no deja reutilizar un nombre de plantilla ya aprobado con otro cuerpo. Puedes dejar esto para después — mientras no esté configurada, el sistema sigue ofreciendo el botón manual de WhatsApp para el comprobante del apartado.
+
+1. En WhatsApp Manager → **Plantillas de mensajes** → **Crear plantilla**.
+2. Nombre: `comprobante_apartado_pdf` (o el que pongas en `WHATSAPP_APARTADO_TEMPLATE_NAME`).
+3. Categoría: **Utilidad** (Utility).
+4. Idioma: **Español (MX)**.
+5. Encabezado (Header): tipo **Documento**. Sube cualquier PDF de prueba para la revisión.
+6. Cuerpo del mensaje — copia esto exactamente, con las variables `{{1}}` (folio) y `{{2}}` (saldo pendiente):
+
+   ```
+   🧾 Aquí tienes tu comprobante de apartado ({{1}}) de Camino al Deporte. Saldo pendiente: ${{2}}. Preséntalo cuando vengas a recoger tu pedido.
+   ```
+
+7. Cuando Meta pida ejemplos para las variables, usa algo como: `AP-1723500000` y `500.00`.
+8. Envía a revisión.
+9. Cuando esté aprobada, agrega en Render:
+
+   ```
+   WHATSAPP_APARTADO_TEMPLATE_NAME=comprobante_apartado_pdf
+   WHATSAPP_APARTADO_TEMPLATE_LANG=es_MX
+   ```
+
+El comprobante se manda automáticamente tanto al crear el apartado (si dejaste anticipo) como cada vez que se registra un abono — cada envío lleva el PDF actualizado con el saldo más reciente. El folio del apartado (`AP-...`) también sirve como código de barras en el PDF, para verificarlo al momento de entregar el pedido.

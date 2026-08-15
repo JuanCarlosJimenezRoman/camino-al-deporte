@@ -759,6 +759,12 @@ model Apartado {
   fechaLimite     DateTime?      @map("fecha_limite")
   notas           String?
 
+  // Comprobante en PDF (creación o del abono más reciente), generado con
+  // pdfkit y subido a Cloudinary — ver utils/apartadoPdf.js. Se guarda para
+  // poder reabrirlo/reenviarlo después sin regenerarlo.
+  ticketPdfUrl      String? @map("ticket_pdf_url")
+  ticketPdfPublicId String? @map("ticket_pdf_public_id")
+
   creadoPorId     Int            @map("creado_por_id")
   creadoPor       Usuario        @relation("ApartadosCreados", fields: [creadoPorId], references: [id])
 

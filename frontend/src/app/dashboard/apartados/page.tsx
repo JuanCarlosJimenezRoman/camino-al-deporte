@@ -98,6 +98,19 @@ interface Apartado {
   pagado: number;
   saldoPendiente: number;
   createdAt: string;
+  // Número que se muestra como "contacto" dentro del comprobante (WhatsApp
+  // de la sucursal, o el general de la tienda si no tiene uno propio). Ya
+  // viene resuelto desde el backend — ver POST /apartados y POST
+  // /apartados/:id/pagos.
+  whatsappContacto?: string | null;
+  // Resultado del envío automático por WhatsApp Business Platform (Cloud
+  // API), solo presente justo después de crear el apartado o registrar un
+  // abono. Si enviado=false (plantilla sin configurar/aprobar, o Meta
+  // rechazó el mensaje), se ofrece el link manual de wa.me como respaldo.
+  ticketDigital?: { enviado: boolean; error?: string } | null;
+  // Comprobante en PDF (de la creación o del abono más reciente), generado
+  // en el servidor y subido a Cloudinary.
+  ticketPdfUrl?: string | null;
 }
 
 const METODOS_PAGO = [
@@ -105,6 +118,56 @@ const METODOS_PAGO = [
   { valor: 'TARJETA', etiqueta: 'Tarjeta' },
   { valor: 'TRANSFERENCIA', etiqueta: 'Transferencia' },
 ] as const;
+
+// Comprobante digital del apartado: mismo mecanismo de click-to-chat que ya
+// se usa para el ticket de venta (ver app/dashboard/ventas/page.tsx) — el
+// envío automático por la API de WhatsApp es el "camino feliz" (ver
+// ticketDigital arriba); esto es el respaldo manual, siempre disponible.
+function formatearTelefonoWhatsapp(telefono: string): string {
+  let digitos = telefono.replace(/\D/g, '');
+  if (digitos.length === 10) digitos = '52' + digitos; // sin código de país -> asumimos México
+  return digitos;
+}
+
+function construirComprobanteTexto(apartado: Apartado, montoEvento: number | null): string {
+  const articulos = apartado.items
+    .map((it) => {
+      const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
+      return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${it.subtotal}`;
+    })
+    .join('\n');
+  const esAnticipo = montoEvento != null && Math.abs(apartado.pagado - montoEvento) < 0.01;
+
+  return [
+    'Comprobante de apartado — Camino al Deporte',
+    `Folio: ${apartado.folio}`,
+    `Fecha: ${new Date(apartado.createdAt).toLocaleString('es-MX')}`,
+    apartado.sucursalVenta?.nombre ? `Sucursal: ${apartado.sucursalVenta.nombre}` : '',
+    `Cliente: ${apartado.cliente.nombre}`,
+    '',
+    'Artículos:',
+    articulos,
+    '',
+    montoEvento != null ? `${esAnticipo ? 'Anticipo' : 'Abono'} recibido hoy: $${montoEvento.toFixed(2)}` : '',
+    `Total: $${apartado.total}`,
+    `Pagado a la fecha: $${apartado.pagado.toFixed(2)}`,
+    `Saldo pendiente: $${apartado.saldoPendiente.toFixed(2)}`,
+    `Fecha límite para recoger: ${
+      apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : 'Sin fecha límite'
+    }`,
+    '',
+    apartado.saldoPendiente > 0.01 ? '¡Gracias por tu apartado!' : '¡Ya está liquidado, listo para recoger!',
+    'Presenta este comprobante o tu folio para recoger tu pedido.',
+    apartado.whatsappContacto ? `Dudas, contáctanos: ${apartado.whatsappContacto}` : '',
+  ].join('\n');
+}
+
+function construirLinkComprobante(apartado: Apartado, montoEvento: number | null): string | null {
+  if (!apartado.cliente?.telefono) return null;
+  const numero = formatearTelefonoWhatsapp(apartado.cliente.telefono);
+  if (!numero) return null;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(construirComprobanteTexto(apartado, montoEvento))}`;
+}
 
 export default function ApartadosPage() {
   const { usuario } = useAuth();
@@ -117,6 +180,10 @@ export default function ApartadosPage() {
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
+  // Comprobante del apartado que se acaba de crear (se muestra aquí, no
+  // dentro del formulario, porque el formulario se cierra al terminar).
+  const [ticketLink, setTicketLink] = useState<string | null>(null);
+  const [ticketPdfUrl, setTicketPdfUrl] = useState<string | null>(null);
 
   useEffect(() => {
     api<Sucursal[]>('/sucursales').then(setSucursales);
@@ -162,15 +229,40 @@ export default function ApartadosPage() {
           cuentas={cuentas}
           usuario={usuario}
           esAdmin={esAdmin}
-          onCreado={() => {
+          onCreado={(creado) => {
             setMostrarForm(false);
-            setMensaje('Apartado registrado.');
+            const autoEnviado = creado.ticketDigital?.enviado;
+            const motivo =
+              !autoEnviado && creado.ticketDigital?.error ? ` (${creado.ticketDigital.error})` : '';
+            setMensaje(
+              autoEnviado
+                ? 'Apartado registrado. Comprobante (PDF) enviado automáticamente por WhatsApp.'
+                : `Apartado registrado.${motivo}`
+            );
+            setTicketPdfUrl(creado.ticketPdfUrl || null);
+            const montoEvento = creado.pagos?.[0] ? Number(creado.pagos[0].monto) : null;
+            setTicketLink(autoEnviado ? null : construirLinkComprobante(creado, montoEvento));
             cargar();
           }}
         />
       )}
 
       {mensaje && <p style={{ fontSize: 13, margin: '12px 0' }}>{mensaje}</p>}
+
+      {(ticketLink || ticketPdfUrl) && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {ticketLink && (
+            <a className="btn-secondary btn" href={ticketLink} target="_blank" rel="noreferrer">
+              Enviar comprobante por WhatsApp
+            </a>
+          )}
+          {ticketPdfUrl && (
+            <a className="btn-secondary btn" href={ticketPdfUrl} target="_blank" rel="noreferrer">
+              Ver comprobante (PDF)
+            </a>
+          )}
+        </div>
+      )}
 
       {adeudosPorCliente.length > 0 && (
         <div className="card" style={{ marginBottom: 20 }}>
@@ -219,6 +311,7 @@ export default function ApartadosPage() {
             <th>Saldo</th>
             <th>Estado</th>
             <th>Fecha límite</th>
+            <th>Comprobante</th>
             <th></th>
           </tr>
         </thead>
@@ -235,7 +328,7 @@ export default function ApartadosPage() {
           ))}
           {apartados.length === 0 && (
             <tr>
-              <td colSpan={9} style={{ color: 'var(--color-muted)' }}>
+              <td colSpan={10} style={{ color: 'var(--color-muted)' }}>
                 Sin apartados registrados.
               </td>
             </tr>
@@ -269,6 +362,10 @@ function ApartadoFila({
   const [comprobante, setComprobante] = useState<File | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Comprobante actualizado (con el nuevo saldo) del abono que se acaba de
+  // registrar.
+  const [ticketLink, setTicketLink] = useState<string | null>(null);
+  const [ticketPdfUrl, setTicketPdfUrl] = useState<string | null>(null);
 
   async function registrarAbono() {
     const montoNum = Number(monto);
@@ -283,6 +380,8 @@ function ApartadoFila({
     }
 
     setGuardando(true);
+    setTicketLink(null);
+    setTicketPdfUrl(null);
     try {
       const datos = {
         monto: montoNum,
@@ -293,12 +392,21 @@ function ApartadoFila({
       formData.append('datos', JSON.stringify(datos));
       if (comprobante) formData.append('comprobante', comprobante);
 
-      await apiUpload(`/apartados/${apartado.id}/pagos`, formData);
+      const actualizado = await apiUpload<Apartado>(`/apartados/${apartado.id}/pagos`, formData);
       setMonto('');
       setMetodoPago('EFECTIVO');
       setCuentaTransferenciaId('');
       setComprobante(null);
-      setMensaje('Abono registrado.');
+
+      const autoEnviado = actualizado.ticketDigital?.enviado;
+      const motivo = !autoEnviado && actualizado.ticketDigital?.error ? ` (${actualizado.ticketDigital.error})` : '';
+      setMensaje(
+        autoEnviado
+          ? 'Abono registrado. Comprobante (PDF) enviado automáticamente por WhatsApp.'
+          : `Abono registrado.${motivo}`
+      );
+      setTicketPdfUrl(actualizado.ticketPdfUrl || null);
+      setTicketLink(autoEnviado ? null : construirLinkComprobante(actualizado, montoNum));
       onCambio();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar el abono.');
@@ -332,6 +440,15 @@ function ApartadoFila({
         <td>{apartado.estado}</td>
         <td>{apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : '—'}</td>
         <td>
+          {apartado.ticketPdfUrl ? (
+            <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer">
+              ver PDF
+            </a>
+          ) : (
+            '—'
+          )}
+        </td>
+        <td>
           <button className="btn-secondary btn" onClick={onToggle}>
             {expandido ? 'Ocultar' : 'Ver'}
           </button>
@@ -339,7 +456,7 @@ function ApartadoFila({
       </tr>
       {expandido && (
         <tr>
-          <td colSpan={9}>
+          <td colSpan={10}>
             <div style={{ padding: 12, background: 'var(--color-panel)', borderRadius: 8 }}>
               <h3 style={{ fontSize: 13, marginBottom: 6 }}>Artículos</h3>
               <table style={{ marginBottom: 12 }}>
@@ -470,6 +587,20 @@ function ApartadoFila({
                 <p style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 10 }}>Notas: {apartado.notas}</p>
               )}
               {mensaje && <p style={{ fontSize: 13, marginTop: 10 }}>{mensaje}</p>}
+              {(ticketLink || ticketPdfUrl) && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  {ticketLink && (
+                    <a className="btn-secondary btn" href={ticketLink} target="_blank" rel="noreferrer">
+                      Enviar comprobante por WhatsApp
+                    </a>
+                  )}
+                  {ticketPdfUrl && (
+                    <a className="btn-secondary btn" href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                      Ver comprobante (PDF)
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           </td>
         </tr>
@@ -493,7 +624,7 @@ function NuevoApartadoForm({
   cuentas: CuentaTransferencia[];
   usuario: { sucursalId?: number | null } | null;
   esAdmin: boolean;
-  onCreado: () => void;
+  onCreado: (creado: Apartado) => void;
 }) {
   const [sucursalVentaId, setSucursalVentaId] = useState(usuario?.sucursalId ? String(usuario.sucursalId) : '');
 
@@ -631,8 +762,8 @@ function NuevoApartadoForm({
       formData.append('datos', JSON.stringify(datos));
       if (conAnticipo && comprobanteAnticipo) formData.append('comprobante', comprobanteAnticipo);
 
-      await apiUpload('/apartados', formData);
-      onCreado();
+      const creado = await apiUpload<Apartado>('/apartados', formData);
+      onCreado(creado);
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar el apartado.');
     } finally {

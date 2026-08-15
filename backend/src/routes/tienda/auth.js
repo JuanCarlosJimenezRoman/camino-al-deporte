@@ -162,10 +162,22 @@ router.put('/password', requireClienteAuth, asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-const TOKEN_VIGENCIA_MIN = 30;
+// 10 minutos: igual al tiempo de entrega por default que Meta le pone a las
+// plantillas AUTHENTICATION (ver docs del ticket/WhatsApp) — no tiene caso
+// que nuestro código dure más que la ventana en la que WhatsApp garantiza
+// intentar entregarlo.
+const CODIGO_VIGENCIA_MIN = 10;
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// Código numérico de 6 dígitos (con ceros a la izquierda si hace falta),
+// como cualquier OTP típico — la plantilla AUTHENTICATION de Meta espera un
+// código corto que el cliente pueda copiar/teclear a mano, no un link (ver
+// config/whatsapp.js).
+function generarCodigo() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
 }
 
 const olvidePasswordSchema = z.object({
@@ -174,10 +186,10 @@ const olvidePasswordSchema = z.object({
 
 // POST /tienda/auth/olvide-password
 //
-// Genera un token de un solo uso y lo manda por WhatsApp (link a
-// /tienda/restablecer?token=...) al teléfono registrado del cliente. La
-// respuesta es siempre la misma exista o no la cuenta, para no revelar qué
-// correos están registrados (mismo criterio que el resto del sistema).
+// Genera un código de un solo uso y lo manda por WhatsApp (plantilla
+// AUTHENTICATION) al teléfono registrado del cliente. La respuesta es
+// siempre la misma exista o no la cuenta, para no revelar qué correos están
+// registrados (mismo criterio que el resto del sistema).
 router.post('/olvide-password', asyncHandler(async (req, res) => {
   const parsed = olvidePasswordSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -186,7 +198,7 @@ router.post('/olvide-password', asyncHandler(async (req, res) => {
 
   const mensajeGenerico = {
     ok: true,
-    mensaje: 'Si el correo está registrado, te enviamos un mensaje de WhatsApp con instrucciones para restablecer tu contraseña.',
+    mensaje: 'Si el correo está registrado, te enviamos un código por WhatsApp para restablecer tu contraseña.',
   };
 
   const cliente = await prisma.cliente.findFirst({ where: { email: parsed.data.email } });
@@ -194,25 +206,24 @@ router.post('/olvide-password', asyncHandler(async (req, res) => {
     return res.json(mensajeGenerico);
   }
 
-  const token = crypto.randomBytes(32).toString('hex');
+  const codigo = generarCodigo();
   await prisma.clienteResetToken.create({
     data: {
       clienteId: cliente.id,
-      tokenHash: hashToken(token),
-      expiresAt: new Date(Date.now() + TOKEN_VIGENCIA_MIN * 60 * 1000),
+      tokenHash: hashToken(codigo),
+      expiresAt: new Date(Date.now() + CODIGO_VIGENCIA_MIN * 60 * 1000),
     },
   });
 
   // Best-effort: si el envío por WhatsApp falla o no está configurado, el
-  // token ya quedó creado y la respuesta al cliente no cambia (no delatamos
-  // si la cuenta existe ni si el envío falló). Ver config/whatsapp.js.
+  // código ya quedó creado y la respuesta al cliente no cambia (no
+  // delatamos si la cuenta existe ni si el envío falló). Ver config/whatsapp.js.
   try {
     const config = await prisma.configuracionTienda.findFirst();
-    const enlace = `${(process.env.FRONTEND_URL || '').replace(/\/$/, '')}/tienda/restablecer?token=${token}`;
     await enviarCodigoRecuperacion({
       phoneNumberId: config?.whatsappPhoneNumberId || null,
       telefonoCliente: cliente.telefono,
-      enlace,
+      codigo,
     });
   } catch (err) {
     console.error('Error enviando WhatsApp de recuperación de contraseña:', err);
@@ -222,32 +233,46 @@ router.post('/olvide-password', asyncHandler(async (req, res) => {
 }));
 
 const restablecerSchema = z.object({
-  token: z.string().min(1),
+  email: z.string().email(),
+  codigo: z.string().length(6, 'El código debe tener 6 dígitos.'),
   passwordNueva: z.string().min(6, 'La nueva contraseña debe tener al menos 6 caracteres.'),
 });
 
 // POST /tienda/auth/restablecer
+//
+// Se pide el email además del código (a diferencia del link anterior, que
+// llevaba todo en el token): un código de 6 dígitos por sí solo no es lo
+// bastante único como para buscarlo en toda la tabla sin riesgo de que
+// choque con el de otro cliente — con el email acotamos la búsqueda a los
+// códigos vigentes de esa cuenta.
 router.post('/restablecer', asyncHandler(async (req, res) => {
   const parsed = restablecerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { token, passwordNueva } = parsed.data;
+  const { email, codigo, passwordNueva } = parsed.data;
+
+  const mensajeError = { error: 'El código no es válido o ya expiró. Solicita uno nuevo.' };
+
+  const cliente = await prisma.cliente.findFirst({ where: { email } });
+  if (!cliente) {
+    return res.status(400).json(mensajeError);
+  }
 
   const registro = await prisma.clienteResetToken.findFirst({
-    where: { tokenHash: hashToken(token), usedAt: null, expiresAt: { gt: new Date() } },
+    where: { clienteId: cliente.id, tokenHash: hashToken(codigo), usedAt: null, expiresAt: { gt: new Date() } },
   });
   if (!registro) {
-    return res.status(400).json({ error: 'El enlace ya no es válido. Solicita uno nuevo.' });
+    return res.status(400).json(mensajeError);
   }
 
   const passwordHash = await bcrypt.hash(passwordNueva, 10);
   await prisma.$transaction([
     prisma.cliente.update({ where: { id: registro.clienteId }, data: { passwordHash } }),
     prisma.clienteResetToken.update({ where: { id: registro.id }, data: { usedAt: new Date() } }),
-    // Cualquier otro enlace pendiente para este cliente también queda
-    // inválido: si alguien más pidió otro token después, no debe poder
-    // usarse un enlace anterior ya superado.
+    // Cualquier otro código pendiente para este cliente también queda
+    // inválido: si pidió otro código después, no debe poder usarse uno
+    // anterior ya superado.
     prisma.clienteResetToken.updateMany({
       where: { clienteId: registro.clienteId, usedAt: null, id: { not: registro.id } },
       data: { usedAt: new Date() },

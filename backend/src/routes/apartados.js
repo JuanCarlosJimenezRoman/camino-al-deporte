@@ -5,8 +5,10 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { manejarSubidaImagen } = require('../middleware/uploadImagen');
-const { subirImagen } = require('../config/cloudinary');
+const { subirImagen, subirPdf } = require('../config/cloudinary');
 const { notificarApartadoOtraSucursal } = require('../utils/notificaciones');
+const { enviarComprobanteApartado } = require('../config/whatsapp');
+const { generarComprobanteApartado } = require('../utils/apartadoPdf');
 
 const router = express.Router();
 
@@ -42,6 +44,67 @@ function resolverSucursalVentaId(req, solicitada) {
 function calcularSaldo(apartado) {
   const pagado = (apartado.pagos || []).reduce((acc, p) => acc + Number(p.monto), 0);
   return { pagado, saldoPendiente: Number(apartado.total) - pagado };
+}
+
+// Mismo criterio de respaldo que resolverWhatsappVenta en routes/ventas.js:
+// primero el WhatsApp propio de la sucursal que atendió el apartado, si no
+// tiene, el general de la tienda — tanto para el número que se muestra como
+// "contacto" como para el Phone Number ID con el que se manda el
+// comprobante automático por la API de WhatsApp.
+async function resolverWhatsappApartado(apartado) {
+  const faltaSucursal = !apartado.sucursalVenta?.telefono || !apartado.sucursalVenta?.whatsappPhoneNumberId;
+  const config = faltaSucursal ? await prisma.configuracionTienda.findFirst() : null;
+  return {
+    whatsappContacto: apartado.sucursalVenta?.telefono || config?.whatsappTienda || null,
+    whatsappPhoneNumberId: apartado.sucursalVenta?.whatsappPhoneNumberId || config?.whatsappPhoneNumberId || null,
+  };
+}
+
+// Genera el comprobante en PDF, lo sube a Cloudinary, lo guarda en el
+// apartado, e intenta mandarlo por WhatsApp — todo "best effort": nunca
+// lanza, para que un fallo aquí (Cloudinary caído, plantilla sin aprobar,
+// etc.) jamás tumbe el registro del apartado/abono, que para este punto ya
+// quedó guardado en la base de datos. Regresa lo que el frontend necesita
+// para ofrecer el link manual de wa.me y/o el PDF como respaldo.
+async function generarYEnviarComprobante(apartado, montoEsteEvento) {
+  let whatsappContacto = null;
+  let whatsappPhoneNumberId = null;
+  let ticketPdfUrl = null;
+  let ticketDigital = { enviado: false, error: 'SIN_PDF' };
+  const { pagado, saldoPendiente } = calcularSaldo(apartado);
+
+  try {
+    ({ whatsappContacto, whatsappPhoneNumberId } = await resolverWhatsappApartado(apartado));
+
+    let ticketPdfError = null;
+    try {
+      const pdfBuffer = await generarComprobanteApartado(apartado, pagado, montoEsteEvento, whatsappContacto);
+      const subida = await subirPdf(pdfBuffer, 'apartados');
+      ticketPdfUrl = subida.url;
+      await prisma.apartado.update({
+        where: { id: apartado.id },
+        data: { ticketPdfUrl: subida.url, ticketPdfPublicId: subida.publicId },
+      });
+    } catch (err) {
+      ticketPdfError = err.message;
+      console.error('Error generando/subiendo el comprobante del apartado:', err);
+    }
+
+    ticketDigital = ticketPdfUrl
+      ? await enviarComprobanteApartado({
+          phoneNumberId: whatsappPhoneNumberId,
+          telefonoCliente: apartado.cliente.telefono,
+          folio: apartado.folio,
+          pdfUrl: ticketPdfUrl,
+          saldoPendiente,
+        })
+      : { enviado: false, error: ticketPdfError || 'SIN_PDF' };
+  } catch (err) {
+    console.error('Error preparando el comprobante digital del apartado (ya se registró):', err);
+    ticketDigital = { enviado: false, error: 'ERROR_TICKET_DIGITAL' };
+  }
+
+  return { whatsappContacto, ticketDigital, ticketPdfUrl };
 }
 
 // GET /apartados?estado=&clienteId= - VENTAS solo ve los de su sucursal;
@@ -299,6 +362,11 @@ router.post(
               },
             },
             pagos: true,
+            // Para el comprobante en PDF (vendedor, y el WhatsApp de la
+            // sucursal para el contacto/envío automático — ver
+            // generarYEnviarComprobante más abajo).
+            sucursalVenta: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
+            creadoPor: { select: { nombre: true } },
           },
         });
 
@@ -314,7 +382,14 @@ router.post(
         return nuevoApartado;
       });
 
-      res.status(201).json({ ...apartado, ...calcularSaldo(apartado) });
+      // El apartado (y su anticipo, si lo hubo) ya quedó registrado en la
+      // base de datos en este punto — lo que sigue (comprobante en PDF +
+      // envío por WhatsApp) es "best effort" y nunca puede tumbar esta
+      // respuesta (ver generarYEnviarComprobante).
+      const montoAnticipo = apartado.pagos?.[0] ? Number(apartado.pagos[0].monto) : null;
+      const { whatsappContacto, ticketDigital, ticketPdfUrl } = await generarYEnviarComprobante(apartado, montoAnticipo);
+
+      res.status(201).json({ ...apartado, ...calcularSaldo(apartado), whatsappContacto, ticketDigital, ticketPdfUrl });
     } catch (err) {
       if (err.message === 'CLIENTE_NO_ENCONTRADO') return res.status(404).json({ error: 'Cliente no encontrado.' });
       if (err.message.startsWith('STOCK_INSUFICIENTE')) {
@@ -413,11 +488,17 @@ router.post(
           cliente: true,
           items: { include: { variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } } } },
           pagos: true,
+          sucursalVenta: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
+          creadoPor: { select: { nombre: true } },
         },
       });
     });
 
-    res.status(201).json({ ...resultado, ...calcularSaldo(resultado) });
+    // El abono ya quedó registrado — el comprobante actualizado (con el
+    // nuevo saldo) es "best effort", ver generarYEnviarComprobante.
+    const { whatsappContacto, ticketDigital, ticketPdfUrl } = await generarYEnviarComprobante(resultado, monto);
+
+    res.status(201).json({ ...resultado, ...calcularSaldo(resultado), whatsappContacto, ticketDigital, ticketPdfUrl });
   })
 );
 
