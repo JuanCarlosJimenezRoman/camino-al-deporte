@@ -28,7 +28,17 @@ const tiendaConfiguracionRoutes = require('./routes/tienda/configuracion');
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  })
+);
+// Helmet 7 no incluye Permissions-Policy en su bundle por defecto (se quitó
+// del core tras el retiro de Feature-Policy), así que se agrega a mano.
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || '*',
