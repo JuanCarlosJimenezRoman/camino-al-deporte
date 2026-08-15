@@ -7,6 +7,7 @@ const prisma = require('../../db');
 const { requireClienteAuth } = require('../../middleware/authCliente');
 const { asyncHandler } = require('../../utils/asyncHandler');
 const { enviarCodigoRecuperacion } = require('../../config/whatsapp');
+const { enviarCodigoRecuperacionEmail } = require('../../config/email');
 
 const router = express.Router();
 
@@ -186,10 +187,14 @@ const olvidePasswordSchema = z.object({
 
 // POST /tienda/auth/olvide-password
 //
-// Genera un código de un solo uso y lo manda por WhatsApp (plantilla
-// AUTHENTICATION) al teléfono registrado del cliente. La respuesta es
-// siempre la misma exista o no la cuenta, para no revelar qué correos están
-// registrados (mismo criterio que el resto del sistema).
+// Genera un código de un solo uso y lo manda por los canales que estén
+// configurados: correo (config/email.js, el principal — no depende de
+// aprobación de Meta) y WhatsApp (config/whatsapp.js, si más adelante se
+// aprueba la plantilla AUTHENTICATION). Se intentan los dos, cada uno de
+// forma independiente, así que si uno falla o no está configurado el otro
+// sigue funcionando. La respuesta es siempre la misma exista o no la
+// cuenta, para no revelar qué correos están registrados (mismo criterio
+// que el resto del sistema).
 router.post('/olvide-password', asyncHandler(async (req, res) => {
   const parsed = olvidePasswordSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -198,7 +203,7 @@ router.post('/olvide-password', asyncHandler(async (req, res) => {
 
   const mensajeGenerico = {
     ok: true,
-    mensaje: 'Si el correo está registrado, te enviamos un código por WhatsApp para restablecer tu contraseña.',
+    mensaje: 'Si el correo está registrado, te enviamos un código para restablecer tu contraseña.',
   };
 
   const cliente = await prisma.cliente.findFirst({ where: { email: parsed.data.email } });
@@ -215,9 +220,19 @@ router.post('/olvide-password', asyncHandler(async (req, res) => {
     },
   });
 
-  // Best-effort: si el envío por WhatsApp falla o no está configurado, el
+  // Best-effort: si el envío falla o el canal no está configurado, el
   // código ya quedó creado y la respuesta al cliente no cambia (no
-  // delatamos si la cuenta existe ni si el envío falló). Ver config/whatsapp.js.
+  // delatamos si la cuenta existe ni si el envío falló).
+  try {
+    await enviarCodigoRecuperacionEmail({
+      email: cliente.email,
+      nombre: cliente.nombre,
+      codigo,
+      vigenciaMin: CODIGO_VIGENCIA_MIN,
+    });
+  } catch (err) {
+    console.error('Error enviando correo de recuperación de contraseña:', err);
+  }
   try {
     const config = await prisma.configuracionTienda.findFirst();
     await enviarCodigoRecuperacion({

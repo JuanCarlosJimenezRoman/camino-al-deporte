@@ -82,7 +82,7 @@ export default function RecuperarPasswordPage() {
       ) : paso === 'email' ? (
         <>
           <p className="mb-8 mt-1 text-sm text-muted-foreground">
-            Te mandamos un código de 6 dígitos por WhatsApp, al teléfono registrado en tu cuenta.
+            Te mandamos un código de 6 dígitos a tu correo para que puedas crear una contraseña nueva.
           </p>
           <form onSubmit={pedirCodigo} className="space-y-4">
             <div>
