@@ -43,6 +43,7 @@ const PEDIDO_INCLUDE = {
   validadoPor: { select: { nombre: true } },
   proveedorPagoConfirmado: PROVEEDOR_SELECT,
   resena: { include: { fotos: true } },
+  descuentoAplicadoPor: { select: { nombre: true } },
 };
 
 // GET /pedidos-online?estado= - lista todos los pedidos, más recientes primero
@@ -257,6 +258,137 @@ router.post(
       return tx.pedido.update({ where: { id: pedido.id }, data: { estado: 'CANCELADO' }, include: PEDIDO_INCLUDE });
     });
 
+    res.json(actualizado);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Descuento manual post-pedido: para modelos puntuales que el negocio decide
+// descontar DESPUÉS de que el cliente ya armó su pedido, confirmándoselo por
+// WhatsApp antes de que haga la transferencia (chat manual, mismo mecanismo
+// de click-to-chat que ya se usa para el pago — ver conWhatsapp en
+// routes/tienda/pedidos.js). Solo se puede activar/quitar mientras el
+// pedido sigue PENDIENTE_PAGO: una vez que el cliente ya subió su
+// comprobante (EN_VALIDACION o después), el monto ya quedó fijo y no debe
+// moverse solo, para no desajustar lo que el cliente ya transfirió.
+// ---------------------------------------------------------------------------
+
+const descuentoManualSchema = z.object({
+  tipoDescuento: z.enum(['PORCENTAJE', 'MONTO']),
+  valor: z.number().positive(),
+  notas: z.string().optional(),
+});
+
+function calcularTotalPedido(pedido, descuentoManualMonto) {
+  const subtotal = pedido.items.reduce((acc, it) => acc + Number(it.subtotal), 0);
+  const total = subtotal + Number(pedido.costoEnvio) - Number(pedido.cuponDescuento || 0) - descuentoManualMonto;
+  return Math.max(0, Math.round(total * 100) / 100);
+}
+
+// POST /pedidos-online/:id/aplicar-descuento - activa (o edita) el
+// descuento manual de este pedido y recalcula el total. No manda nada por
+// WhatsApp automáticamente: el negocio se lo confirma al cliente a mano y
+// luego marca esa confirmación con POST /:id/confirmar-descuento-whatsapp.
+router.post(
+  '/:id/aplicar-descuento',
+  requireAuth,
+  requireRole(...ROLES_PEDIDOS),
+  asyncHandler(async (req, res) => {
+    const parsed = descuentoManualSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    if (parsed.data.tipoDescuento === 'PORCENTAJE' && parsed.data.valor > 100) {
+      return res.status(400).json({ error: 'Un descuento por porcentaje no puede ser mayor a 100.' });
+    }
+
+    const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) }, include: { items: true } });
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    if (pedido.estado !== 'PENDIENTE_PAGO') {
+      return res.status(409).json({
+        error: 'Solo se puede activar un descuento mientras el pedido está pendiente de pago (antes de que el cliente transfiera).',
+      });
+    }
+
+    const subtotal = pedido.items.reduce((acc, it) => acc + Number(it.subtotal), 0);
+    const disponibleParaDescuento = subtotal + Number(pedido.costoEnvio) - Number(pedido.cuponDescuento || 0);
+
+    let descuentoManualMonto =
+      parsed.data.tipoDescuento === 'PORCENTAJE'
+        ? disponibleParaDescuento * (parsed.data.valor / 100)
+        : parsed.data.valor;
+    descuentoManualMonto = Math.max(0, Math.min(descuentoManualMonto, disponibleParaDescuento));
+    descuentoManualMonto = Math.round(descuentoManualMonto * 100) / 100;
+
+    const actualizado = await prisma.pedido.update({
+      where: { id: pedido.id },
+      data: {
+        descuentoManualTipo: parsed.data.tipoDescuento,
+        descuentoManualValor: parsed.data.valor,
+        descuentoManualMonto,
+        descuentoManualNotas: parsed.data.notas || null,
+        // Cada vez que se activa/edita el descuento hay que volver a
+        // confirmárselo al cliente, así que se reinicia esta bandera.
+        descuentoConfirmadoWhatsapp: false,
+        descuentoAplicadoPorId: req.usuario.id,
+        descuentoAplicadoAt: new Date(),
+        total: calcularTotalPedido(pedido, descuentoManualMonto),
+      },
+      include: PEDIDO_INCLUDE,
+    });
+    res.json(actualizado);
+  })
+);
+
+// POST /pedidos-online/:id/quitar-descuento
+router.post(
+  '/:id/quitar-descuento',
+  requireAuth,
+  requireRole(...ROLES_PEDIDOS),
+  asyncHandler(async (req, res) => {
+    const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) }, include: { items: true } });
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    if (pedido.estado !== 'PENDIENTE_PAGO') {
+      return res.status(409).json({ error: 'Solo se puede quitar el descuento mientras el pedido está pendiente de pago.' });
+    }
+
+    const actualizado = await prisma.pedido.update({
+      where: { id: pedido.id },
+      data: {
+        descuentoManualTipo: null,
+        descuentoManualValor: null,
+        descuentoManualMonto: 0,
+        descuentoManualNotas: null,
+        descuentoConfirmadoWhatsapp: false,
+        descuentoAplicadoPorId: null,
+        descuentoAplicadoAt: null,
+        total: calcularTotalPedido(pedido, 0),
+      },
+      include: PEDIDO_INCLUDE,
+    });
+    res.json(actualizado);
+  })
+);
+
+// POST /pedidos-online/:id/confirmar-descuento-whatsapp - registro
+// informativo de que ya se le avisó el descuento al cliente por WhatsApp
+// (chat manual); no cambia ningún monto por sí solo.
+router.post(
+  '/:id/confirmar-descuento-whatsapp',
+  requireAuth,
+  requireRole(...ROLES_PEDIDOS),
+  asyncHandler(async (req, res) => {
+    const pedido = await prisma.pedido.findUnique({ where: { id: Number(req.params.id) } });
+    if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado.' });
+    if (!pedido.descuentoManualMonto || Number(pedido.descuentoManualMonto) <= 0) {
+      return res.status(409).json({ error: 'Este pedido no tiene un descuento activo para confirmar.' });
+    }
+
+    const actualizado = await prisma.pedido.update({
+      where: { id: pedido.id },
+      data: { descuentoConfirmadoWhatsapp: true },
+      include: PEDIDO_INCLUDE,
+    });
     res.json(actualizado);
   })
 );

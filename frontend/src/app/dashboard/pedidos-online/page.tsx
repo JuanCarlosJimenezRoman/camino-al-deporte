@@ -12,6 +12,8 @@ interface Pedido {
   createdAt: string;
   cliente: { nombre: string; telefono: string };
   items: { id: number }[];
+  cuponDescuento?: string;
+  descuentoManualMonto?: string;
 }
 
 const ESTADOS = [
@@ -88,7 +90,12 @@ export default function PedidosOnlinePage() {
                 <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{p.cliente?.telefono}</div>
               </td>
               <td>{p.items.length}</td>
-              <td>${p.total}</td>
+              <td>
+                ${p.total}
+                {(Number(p.cuponDescuento) > 0 || Number(p.descuentoManualMonto) > 0) && (
+                  <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>con descuento</div>
+                )}
+              </td>
               <td>{ESTADO_LABEL[p.estado] || p.estado}</td>
               <td>{new Date(p.createdAt).toLocaleString('es-MX')}</td>
               <td>

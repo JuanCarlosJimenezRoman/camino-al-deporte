@@ -273,10 +273,26 @@ const ventaSchema = z
     metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']).default('EFECTIVO'),
     cuentaTransferenciaId: z.number().int().optional(),
     items: z.array(ventaItemSchema).min(1),
+    // Descuento libre (% o $) que el vendedor captura al momento de la
+    // venta — sin código, a diferencia de los cupones de la tienda en línea.
+    // El monto real ($) se calcula en el servidor a partir de estos dos
+    // campos, nunca se confía en un total ya descontado que mande el
+    // cliente (ver más abajo).
+    descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).optional(),
+    descuentoValor: z.number().positive().optional(),
+    descuentoMotivo: z.string().optional(),
   })
   .refine((d) => d.metodoPago !== 'TRANSFERENCIA' || !!d.cuentaTransferenciaId, {
     message: 'cuentaTransferenciaId es requerido cuando el método de pago es transferencia.',
     path: ['cuentaTransferenciaId'],
+  })
+  .refine((d) => !d.descuentoTipo || d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
+    message: 'Un descuento por porcentaje no puede ser mayor a 100.',
+    path: ['descuentoValor'],
+  })
+  .refine((d) => !d.descuentoTipo || d.descuentoValor != null, {
+    message: 'Falta el valor del descuento.',
+    path: ['descuentoValor'],
   });
 
 // POST /ventas - registrar una venta y descontar inventario de esa sucursal
@@ -308,7 +324,8 @@ router.post(
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
-    const { cliente, clienteTelefono, metodoPago, cuentaTransferenciaId, items } = parsed.data;
+    const { cliente, clienteTelefono, metodoPago, cuentaTransferenciaId, items, descuentoTipo, descuentoValor, descuentoMotivo } =
+      parsed.data;
 
     let sucursalId;
     try {
@@ -392,6 +409,19 @@ router.post(
           itemsData.push({ ...item, subtotal });
         }
 
+        // Descuento libre del vendedor: el monto real en pesos siempre se
+        // calcula aquí en el servidor a partir del subtotal ya sumado
+        // arriba — nunca se confía en un total con descuento que mande el
+        // cliente, para que nadie pueda manipular el precio final desde el
+        // navegador. Nunca puede exceder el subtotal de los artículos.
+        let descuentoMonto = 0;
+        if (descuentoTipo && descuentoValor != null) {
+          descuentoMonto = descuentoTipo === 'PORCENTAJE' ? total * (descuentoValor / 100) : descuentoValor;
+          descuentoMonto = Math.max(0, Math.min(descuentoMonto, total));
+          descuentoMonto = Math.round(descuentoMonto * 100) / 100;
+        }
+        const totalConDescuento = total - descuentoMonto;
+
         const folio = `V-${Date.now()}`;
 
         return tx.venta.create({
@@ -405,7 +435,11 @@ router.post(
             cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? cuentaTransferenciaId : null,
             comprobanteUrl,
             comprobantePublicId,
-            total,
+            total: totalConDescuento,
+            descuentoTipo: descuentoTipo || null,
+            descuentoValor: descuentoValor ?? null,
+            descuentoMonto,
+            descuentoMotivo: descuentoMotivo || null,
             items: { create: itemsData },
           },
           include: {

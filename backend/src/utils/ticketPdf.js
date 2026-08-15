@@ -58,6 +58,18 @@ function generarTicketPdf(venta, items, whatsappContacto) {
       .stroke();
     doc.moveDown(0.8);
 
+    // Línea de descuento, solo si el vendedor aplicó uno (ver
+    // Venta.descuentoMonto en routes/ventas.js) — así el ticket deja
+    // constancia de cuánto se descontó, no solo el total ya rebajado.
+    if (venta.descuentoMonto && Number(venta.descuentoMonto) > 0) {
+      doc
+        .font('Helvetica')
+        .fontSize(9)
+        .fillColor('#555555')
+        .text(`Descuento: -$${Number(venta.descuentoMonto).toFixed(2)}`, { align: 'right' });
+      doc.fillColor('#000000');
+    }
+
     doc.font('Helvetica-Bold').fontSize(12).fillColor('#000000').text(`Total: $${venta.total}`, { align: 'right' });
     doc
       .font('Helvetica')

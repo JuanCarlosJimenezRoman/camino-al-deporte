@@ -72,6 +72,17 @@ interface Pedido {
   proveedorPagoConfirmado: ProveedorInfo | null;
   paqueteria: string | null;
   numeroGuia: string | null;
+  // Cupón de código aplicado por el cliente al armar el pedido.
+  cuponCodigo: string | null;
+  cuponDescuento: string;
+  // Descuento manual que el negocio activa después de creado el pedido
+  // (ver POST /pedidos-online/:id/aplicar-descuento).
+  descuentoManualTipo: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoManualValor: string | null;
+  descuentoManualMonto: string;
+  descuentoManualNotas: string | null;
+  descuentoConfirmadoWhatsapp: boolean;
+  descuentoAplicadoPor: { nombre: string } | null;
   items: PedidoItem[];
   createdAt: string;
   resena: {
@@ -100,6 +111,12 @@ export default function PedidoOnlineDetallePage() {
   const [numeroGuia, setNumeroGuia] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [cuentaReceptora, setCuentaReceptora] = useState(''); // '' = cuenta de la tienda
+
+  // Formulario para activar/editar el descuento manual post-pedido.
+  const [mostrarFormDescuento, setMostrarFormDescuento] = useState(false);
+  const [tipoDescuento, setTipoDescuento] = useState<'PORCENTAJE' | 'MONTO'>('PORCENTAJE');
+  const [valorDescuento, setValorDescuento] = useState('');
+  const [notasDescuento, setNotasDescuento] = useState('');
 
   async function cargar() {
     try {
@@ -155,6 +172,26 @@ export default function PedidoOnlineDetallePage() {
   function cancelarPedido() {
     if (!window.confirm('¿Cancelar este pedido? El stock reservado regresará al inventario.')) return;
     accion('cancelar');
+  }
+
+  async function activarDescuento() {
+    if (!valorDescuento || Number(valorDescuento) <= 0) {
+      setMensaje('Captura un valor de descuento mayor a cero.');
+      return;
+    }
+    await accion('aplicar-descuento', { tipoDescuento, valor: Number(valorDescuento), notas: notasDescuento || undefined });
+    setMostrarFormDescuento(false);
+    setValorDescuento('');
+    setNotasDescuento('');
+  }
+
+  function quitarDescuento() {
+    if (!window.confirm('¿Quitar el descuento de este pedido? El total volverá a su monto original.')) return;
+    accion('quitar-descuento');
+  }
+
+  function confirmarDescuentoWhatsapp() {
+    accion('confirmar-descuento-whatsapp');
   }
 
   return (
@@ -273,6 +310,123 @@ export default function PedidoOnlineDetallePage() {
           )}
         </div>
 
+        {(pedido.estado === 'PENDIENTE_PAGO' || Number(pedido.descuentoManualMonto) > 0) && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 8 }}>Descuento</h2>
+
+            {Number(pedido.descuentoManualMonto) > 0 ? (
+              <div>
+                <div style={{ fontSize: 14 }}>
+                  {pedido.descuentoManualTipo === 'PORCENTAJE'
+                    ? `${pedido.descuentoManualValor}% de descuento`
+                    : `Descuento fijo de $${pedido.descuentoManualValor}`}{' '}
+                  — se descontaron <strong>${pedido.descuentoManualMonto}</strong>
+                </div>
+                {pedido.descuentoManualNotas && (
+                  <div style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 4 }}>
+                    Nota: {pedido.descuentoManualNotas}
+                  </div>
+                )}
+                {pedido.descuentoAplicadoPor && (
+                  <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 4 }}>
+                    Activado por {pedido.descuentoAplicadoPor.nombre}
+                  </div>
+                )}
+                <div style={{ fontSize: 13, marginTop: 6 }}>
+                  {pedido.descuentoConfirmadoWhatsapp ? (
+                    <span style={{ color: '#1e7e34', fontWeight: 600 }}>✓ Confirmado con el cliente por WhatsApp</span>
+                  ) : (
+                    <span style={{ color: '#a15c00' }}>Todavía no se le confirma al cliente por WhatsApp</span>
+                  )}
+                </div>
+
+                {pedido.estado === 'PENDIENTE_PAGO' && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    {!pedido.descuentoConfirmadoWhatsapp && (
+                      <button className="btn" disabled={procesando} onClick={confirmarDescuentoWhatsapp}>
+                        Marcar confirmado por WhatsApp
+                      </button>
+                    )}
+                    <button
+                      className="btn-secondary btn"
+                      disabled={procesando}
+                      onClick={() => {
+                        setMostrarFormDescuento(true);
+                        setTipoDescuento((pedido.descuentoManualTipo as 'PORCENTAJE' | 'MONTO') || 'PORCENTAJE');
+                        setValorDescuento(pedido.descuentoManualValor || '');
+                        setNotasDescuento(pedido.descuentoManualNotas || '');
+                      }}
+                    >
+                      Editar
+                    </button>
+                    <button className="btn-secondary btn" disabled={procesando} onClick={quitarDescuento}>
+                      Quitar descuento
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              pedido.estado === 'PENDIENTE_PAGO' &&
+              !mostrarFormDescuento && (
+                <button className="btn" onClick={() => setMostrarFormDescuento(true)}>
+                  Activar descuento
+                </button>
+              )
+            )}
+
+            {pedido.estado === 'PENDIENTE_PAGO' && mostrarFormDescuento && (
+              <div style={{ marginTop: Number(pedido.descuentoManualMonto) > 0 ? 12 : 0 }}>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 13 }}>Tipo</label>
+                    <select value={tipoDescuento} onChange={(e) => setTipoDescuento(e.target.value as 'PORCENTAJE' | 'MONTO')}>
+                      <option value="PORCENTAJE">Porcentaje (%)</option>
+                      <option value="MONTO">Monto fijo ($)</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 13 }}>Valor {tipoDescuento === 'PORCENTAJE' ? '(%)' : '($)'}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={valorDescuento}
+                      onChange={(e) => setValorDescuento(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <label style={{ fontSize: 13 }}>Nota (opcional, uso interno)</label>
+                <div style={{ marginBottom: 8, marginTop: 4 }}>
+                  <input
+                    value={notasDescuento}
+                    onChange={(e) => setNotasDescuento(e.target.value)}
+                    placeholder="Ej. modelo con descuento por promoción de agosto"
+                  />
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 8 }}>
+                  Recuerda confirmarle el descuento al cliente por WhatsApp antes de que haga la transferencia.
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn" disabled={procesando} onClick={activarDescuento}>
+                    Guardar descuento
+                  </button>
+                  <button
+                    className="btn-secondary btn"
+                    disabled={procesando}
+                    onClick={() => {
+                      setMostrarFormDescuento(false);
+                      setValorDescuento('');
+                      setNotasDescuento('');
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {pedido.estado === 'PAGADO' && (
           <div className="card" style={{ marginBottom: 16 }}>
             <h2 style={{ fontSize: 15, marginBottom: 8 }}>Marcar como enviado</h2>
@@ -342,12 +496,24 @@ export default function PedidoOnlineDetallePage() {
         <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 10, paddingTop: 10, fontSize: 13 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-muted)' }}>
             <span>Subtotal</span>
-            <span>${(Number(pedido.total) - Number(pedido.costoEnvio)).toFixed(2)}</span>
+            <span>${pedido.items.reduce((acc, it) => acc + Number(it.subtotal), 0).toFixed(2)}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-muted)', marginTop: 4 }}>
             <span>Envío</span>
             <span>${pedido.costoEnvio}</span>
           </div>
+          {Number(pedido.cuponDescuento) > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-muted)', marginTop: 4 }}>
+              <span>Cupón {pedido.cuponCodigo}</span>
+              <span>-${pedido.cuponDescuento}</span>
+            </div>
+          )}
+          {Number(pedido.descuentoManualMonto) > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-muted)', marginTop: 4 }}>
+              <span>Descuento</span>
+              <span>-${pedido.descuentoManualMonto}</span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginTop: 6 }}>
             <span>Total</span>
             <span>${pedido.total}</span>

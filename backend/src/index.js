@@ -20,11 +20,13 @@ const configuracionTiendaRoutes = require('./routes/configuracionTienda');
 const resenasRoutes = require('./routes/resenas');
 const solicitudesRoutes = require('./routes/solicitudes');
 const notificacionesRoutes = require('./routes/notificaciones');
+const cuponesRoutes = require('./routes/cupones');
 const tiendaAuthRoutes = require('./routes/tienda/auth');
 const tiendaCatalogoRoutes = require('./routes/tienda/catalogo');
 const tiendaPedidosRoutes = require('./routes/tienda/pedidos');
 const tiendaResenasRoutes = require('./routes/tienda/resenas');
 const tiendaConfiguracionRoutes = require('./routes/tienda/configuracion');
+const tiendaCuponesRoutes = require('./routes/tienda/cupones');
 
 const app = express();
 
@@ -66,6 +68,7 @@ app.use('/configuracion-tienda', configuracionTiendaRoutes);
 app.use('/resenas', resenasRoutes);
 app.use('/solicitudes', solicitudesRoutes);
 app.use('/notificaciones', notificacionesRoutes);
+app.use('/cupones', cuponesRoutes);
 
 // Tienda en línea (cara al cliente): catálogo público + cuenta + pedidos.
 app.use('/tienda/auth', tiendaAuthRoutes);
@@ -73,6 +76,7 @@ app.use('/tienda/productos', tiendaCatalogoRoutes);
 app.use('/tienda/pedidos', tiendaPedidosRoutes);
 app.use('/tienda/resenas', tiendaResenasRoutes);
 app.use('/tienda/configuracion', tiendaConfiguracionRoutes);
+app.use('/tienda/cupones', tiendaCuponesRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, next) => {

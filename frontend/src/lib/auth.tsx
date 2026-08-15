@@ -113,6 +113,9 @@ export const PERMISOS = {
   // Bitácora completa de entradas/salidas de inventario (todas las
   // variantes, no solo una) — mismos roles que administran inventario.
   inventarioHistorial: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
+  // Cupones de la tienda en línea: mismos roles que administran cuentas de
+  // transferencia (información financiera/promocional sensible).
+  cupones: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

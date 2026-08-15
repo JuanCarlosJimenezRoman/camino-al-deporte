@@ -19,6 +19,7 @@ import {
   X,
   History,
   ShieldCheck,
+  Tag,
   LucideIcon,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
@@ -77,6 +78,11 @@ export function AppSidebar({
           href: '/dashboard/pedidos-online',
           label: 'Pedidos en línea',
           icon: Globe,
+        },
+        puedeVer('cupones', rol) && {
+          href: '/dashboard/cupones',
+          label: 'Cupones',
+          icon: Tag,
         },
         puedeVer('resenas', rol) && {
           href: '/dashboard/resenas',

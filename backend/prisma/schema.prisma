@@ -62,6 +62,8 @@ model Usuario {
   solicitudesCreadas        SolicitudPermiso[] @relation("SolicitudesCreadas")
   solicitudesRevisadas      SolicitudPermiso[] @relation("SolicitudesRevisadas")
   notificaciones            Notificacion[]
+  cuponesCreados            Cupon[]
+  pedidosDescuentoAplicado  Pedido[] @relation("PedidosDescuentoAplicado")
 
   @@map("usuarios")
 }
@@ -199,6 +201,10 @@ model Producto {
 
   variantes    ProductoVariante[]
   imagenes     ProductoImagen[]
+  // Cupones de la tienda en línea que incluyen este producto en su lista de
+  // productos aplicables (ver modelo Cupon: un cupón de código solo
+  // descuenta los renglones del carrito que estén en esta lista).
+  cupones      CuponProducto[]
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -583,6 +589,19 @@ model Venta {
   ticketPdfPublicId String? @map("ticket_pdf_public_id")
   total       Decimal     @default(0) @db.Decimal(10, 2)
 
+  // Descuento libre (% o $) que el vendedor captura al registrar la venta en
+  // el punto de venta de una sucursal — a diferencia de los cupones de la
+  // tienda en línea, aquí no hay código: es una cifra que el cajero teclea
+  // directamente, con un motivo opcional para dejar rastro de por qué se
+  // autorizó (ver POST /ventas). descuentoMonto es el monto real en pesos ya
+  // calculado y aplicado al total (nunca puede exceder la suma de los
+  // artículos); descuentoValor es lo que el cajero tecleó tal cual (el % o
+  // el monto, según descuentoTipo), solo para referencia/edición futura.
+  descuentoTipo   TipoDescuento? @map("descuento_tipo")
+  descuentoValor  Decimal?       @map("descuento_valor") @db.Decimal(10, 2)
+  descuentoMonto  Decimal        @default(0) @map("descuento_monto") @db.Decimal(10, 2)
+  descuentoMotivo String?        @map("descuento_motivo")
+
   metodoPago  MetodoPago  @default(EFECTIVO) @map("metodo_pago")
   // Solo aplica cuando metodoPago = TRANSFERENCIA
   cuentaTransferenciaId Int? @map("cuenta_transferencia_id")
@@ -670,6 +689,7 @@ model Cliente {
 
   apartados Apartado[]
   pedidos   Pedido[]
+  cuponUsos CuponUso[]
 
   @@map("clientes")
 }
@@ -792,13 +812,39 @@ model Pedido {
   cliente   Cliente      @relation(fields: [clienteId], references: [id])
 
   estado    EstadoPedido @default(PENDIENTE_PAGO)
-  // total = suma de los artículos + costoEnvio. costoEnvio se "congela" al
-  // crear el pedido (copiado de ConfiguracionTienda) para que si el negocio
-  // cambia la tarifa después, los pedidos ya hechos conserven el costo con
-  // el que realmente se cobraron — por ahora es un monto fijo global; en el
-  // futuro se piensa volver dinámico (por zona/peso/etc.).
+  // total = suma de los artículos (PedidoItem.subtotal) + costoEnvio -
+  // cuponDescuento - descuentoManualMonto. costoEnvio se "congela" al crear
+  // el pedido (copiado de ConfiguracionTienda) para que si el negocio cambia
+  // la tarifa después, los pedidos ya hechos conserven el costo con el que
+  // realmente se cobraron — por ahora es un monto fijo global; en el futuro
+  // se piensa volver dinámico (por zona/peso/etc.).
   total      Decimal @default(0) @db.Decimal(10, 2)
   costoEnvio Decimal @default(0) @db.Decimal(10, 2) @map("costo_envio")
+
+  // Cupón de código aplicado por el cliente al armar el pedido (ver POST
+  // /tienda/pedidos y utils/cupones.js). cuponCodigo queda "congelado" tal
+  // cual se usó, para poder mostrarlo aunque el cupón se edite/borre después.
+  cuponId        Int?     @map("cupon_id")
+  cupon          Cupon?   @relation(fields: [cuponId], references: [id])
+  cuponCodigo    String?  @map("cupon_codigo")
+  cuponDescuento Decimal  @default(0) @map("cupon_descuento") @db.Decimal(10, 2)
+  cuponUso       CuponUso?
+
+  // Descuento manual que el negocio activa DESPUÉS de creado el pedido,
+  // mientras sigue PENDIENTE_PAGO — típicamente porque un modelo en
+  // particular admite descuento y se le confirma al cliente por WhatsApp
+  // antes de que haga la transferencia (ver POST
+  // /pedidos-online/:id/aplicar-descuento). descuentoConfirmadoWhatsapp es
+  // solo un registro informativo de que ya se avisó al cliente por chat; no
+  // cambia montos por sí solo.
+  descuentoManualTipo        TipoDescuento? @map("descuento_manual_tipo")
+  descuentoManualValor       Decimal?       @map("descuento_manual_valor") @db.Decimal(10, 2)
+  descuentoManualMonto       Decimal        @default(0) @map("descuento_manual_monto") @db.Decimal(10, 2)
+  descuentoManualNotas       String?        @map("descuento_manual_notas")
+  descuentoConfirmadoWhatsapp Boolean       @default(false) @map("descuento_confirmado_whatsapp")
+  descuentoAplicadoPorId     Int?           @map("descuento_aplicado_por_id")
+  descuentoAplicadoPor       Usuario?       @relation("PedidosDescuentoAplicado", fields: [descuentoAplicadoPorId], references: [id])
+  descuentoAplicadoAt        DateTime?      @map("descuento_aplicado_at")
 
   // Dirección de envío: se guarda "congelada" en el pedido (no como
   // referencia a un catálogo de direcciones del cliente) para que, si el
@@ -886,6 +932,91 @@ model PedidoItem {
   subtotal       Decimal @db.Decimal(10, 2)
 
   @@map("pedido_items")
+}
+
+// ---------------------------------------------------------------------------
+// Cupones y descuentos
+// ---------------------------------------------------------------------------
+//
+// Un Cupon es un código que el cliente teclea en el checkout de la tienda en
+// línea (ver POST /tienda/cupones/validar y POST /tienda/pedidos). A
+// diferencia de un descuento general de catálogo, un cupón SOLO aplica a los
+// productos específicos que el admin eligió (CuponProducto) — si el carrito
+// trae otros productos no listados, esos renglones no se descuentan; si
+// ninguno de los productos del carrito está en la lista, el cupón se
+// rechaza. Es distinto del descuento libre que un vendedor captura en el
+// punto de venta de una sucursal (Venta.descuentoTipo/Valor/Monto, sin
+// código) y del descuento manual post-pedido (Pedido.descuentoManualTipo/
+// Valor/Monto, ver comentario en el modelo Pedido).
+enum TipoDescuento {
+  PORCENTAJE // Cupon.valor / Venta.descuentoValor / Pedido.descuentoManualValor es un % (0-100)
+  MONTO      // es un monto fijo en pesos
+}
+
+model Cupon {
+  id            Int           @id @default(autoincrement())
+  // Se guarda siempre en mayúsculas (ver utils/cupones.js) para que el
+  // cliente pueda escribirlo en cualquier combinación de mayúsculas/
+  // minúsculas al usarlo.
+  codigo        String        @unique
+  descripcion   String?
+  tipoDescuento TipoDescuento @map("tipo_descuento")
+  valor         Decimal       @db.Decimal(10, 2)
+
+  // Monto mínimo de compra, evaluado solo sobre el subtotal de los
+  // productos a los que aplica el cupón (no sobre todo el carrito) — ver
+  // utils/cupones.js.
+  montoMinimo    Decimal?  @map("monto_minimo") @db.Decimal(10, 2)
+  fechaInicio    DateTime? @map("fecha_inicio")
+  fechaFin       DateTime? @map("fecha_fin")
+  // null = sin límite.
+  usosMaximos    Int?      @map("usos_maximos")
+  usosPorCliente Int?      @map("usos_por_cliente")
+  activo         Boolean   @default(true)
+
+  creadoPorId Int?     @map("creado_por_id")
+  creadoPor   Usuario? @relation(fields: [creadoPorId], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  productos CuponProducto[]
+  usos      CuponUso[]
+  pedidos   Pedido[]
+
+  @@map("cupones")
+}
+
+// Productos específicos a los que aplica un cupón (relación muchos a
+// muchos explícita en vez de implícita, para poder consultarla fácilmente
+// desde ambos lados y no perder la fecha en que se agregó cada uno).
+model CuponProducto {
+  id         Int      @id @default(autoincrement())
+  cuponId    Int      @map("cupon_id")
+  cupon      Cupon    @relation(fields: [cuponId], references: [id])
+  productoId Int      @map("producto_id")
+  producto   Producto @relation(fields: [productoId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([cuponId, productoId])
+  @@map("cupon_productos")
+}
+
+// Un renglón por cada vez que un cliente usó un cupón en un pedido — sirve
+// para contar usosMaximos/usosPorCliente y para auditar cuánto se descontó
+// realmente en cada caso (montoDescontado puede variar entre usos si el
+// cupón es de %, según el subtotal aplicable de cada carrito).
+model CuponUso {
+  id              Int      @id @default(autoincrement())
+  cuponId         Int      @map("cupon_id")
+  cupon           Cupon    @relation(fields: [cuponId], references: [id])
+  clienteId       Int      @map("cliente_id")
+  cliente         Cliente  @relation(fields: [clienteId], references: [id])
+  pedidoId        Int      @unique @map("pedido_id")
+  pedido          Pedido   @relation(fields: [pedidoId], references: [id])
+  montoDescontado Decimal  @map("monto_descontado") @db.Decimal(10, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("cupon_usos")
 }
 
 // ---------------------------------------------------------------------------

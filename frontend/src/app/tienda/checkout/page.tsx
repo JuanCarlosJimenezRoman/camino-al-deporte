@@ -12,6 +12,11 @@ interface PedidoCreado {
   folio: string;
 }
 
+interface CuponValidado {
+  codigo: string;
+  montoDescuento: number;
+}
+
 const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
 const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
@@ -41,6 +46,16 @@ export default function CheckoutPage() {
   // (carrito vacío) antes de que termine de navegar al detalle del pedido.
   const [pedidoCreado, setPedidoCreado] = useState(false);
 
+  // Cupón de código, opcional (ver /dashboard/cupones — solo aplica a los
+  // productos específicos que el admin eligió). Se valida aquí para
+  // mostrarle el descuento al cliente antes de confirmar, pero el backend
+  // vuelve a validar todo al crear el pedido (POST /tienda/pedidos), así que
+  // esta vista previa nunca es la fuente de verdad del monto final.
+  const [cuponCodigo, setCuponCodigo] = useState('');
+  const [cuponAplicado, setCuponAplicado] = useState<CuponValidado | null>(null);
+  const [cuponError, setCuponError] = useState<string | null>(null);
+  const [validandoCupon, setValidandoCupon] = useState(false);
+
   useEffect(() => {
     apiTienda<{ costoEnvio: number }>('/tienda/configuracion')
       .then((data) => setCostoEnvio(Number(data.costoEnvio) || 0))
@@ -59,6 +74,33 @@ export default function CheckoutPage() {
   }, [cargando, cliente, items.length, router, pedidoCreado]);
 
   if (cargando || !cliente || (items.length === 0 && !pedidoCreado)) return null;
+
+  async function aplicarCupon() {
+    if (!cuponCodigo.trim()) return;
+    setValidandoCupon(true);
+    setCuponError(null);
+    try {
+      const resultado = await apiTienda<{ codigo: string; montoDescuento: number }>('/tienda/cupones/validar', {
+        method: 'POST',
+        body: JSON.stringify({
+          codigo: cuponCodigo.trim(),
+          items: items.map((i) => ({ varianteId: i.varianteId, cantidad: i.cantidad })),
+        }),
+      });
+      setCuponAplicado({ codigo: resultado.codigo, montoDescuento: resultado.montoDescuento });
+    } catch (err) {
+      setCuponAplicado(null);
+      setCuponError(err instanceof ApiError ? err.message : 'No se pudo aplicar el cupón.');
+    } finally {
+      setValidandoCupon(false);
+    }
+  }
+
+  function quitarCupon() {
+    setCuponAplicado(null);
+    setCuponCodigo('');
+    setCuponError(null);
+  }
 
   async function confirmarPedido(e: FormEvent) {
     e.preventDefault();
@@ -80,6 +122,7 @@ export default function CheckoutPage() {
           referencias: referencias || undefined,
           notas: notas || undefined,
           items: items.map((i) => ({ varianteId: i.varianteId, cantidad: i.cantidad })),
+          cuponCodigo: cuponAplicado ? cuponAplicado.codigo : undefined,
         }),
       });
       setPedidoCreado(true);
@@ -182,6 +225,40 @@ export default function CheckoutPage() {
             </div>
           ))}
         </div>
+
+        <div className="mt-4 border-t border-border pt-4">
+          {cuponAplicado ? (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                Cupón <strong className="text-foreground">{cuponAplicado.codigo}</strong> aplicado
+              </span>
+              <button type="button" onClick={quitarCupon} className="text-xs font-medium underline-offset-4 hover:underline">
+                Quitar
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2">
+                <input
+                  value={cuponCodigo}
+                  onChange={(e) => setCuponCodigo(e.target.value.toUpperCase())}
+                  placeholder="Código de cupón"
+                  className={`${campoClase} flex-1`}
+                />
+                <button
+                  type="button"
+                  onClick={aplicarCupon}
+                  disabled={validandoCupon || !cuponCodigo.trim()}
+                  className="rounded-lg border border-border px-4 text-sm font-semibold"
+                >
+                  {validandoCupon ? '...' : 'Aplicar'}
+                </button>
+              </div>
+              {cuponError && <p className="mt-1.5 text-xs text-destructive">{cuponError}</p>}
+            </div>
+          )}
+        </div>
+
         <div className="mt-4 space-y-1.5 border-t border-border pt-4 text-sm">
           <div className="flex justify-between text-muted-foreground">
             <span>Subtotal</span>
@@ -191,9 +268,15 @@ export default function CheckoutPage() {
             <span>Envío</span>
             <span>{costoEnvio > 0 ? `$${costoEnvio.toFixed(2)}` : 'Gratis'}</span>
           </div>
+          {cuponAplicado && cuponAplicado.montoDescuento > 0 && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Cupón</span>
+              <span>-${cuponAplicado.montoDescuento.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between pt-1.5 text-base font-bold text-foreground">
             <span>Total</span>
-            <span>${(total + costoEnvio).toFixed(2)}</span>
+            <span>${(total + costoEnvio - (cuponAplicado?.montoDescuento || 0)).toFixed(2)}</span>
           </div>
         </div>
       </div>

@@ -45,6 +45,13 @@ interface Pedido {
   proveedorPago: { id: number; nombre: string; telefono: string | null } | null;
   whatsappTienda: string | null;
   referenciaPago: string;
+  // Cupón de código aplicado al armar el pedido.
+  cuponCodigo: string | null;
+  cuponDescuento: string;
+  // Descuento manual que la tienda activó después de creado el pedido,
+  // confirmado por WhatsApp antes de transferir (ver dashboard, botón
+  // "Activar descuento" en el detalle del pedido).
+  descuentoManualMonto: string;
   comprobanteUrl: string | null;
   comprobanteRechazadoMotivo: string | null;
   paqueteria: string | null;
@@ -93,6 +100,7 @@ function construirMensajeWhatsapp(pedido: Pedido): string {
   const direccion = `${pedido.destinatario} — ${pedido.calle} ${pedido.numeroExt}${
     pedido.numeroInt ? ` Int. ${pedido.numeroInt}` : ''
   }, ${pedido.colonia}, ${pedido.municipio}, ${pedido.estadoMx}, CP ${pedido.codigoPostal}`;
+  const descuentoTotal = Number(pedido.cuponDescuento || 0) + Number(pedido.descuentoManualMonto || 0);
 
   return [
     `Hola, quiero pagar mi pedido ${pedido.folio}.`,
@@ -101,6 +109,7 @@ function construirMensajeWhatsapp(pedido: Pedido): string {
     articulos,
     '',
     `Envío: $${pedido.costoEnvio}`,
+    ...(descuentoTotal > 0 ? [`Descuento: -$${descuentoTotal.toFixed(2)}`] : []),
     `Total: $${pedido.total}`,
     `Referencia: ${pedido.referenciaPago}`,
     '',
@@ -306,6 +315,11 @@ export default function PedidoDetallePage() {
               </p>
             )}
 
+            {Number(pedido.descuentoManualMonto) > 0 && (
+              <p className="mb-2 text-sm text-foreground">
+                Se te aplicó un descuento de ${pedido.descuentoManualMonto} — el total de abajo ya lo incluye.
+              </p>
+            )}
             <div className="mb-1 text-sm">
               <span className="font-semibold">Total a pagar:</span> ${pedido.total}
             </div>
@@ -480,12 +494,24 @@ export default function PedidoDetallePage() {
         <div className="mt-4 space-y-1.5 border-t border-border pt-4 text-sm">
           <div className="flex justify-between text-muted-foreground">
             <span>Subtotal</span>
-            <span>${(Number(pedido.total) - Number(pedido.costoEnvio)).toFixed(2)}</span>
+            <span>${pedido.items.reduce((acc, it) => acc + Number(it.subtotal), 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-muted-foreground">
             <span>Envío</span>
             <span>{Number(pedido.costoEnvio) > 0 ? `$${pedido.costoEnvio}` : 'Gratis'}</span>
           </div>
+          {Number(pedido.cuponDescuento) > 0 && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Cupón {pedido.cuponCodigo}</span>
+              <span>-${pedido.cuponDescuento}</span>
+            </div>
+          )}
+          {Number(pedido.descuentoManualMonto) > 0 && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Descuento</span>
+              <span>-${pedido.descuentoManualMonto}</span>
+            </div>
+          )}
           <div className="flex justify-between pt-1.5 text-base font-bold text-foreground">
             <span>Total</span>
             <span>${pedido.total}</span>

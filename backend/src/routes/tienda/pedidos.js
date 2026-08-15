@@ -5,6 +5,7 @@ const { requireClienteAuth } = require('../../middleware/authCliente');
 const { asyncHandler } = require('../../utils/asyncHandler');
 const { manejarSubidaImagen, manejarSubidaImagenes } = require('../../middleware/uploadImagen');
 const { subirImagen } = require('../../config/cloudinary');
+const { buscarCupon, calcularDescuentoCupon, mensajeError } = require('../../utils/cupones');
 
 const router = express.Router();
 
@@ -117,6 +118,11 @@ const pedidoSchema = z.object({
   referencias: z.string().optional(),
   notas: z.string().optional(),
   items: z.array(itemSchema).min(1),
+  // Código de cupón, opcional — validado con las mismas reglas que POST
+  // /tienda/cupones/validar (ver utils/cupones.js). Si no aplica a ningún
+  // producto del carrito, está vencido, agotado, etc., todo el pedido se
+  // rechaza con un mensaje claro en vez de crearse sin el descuento.
+  cuponCodigo: z.string().optional(),
 });
 
 // POST /tienda/pedidos - crea el pedido desde el carrito y reserva el stock
@@ -131,7 +137,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { items, ...direccion } = parsed.data;
+  const { items, cuponCodigo, ...direccion } = parsed.data;
 
   try {
     const pedido = await prisma.$transaction(async (tx) => {
@@ -149,6 +155,10 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
 
       let total = 0;
       const itemsData = [];
+      // Copia ligera de cada renglón (con el producto al que pertenece) solo
+      // para poder validar/calcular el cupón más abajo, sin volver a
+      // consultar las variantes.
+      const itemsParaCupon = [];
 
       for (const item of items) {
         const variante = await tx.productoVariante.findUnique({
@@ -198,9 +208,28 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
           precioUnitario,
           subtotal,
         });
+        itemsParaCupon.push({ productoId: variante.producto.id, cantidad: item.cantidad, precioUnitario });
       }
 
-      total += costoEnvio;
+      // Cupón de código, opcional: se valida contra los mismos productos del
+      // carrito recién armado. Si el código no aplica/está vencido/agotado,
+      // se rechaza el pedido completo con un mensaje claro (mejor que
+      // crearlo silenciosamente sin el descuento que el cliente esperaba).
+      let cuponAplicado = null;
+      let cuponDescuento = 0;
+      if (cuponCodigo && cuponCodigo.trim()) {
+        const { cupon, error: errorBusqueda } = await buscarCupon(tx, cuponCodigo);
+        if (errorBusqueda) throw new Error(`CUPON:${mensajeError(errorBusqueda)}`);
+
+        const resultado = await calcularDescuentoCupon(tx, cupon, itemsParaCupon, req.cliente.id);
+        if (resultado.error) {
+          throw new Error(`CUPON:${resultado.mensaje || mensajeError(resultado.error)}`);
+        }
+        cuponAplicado = cupon;
+        cuponDescuento = resultado.montoDescuento;
+      }
+
+      total += costoEnvio - cuponDescuento;
 
       const folio = `PED-${Date.now()}`;
       const referenciaPago = folio.replace('PED-', 'PED');
@@ -215,9 +244,23 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
           cuentaTransferenciaId: cuenta.id,
           referenciaPago,
           items: { create: itemsData },
+          ...(cuponAplicado
+            ? { cuponId: cuponAplicado.id, cuponCodigo: cuponAplicado.codigo, cuponDescuento }
+            : {}),
         },
         include: PEDIDO_INCLUDE,
       });
+
+      if (cuponAplicado) {
+        await tx.cuponUso.create({
+          data: {
+            cuponId: cuponAplicado.id,
+            clienteId: req.cliente.id,
+            pedidoId: nuevo.id,
+            montoDescontado: cuponDescuento,
+          },
+        });
+      }
 
       for (const it of itemsData) {
         await tx.movimientoInventario.create({
@@ -246,6 +289,9 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
     }
     if (err.message.startsWith('VARIANTE_NO_DISPONIBLE')) {
       return res.status(409).json({ error: 'Uno de los artículos del carrito ya no está disponible.' });
+    }
+    if (err.message.startsWith('CUPON:')) {
+      return res.status(400).json({ error: err.message.slice('CUPON:'.length) });
     }
     throw err;
   }
