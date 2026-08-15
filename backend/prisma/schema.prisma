@@ -205,6 +205,7 @@ model Producto {
   // productos aplicables (ver modelo Cupon: un cupón de código solo
   // descuenta los renglones del carrito que estén en esta lista).
   cupones      CuponProducto[]
+  favoritosDe  ClienteFavorito[]
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -691,6 +692,7 @@ model Cliente {
   pedidos   Pedido[]
   cuponUsos CuponUso[]
   resetTokens ClienteResetToken[]
+  favoritos ClienteFavorito[]
 
   @@map("clientes")
 }
@@ -709,6 +711,22 @@ model ClienteResetToken {
   createdAt DateTime  @default(now()) @map("created_at")
 
   @@map("cliente_reset_tokens")
+}
+
+// Productos que un cliente marcó como favorito en la tienda en línea (el
+// corazón en la tarjeta de producto). Una fila por par cliente/producto —
+// @@unique evita duplicados si el cliente le da clic dos veces (doble tap,
+// red lenta, etc.).
+model ClienteFavorito {
+  id         Int      @id @default(autoincrement())
+  clienteId  Int      @map("cliente_id")
+  cliente    Cliente  @relation(fields: [clienteId], references: [id])
+  productoId Int      @map("producto_id")
+  producto   Producto @relation(fields: [productoId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([clienteId, productoId])
+  @@map("cliente_favoritos")
 }
 
 enum EstadoApartado {

@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { useCarrito } from '@/lib/carrito';
 import { Stepper, claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
-import { imagenProducto, imagenMiniatura, imagenCatalogo } from '@/lib/imagenCloudinary';
+import { imagenProducto, imagenMiniatura } from '@/lib/imagenCloudinary';
 import { Testimonios } from '@/components/tienda/Testimonios';
+import { ProductCard } from '@/components/tienda/ProductCard';
 
 interface Variante {
   id: number;
@@ -35,6 +35,7 @@ interface ProductoSimilar {
   marca: { nombre: string } | null;
   precioVenta: string;
   imagenes: { url: string }[];
+  stockTotal?: number;
 }
 
 export default function ProductoDetallePage() {
@@ -268,21 +269,7 @@ export default function ProductoDetallePage() {
           <h2 className="mb-5 text-lg font-bold uppercase tracking-tight sm:text-xl">También te puede interesar</h2>
           <div className="flex snap-x gap-4 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:gap-6 sm:overflow-visible lg:grid-cols-4">
             {similares.map((p) => (
-              <Link key={p.id} href={`/tienda/productos/${p.id}`} className="group block w-40 shrink-0 snap-start sm:w-auto">
-                <div className="mb-3 aspect-square overflow-hidden rounded-2xl bg-secondary">
-                  {p.imagenes?.[0]?.url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={imagenCatalogo(p.imagenes[0].url)}
-                      alt={p.nombre}
-                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                  )}
-                </div>
-                <p className="truncate text-sm font-semibold leading-tight">{p.nombre}</p>
-                <p className="text-xs text-muted-foreground">{p.marca?.nombre}</p>
-                <p className="mt-1 text-sm font-bold">${p.precioVenta}</p>
-              </Link>
+              <ProductCard key={p.id} producto={p} className="w-40 shrink-0 snap-start sm:w-auto" />
             ))}
           </div>
         </div>

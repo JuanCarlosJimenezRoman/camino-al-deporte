@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { ReactNode, useState } from 'react';
-import { Menu, X, ShoppingBag, User } from 'lucide-react';
+import { Menu, X, ShoppingBag, Heart, User } from 'lucide-react';
 import { AuthClienteProvider, useAuthCliente } from '@/lib/authCliente';
 import { CarritoProvider, useCarrito } from '@/lib/carrito';
+import { FavoritosProvider, useFavoritos } from '@/lib/favoritos';
 import { claseBotonPrimario, claseBotonSecundario } from '@/components/tienda/ui';
 
 function BolsaIcono() {
@@ -15,6 +16,20 @@ function BolsaIcono() {
       {totalItems > 0 && (
         <span className="absolute right-0 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-bold leading-none text-background">
           {totalItems > 9 ? '9+' : totalItems}
+        </span>
+      )}
+    </Link>
+  );
+}
+
+function FavoritosIcono() {
+  const { ids } = useFavoritos();
+  return (
+    <Link href="/tienda/favoritos" className="relative p-2" aria-label="Favoritos">
+      <Heart className="h-6 w-6" strokeWidth={1.75} />
+      {ids.size > 0 && (
+        <span className="absolute right-0 top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-bold leading-none text-background">
+          {ids.size > 9 ? '9+' : ids.size}
         </span>
       )}
     </Link>
@@ -73,6 +88,7 @@ function Header() {
                   </Link>
                 ))}
             </div>
+            <FavoritosIcono />
             <BolsaIcono />
           </div>
         </div>
@@ -107,6 +123,9 @@ function Header() {
                 Mis pedidos
               </Link>
             )}
+            <Link href="/tienda/favoritos" onClick={cerrar} className="rounded-lg px-3 py-3 hover:bg-secondary">
+              Favoritos
+            </Link>
             {cliente && (
               <Link href="/tienda/perfil" onClick={cerrar} className="rounded-lg px-3 py-3 hover:bg-secondary">
                 Mi perfil
@@ -146,12 +165,14 @@ function Header() {
 export default function TiendaLayout({ children }: { children: ReactNode }) {
   return (
     <AuthClienteProvider>
-      <CarritoProvider>
-        <div className="min-h-screen bg-background text-foreground">
-          <Header />
-          <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{children}</main>
-        </div>
-      </CarritoProvider>
+      <FavoritosProvider>
+        <CarritoProvider>
+          <div className="min-h-screen bg-background text-foreground">
+            <Header />
+            <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">{children}</main>
+          </div>
+        </CarritoProvider>
+      </FavoritosProvider>
     </AuthClienteProvider>
   );
 }

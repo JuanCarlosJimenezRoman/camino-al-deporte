@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { Search, SlidersHorizontal } from 'lucide-react';
 import { apiTienda } from '@/lib/apiTienda';
-import { imagenCatalogo } from '@/lib/imagenCloudinary';
 import { EstadoFiltros, FiltrosPanel, Orden, contarFiltrosActivos, filtrosVacios } from '@/components/tienda/FiltrosPanel';
 import { Testimonios } from '@/components/tienda/Testimonios';
+import { ProductCard } from '@/components/tienda/ProductCard';
 
 interface VarianteTienda {
   talla: { valor: string; orden?: number } | null;
@@ -135,21 +134,7 @@ export default function TiendaCatalogoPage() {
 
       <div className="grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4">
         {filtrados?.map((p) => (
-          <Link key={p.id} href={`/tienda/productos/${p.id}`} className="group block">
-            <div className="mb-3 aspect-square overflow-hidden rounded-2xl bg-secondary">
-              {p.imagenes?.[0]?.url && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={imagenCatalogo(p.imagenes[0].url)}
-                  alt={p.nombre}
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-              )}
-            </div>
-            <p className="truncate text-sm font-semibold leading-tight">{p.nombre}</p>
-            <p className="text-xs text-muted-foreground">{p.marca?.nombre}</p>
-            <p className="mt-1 text-sm font-bold">${p.precioVenta}</p>
-          </Link>
+          <ProductCard key={p.id} producto={p} />
         ))}
       </div>
 
