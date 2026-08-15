@@ -60,7 +60,9 @@ function Header() {
               {!cargando &&
                 (cliente ? (
                   <>
-                    <span className="text-sm text-muted-foreground">Hola, {cliente.nombre.split(' ')[0]}</span>
+                    <Link href="/tienda/perfil" className="text-sm text-muted-foreground hover:text-foreground">
+                      Hola, {cliente.nombre.split(' ')[0]}
+                    </Link>
                     <button onClick={logout} className="text-sm font-medium underline-offset-4 hover:underline">
                       Salir
                     </button>
@@ -105,15 +107,20 @@ function Header() {
                 Mis pedidos
               </Link>
             )}
+            {cliente && (
+              <Link href="/tienda/perfil" onClick={cerrar} className="rounded-lg px-3 py-3 hover:bg-secondary">
+                Mi perfil
+              </Link>
+            )}
           </nav>
 
           <div className="border-t border-border pt-4">
             {!cargando &&
               (cliente ? (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Link href="/tienda/perfil" onClick={cerrar} className="flex items-center gap-2 text-sm text-muted-foreground">
                     <User className="h-4 w-4" /> {cliente.nombre}
-                  </div>
+                  </Link>
                   <button
                     onClick={() => {
                       cerrar();

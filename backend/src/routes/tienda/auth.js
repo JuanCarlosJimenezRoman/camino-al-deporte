@@ -99,4 +99,65 @@ router.get('/me', requireClienteAuth, asyncHandler(async (req, res) => {
   res.json(publico(cliente));
 }));
 
+const perfilSchema = z.object({
+  nombre: z.string().min(1),
+  telefono: z.string().min(1),
+  email: z.string().email(),
+});
+
+// PUT /tienda/auth/me - el cliente edita sus propios datos
+router.put('/me', requireClienteAuth, asyncHandler(async (req, res) => {
+  const parsed = perfilSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const { nombre, telefono, email } = parsed.data;
+
+  // El teléfono es la clave natural del Cliente (ver modelo): si ya lo usa
+  // otra cuenta, no se permite el cambio.
+  const enUso = await prisma.cliente.findFirst({ where: { telefono, NOT: { id: req.cliente.id } } });
+  if (enUso) {
+    return res.status(409).json({ error: 'Ese teléfono ya está en uso por otra cuenta.' });
+  }
+
+  try {
+    const actualizado = await prisma.cliente.update({
+      where: { id: req.cliente.id },
+      data: { nombre, telefono, email },
+    });
+    res.json(publico(actualizado));
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'Ese teléfono ya está en uso por otra cuenta.' });
+    throw err;
+  }
+}));
+
+const passwordSchema = z.object({
+  passwordActual: z.string().min(1),
+  passwordNueva: z.string().min(6, 'La nueva contraseña debe tener al menos 6 caracteres.'),
+});
+
+// PUT /tienda/auth/password - el cliente cambia su contraseña (pide la
+// actual para confirmar que es él quien la está cambiando).
+router.put('/password', requireClienteAuth, asyncHandler(async (req, res) => {
+  const parsed = passwordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+
+  const cliente = await prisma.cliente.findUnique({ where: { id: req.cliente.id } });
+  if (!cliente || !cliente.passwordHash) {
+    return res.status(404).json({ error: 'Cuenta no encontrada.' });
+  }
+
+  const passwordOk = await bcrypt.compare(parsed.data.passwordActual, cliente.passwordHash);
+  if (!passwordOk) {
+    return res.status(401).json({ error: 'Tu contraseña actual no es correcta.' });
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.passwordNueva, 10);
+  await prisma.cliente.update({ where: { id: cliente.id }, data: { passwordHash } });
+  res.json({ ok: true });
+}));
+
 module.exports = router;

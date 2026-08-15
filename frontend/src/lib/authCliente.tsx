@@ -24,6 +24,9 @@ interface AuthClienteContextValue {
   login: (email: string, password: string, redirectTo?: string) => Promise<void>;
   registro: (payload: RegistroPayload, redirectTo?: string) => Promise<void>;
   logout: () => void;
+  // Para actualizar los datos en memoria (header, etc.) justo después de que
+  // el cliente edita su perfil, sin tener que volver a pedir /me.
+  actualizarCliente: (cliente: Cliente) => void;
 }
 
 const AuthClienteContext = createContext<AuthClienteContextValue | undefined>(undefined);
@@ -72,7 +75,7 @@ export function AuthClienteProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthClienteContext.Provider value={{ cliente, cargando, login, registro, logout }}>
+    <AuthClienteContext.Provider value={{ cliente, cargando, login, registro, logout, actualizarCliente: setCliente }}>
       {children}
     </AuthClienteContext.Provider>
   );
