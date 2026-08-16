@@ -121,6 +121,15 @@ interface EstimacionResponse {
   nota: string;
 }
 
+// Un punto del gráfico de estimación trae SOLO "real" (histórico) o SOLO
+// "estimado" (proyección) — excepto el último día histórico, que trae
+// ambos para que la línea punteada arranque conectada a la línea sólida.
+interface PuntoProyeccion {
+  fecha: string;
+  real?: number;
+  estimado?: number;
+}
+
 function money(n: number) {
   return `$${(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -349,18 +358,17 @@ export default function ReportesVentasPage() {
     }
   }
 
-  const datosProyeccion = useMemo(() => {
+  const datosProyeccion = useMemo<PuntoProyeccion[]>(() => {
     if (!estimacion) return [];
-    const puntos = estimacion.historico.slice(-45).map((p) => ({
+    const puntos: PuntoProyeccion[] = estimacion.historico.slice(-45).map((p) => ({
       fecha: formatFechaCorta(p.fecha),
       real: p.monto,
-      estimado: undefined as number | undefined,
     }));
     if (puntos.length && estimacion.proyeccion.length) {
       puntos[puntos.length - 1].estimado = puntos[puntos.length - 1].real;
     }
     for (const p of estimacion.proyeccion) {
-      puntos.push({ fecha: formatFechaCorta(p.fecha), real: undefined, estimado: p.monto });
+      puntos.push({ fecha: formatFechaCorta(p.fecha), estimado: p.monto });
     }
     return puntos;
   }, [estimacion]);
