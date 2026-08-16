@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
+const { inicioDiaNegocio, finDiaNegocio } = require('../utils/fechas');
 
 const router = express.Router();
 
@@ -305,8 +306,10 @@ router.get(
     };
     if (fechaInicio || fechaFin) {
       where.createdAt = {};
-      if (fechaInicio) where.createdAt.gte = new Date(`${fechaInicio}T00:00:00.000Z`);
-      if (fechaFin) where.createdAt.lte = new Date(`${fechaFin}T23:59:59.999Z`);
+      // Horario de México, no UTC (ver utils/fechas.js) — mismo criterio
+      // que el corte del día y el historial de ventas.
+      if (fechaInicio) where.createdAt.gte = inicioDiaNegocio(String(fechaInicio));
+      if (fechaFin) where.createdAt.lte = finDiaNegocio(String(fechaFin));
     }
 
     const movimientos = await prisma.movimientoInventario.findMany({

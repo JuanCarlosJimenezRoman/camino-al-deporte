@@ -299,8 +299,15 @@ router.put(
 
 router.get('/campos-personalizados', requireAuth, asyncHandler(async (req, res) => {
   const { entidad } = req.query;
+  // Los formularios (ej. Productos) solo quieren campos activos. La pantalla
+  // de administración (ADMIN_PRINCIPAL/DESARROLLO) también necesita ver los
+  // desactivados, para poder reactivarlos — por eso ?todos=1 solo aplica el
+  // filtro activo:true cuando NO viene, y solo esos roles pueden pedirlo.
+  const esAdmin = ['ADMIN_PRINCIPAL', 'DESARROLLO'].includes(req.usuario.rol);
+  const verTodos = esAdmin && String(req.query.todos) === '1';
   const campos = await prisma.campoPersonalizado.findMany({
-    where: { activo: true, ...(entidad ? { entidad: String(entidad) } : {}) },
+    where: { ...(verTodos ? {} : { activo: true }), ...(entidad ? { entidad: String(entidad) } : {}) },
+    orderBy: [{ entidad: 'asc' }, { etiqueta: 'asc' }],
   });
   res.json(campos);
 }));
@@ -324,6 +331,36 @@ router.post(
     }
     const campo = await prisma.campoPersonalizado.create({ data: parsed.data });
     res.status(201).json(campo);
+  })
+);
+
+router.put(
+  '/campos-personalizados/:id',
+  requireAuth,
+  requireRole('ADMIN_PRINCIPAL', 'DESARROLLO'),
+  asyncHandler(async (req, res) => {
+    // `entidad` y `clave` NO se pueden editar aquí a propósito: son la
+    // referencia que ya quedó guardada dentro de `atributosExtra` (JSON) de
+    // cada producto existente — cambiarlas desincronizaría esos datos ya
+    // guardados del campo que ahora se estaría definiendo. Si de verdad se
+    // necesita otra clave, lo correcto es desactivar este campo y crear uno
+    // nuevo.
+    const schema = z.object({
+      etiqueta: z.string().min(1).optional(),
+      tipo: z.enum(['TEXTO', 'NUMERO', 'BOOLEANO', 'FECHA', 'SELECT']).optional(),
+      opciones: z.array(z.string()).optional(),
+      requerido: z.boolean().optional(),
+      activo: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    const campo = await prisma.campoPersonalizado.update({
+      where: { id: Number(req.params.id) },
+      data: parsed.data,
+    });
+    res.json(campo);
   })
 );
 

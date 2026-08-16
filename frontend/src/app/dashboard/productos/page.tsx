@@ -97,10 +97,27 @@ interface EditVarianteForm {
 
 // Un par clave/valor libre (ej. "Material" / "Piel sintética") para info
 // extra opcional del producto — se guarda tal cual en Producto.atributosExtra
-// (JSON), sin necesidad de definir un esquema de campos de antemano.
+// (JSON). Sigue existiendo como respaldo para lo que no tiene un campo
+// definido en Catálogo → "Campos personalizados": lo que sí tiene un campo
+// definido ahí se edita con el input tipado correspondiente (ver
+// CampoPersonalizado / valoresDefinidos abajo), no como par libre.
 interface AtributoExtra {
   clave: string;
   valor: string;
+}
+
+// Definición de un campo creado en Catálogo → "Campos personalizados"
+// (ver GET /catalogos/campos-personalizados?entidad=producto). Con esto el
+// formulario ya no depende de que alguien escriba la clave "a mano" cada
+// vez: para estos campos se renderiza el input correcto según `tipo` y se
+// valida `requerido` antes de guardar.
+interface CampoPersonalizado {
+  id: number;
+  clave: string;
+  etiqueta: string;
+  tipo: 'TEXTO' | 'NUMERO' | 'BOOLEANO' | 'FECHA' | 'SELECT';
+  opciones: string[];
+  requerido: boolean;
 }
 
 interface EditProductoForm {
@@ -111,6 +128,13 @@ interface EditProductoForm {
   precioCompra: string;
   precioVenta: string;
   descripcion: string;
+  // Valores de los campos definidos en Catálogo → "Campos personalizados"
+  // (clave -> valor tal cual se manda en atributosExtra; BOOLEANO se guarda
+  // como 'true'/'false' en texto, igual que el resto, porque atributosExtra
+  // completo es Record<string, string>).
+  valoresDefinidos: Record<string, string>;
+  // Todo lo demás que ya traía el producto en atributosExtra pero que NO
+  // corresponde a un campo definido activo — pares libres, igual que antes.
   atributos: AtributoExtra[];
 }
 
@@ -123,6 +147,7 @@ function formVacioProducto(): EditProductoForm {
     precioCompra: '0',
     precioVenta: '0',
     descripcion: '',
+    valoresDefinidos: {},
     atributos: [],
   };
 }
@@ -164,6 +189,9 @@ export default function ProductosPage() {
   const [tallas, setTallas] = useState<Talla[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  // Campos definidos en Catálogo → "Campos personalizados" para la entidad
+  // "producto" (ver docs/ARQUITECTURA.md, sección "Campos personalizados").
+  const [camposDefinidos, setCamposDefinidos] = useState<CampoPersonalizado[]>([]);
   // Modelos del filtro: dependen de la marca elegida en el filtro (no del
   // formulario de alta), se recargan cada vez que cambia esa marca.
   const [modelosFiltro, setModelosFiltro] = useState<Modelo[]>([]);
@@ -217,6 +245,7 @@ export default function ProductosPage() {
     api<Categoria[]>('/catalogos/categorias').then(setCategorias);
     api<Talla[]>('/catalogos/tallas').then(setTallas);
     api<Proveedor[]>('/proveedores').then(setProveedores);
+    api<CampoPersonalizado[]>('/catalogos/campos-personalizados?entidad=producto').then(setCamposDefinidos);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -370,6 +399,21 @@ export default function ProductosPage() {
     }
     const m = await api<Modelo[]>(`/catalogos/modelos?marcaId=${p.marcaId}`);
     setModelosEdit(m);
+    // Lo que ya tenía guardado el producto en atributosExtra se reparte: lo
+    // que coincide con la clave de un campo definido y activo va a
+    // valoresDefinidos (se edita con el input tipado); el resto queda como
+    // par libre, igual que antes de que existiera esta pantalla — así un
+    // producto con datos viejos "sueltos" no pierde nada al abrirse aquí.
+    const clavesDefinidas = new Set(camposDefinidos.map((c) => c.clave));
+    const valoresDefinidos: Record<string, string> = {};
+    const atributosLibres: AtributoExtra[] = [];
+    for (const [clave, valor] of Object.entries(p.atributosExtra ?? {})) {
+      if (clavesDefinidas.has(clave)) {
+        valoresDefinidos[clave] = String(valor);
+      } else {
+        atributosLibres.push({ clave, valor: String(valor) });
+      }
+    }
     setEditProductoForm({
       nombre: p.nombre,
       marcaId: String(p.marcaId),
@@ -378,13 +422,15 @@ export default function ProductosPage() {
       precioCompra: p.precioCompra,
       precioVenta: p.precioVenta,
       descripcion: p.descripcion ?? '',
-      atributos: Object.entries(p.atributosExtra ?? {}).map(([clave, valor]) => ({
-        clave,
-        valor: String(valor),
-      })),
+      valoresDefinidos,
+      atributos: atributosLibres,
     });
     setMensaje(null);
     setEditandoProductoId(p.id);
+  }
+
+  function actualizarValorDefinido(clave: string, valor: string) {
+    setEditProductoForm((f) => ({ ...f, valoresDefinidos: { ...f.valoresDefinidos, [clave]: valor } }));
   }
 
   function cancelarEdicionProducto() {
@@ -423,9 +469,22 @@ export default function ProductosPage() {
       setMensaje('Nombre, marca y categoría son obligatorios.');
       return;
     }
-    // Solo se guardan los atributos con clave no vacía; el valor puede
-    // quedar vacío (ej. un campo que aún no se llena).
+    // Los campos definidos como obligatorios (ver Catálogo → "Campos
+    // personalizados") se validan antes de guardar, igual que nombre/marca/
+    // categoría arriba.
+    for (const campo of camposDefinidos) {
+      if (campo.requerido && !(editProductoForm.valoresDefinidos[campo.clave] ?? '').trim()) {
+        setMensaje(`El campo "${campo.etiqueta}" es obligatorio.`);
+        return;
+      }
+    }
+    // atributosExtra final = los campos definidos (con valor no vacío) +
+    // los pares libres que sigan quedando (clave no vacía) — un solo objeto,
+    // igual que espera el backend.
     const atributosExtra: Record<string, string> = {};
+    for (const [clave, valor] of Object.entries(editProductoForm.valoresDefinidos)) {
+      if (valor.trim()) atributosExtra[clave] = valor;
+    }
     for (const a of editProductoForm.atributos) {
       if (a.clave.trim()) atributosExtra[a.clave.trim()] = a.valor;
     }
@@ -983,10 +1042,66 @@ export default function ProductosPage() {
                             />
                           </div>
 
+                          {camposDefinidos.length > 0 && (
+                            <div style={{ marginBottom: 16 }}>
+                              <label style={{ fontSize: 13, fontWeight: 600 }}>Campos personalizados</label>
+                              <p
+                                style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2, marginBottom: 8 }}
+                              >
+                                Definidos en Catálogo → "Campos personalizados".
+                              </p>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                                {camposDefinidos.map((campo) => {
+                                  const valor = editProductoForm.valoresDefinidos[campo.clave] ?? '';
+                                  return (
+                                    <div key={campo.id}>
+                                      <label style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+                                        {campo.etiqueta}
+                                        {campo.requerido && (
+                                          <span style={{ color: 'var(--color-danger, #b91c1c)' }}> *</span>
+                                        )}
+                                      </label>
+                                      {campo.tipo === 'BOOLEANO' ? (
+                                        <input
+                                          type="checkbox"
+                                          checked={valor === 'true'}
+                                          onChange={(e) =>
+                                            actualizarValorDefinido(campo.clave, e.target.checked ? 'true' : 'false')
+                                          }
+                                        />
+                                      ) : campo.tipo === 'SELECT' ? (
+                                        <select
+                                          value={valor}
+                                          onChange={(e) => actualizarValorDefinido(campo.clave, e.target.value)}
+                                        >
+                                          <option value="">— Selecciona —</option>
+                                          {campo.opciones.map((op) => (
+                                            <option key={op} value={op}>
+                                              {op}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        <input
+                                          type={
+                                            campo.tipo === 'NUMERO' ? 'number' : campo.tipo === 'FECHA' ? 'date' : 'text'
+                                          }
+                                          value={valor}
+                                          onChange={(e) => actualizarValorDefinido(campo.clave, e.target.value)}
+                                          style={{ width: '100%' }}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
                           <label style={{ fontSize: 13, fontWeight: 600 }}>Atributos extra (opcional)</label>
                           <p style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2, marginBottom: 4 }}>
-                            Información adicional libre — materiales, cuidados, garantía, etc. Agrega los pares que
-                            necesites; ninguno es obligatorio.
+                            Información libre para lo que todavía no tiene un campo definido arriba — materiales,
+                            cuidados, garantía, etc. Agrega los pares que necesites; ninguno es obligatorio.
                           </p>
                           {editProductoForm.atributos.map((a, i) => (
                             <div key={i} style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>

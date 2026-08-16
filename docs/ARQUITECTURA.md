@@ -80,11 +80,20 @@ Si a futuro se necesita un campo que sí amerite estar indexado/filtrable de
 forma nativa (no solo dentro del JSON), ese sí requiere una migración
 tradicional — es la excepción, no la regla.
 
-Mientras no exista la pantalla de administración de `campos_personalizados`,
-Productos → "Editar" ya deja llenar `atributosExtra` directamente como pares
-clave/valor libres (sin tipo ni validación) — junto con precio de
-compra/venta, descripción, marca, modelo y categoría del producto. Todos
-estos campos extra son opcionales.
+La administración vive en Catálogo → "Campos personalizados"
+(`/dashboard/campos-personalizados`, solo ADMIN_PRINCIPAL/DESARROLLO): ahí se
+da de alta cada campo nuevo (entidad, clave, nombre para mostrar, tipo —
+texto/número/sí-o-no/fecha/lista de opciones — y si es obligatorio), se edita
+(menos la clave y la entidad, que quedan fijas una vez creado el campo, para no
+desincronizar los productos que ya lo tienen guardado) y se desactiva sin
+borrar los valores ya guardados. Productos → "Editar" lee esos campos
+(`GET /catalogos/campos-personalizados?entidad=producto`) y renderiza el input
+tipado correspondiente para cada uno, validando los que son obligatorios antes
+de guardar — junto con precio de compra/venta, descripción, marca, modelo y
+categoría del producto. Lo que un producto ya tenía guardado en
+`atributosExtra` sin un campo definido (datos previos a esta pantalla, o de
+una entidad distinta) se sigue pudiendo editar como par clave/valor libre, sin
+tipo ni validación, debajo de los campos definidos.
 
 Inventario muestra una sola fila por **producto** (no por variante): foto,
 marca, un resumen de las tallas/colores disponibles y el stock total sumado.
@@ -247,10 +256,10 @@ las consulta al elegir cuenta en una venta).
 una fecha: total general, desglose por método de pago, desglose por cuenta
 de transferencia y ventas canceladas ese día (informativas, no se suman al
 total). VENTAS solo ve el corte de su propia sucursal; admin puede ver una
-sucursal específica o el corte global. *Limitación conocida v1*: el "día" se
-calcula en UTC, no en la zona horaria del negocio — si esto causa que ventas
-cercanas a medianoche caigan en el corte equivocado, se puede ajustar con un
-offset de zona horaria.
+sucursal específica o el corte global. El "día" se calcula en horario de
+México (`America/Mexico_City`, ver `utils/fechas.js`), no en UTC — así una
+venta hecha a las 8pm cae en el corte del día correcto en vez de "adelantarse"
+al día siguiente por la diferencia con Greenwich.
 
 **Historial de ventas** (`GET /ventas/historial`, solo ADMIN_PRINCIPAL/
 DESARROLLO) permite filtrar por sucursal y rango de fechas, con un resumen
@@ -324,8 +333,9 @@ días de histórico o sin ventas registradas, el endpoint marca
 `suficienteDatos: false` y el frontend muestra un aviso en vez de tratar la
 proyección como confiable.
 
-*Limitación conocida*: al igual que el corte del día, los días se calculan
-en UTC, no en la zona horaria del negocio (ver limitación análoga arriba).
+Los días (para la gráfica de tendencia, la comparación contra el periodo
+anterior y la proyección) se calculan en horario de México, igual que el
+corte del día (`utils/fechas.js`) — no en UTC.
 
 ## Proveedores: clasificación de mercancía, stock separado y pagos
 
@@ -808,8 +818,6 @@ con otro proveedor distinto.
   vez de estar fijo en código.
 - Actualización masiva de precios por Excel (hoy la importación solo crea,
   no actualiza, productos existentes — ver sección de importar/exportar).
-- Corte del día en la zona horaria del negocio en vez de UTC (ver limitación
-  conocida arriba).
 - Reembolso/registro del dinero devuelto al cancelar un apartado con abonos
   ya pagados (hoy queda solo como referencia, sin flujo dedicado).
 - Verificación automática del pago SPEI de pedidos en línea contra el banco

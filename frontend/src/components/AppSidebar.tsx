@@ -22,6 +22,7 @@ import {
   Tag,
   LucideIcon,
   BarChart3,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
 import { NavItem } from './NavItem';
@@ -62,6 +63,11 @@ export function AppSidebar({
         puedeVer('productos', rol) && { href: '/dashboard/productos', label: 'Productos', icon: Package },
         puedeVer('catalogos', rol) && { href: '/dashboard/catalogos', label: 'Marcas y tallas', icon: Layers },
         puedeVer('proveedores', rol) && { href: '/dashboard/proveedores', label: 'Proveedores', icon: Truck },
+        puedeVer('camposPersonalizados', rol) && {
+          href: '/dashboard/campos-personalizados',
+          label: 'Campos personalizados',
+          icon: SlidersHorizontal,
+        },
       ].filter(Boolean) as NavLink[],
     },
     {

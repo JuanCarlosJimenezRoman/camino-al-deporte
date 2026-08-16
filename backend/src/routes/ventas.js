@@ -9,6 +9,7 @@ const { subirImagen, subirPdf } = require('../config/cloudinary');
 const { enviarTicketVenta } = require('../config/whatsapp');
 const { generarTicketPdf } = require('../utils/ticketPdf');
 const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
+const { inicioDiaNegocio, finDiaNegocio, hoyNegocioStr } = require('../utils/fechas');
 
 const router = express.Router();
 
@@ -122,10 +123,9 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
 // GET /ventas/corte-dia - resumen de caja de un día (por defecto hoy) para
 // cuadrar efectivo/tarjeta/transferencia. VENTAS solo ve su propia sucursal;
 // ADMIN/DESARROLLO pueden ver una sucursal específica o el corte global.
-// Nota v1: el "día" se calcula en UTC (00:00 a 23:59:59 UTC de la fecha
-// indicada). Si el negocio opera en una zona horaria distinta a UTC, las
-// ventas cercanas a medianoche local pueden caer en el corte del día
-// siguiente/anterior; si esto causa problemas se puede ajustar el offset.
+// El "día" se calcula en horario de México (America/Mexico_City, ver
+// utils/fechas.js), no en UTC: así una venta hecha a las 8pm cae en el
+// corte del mismo día, no en el del día siguiente.
 router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (req, res) => {
   let sucursalId;
   if (esAdmin(req.usuario.rol)) {
@@ -137,9 +137,9 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     sucursalId = req.usuario.sucursalId;
   }
 
-  const fechaStr = req.query.fecha ? String(req.query.fecha) : new Date().toISOString().slice(0, 10);
-  const inicio = new Date(`${fechaStr}T00:00:00.000Z`);
-  const fin = new Date(`${fechaStr}T23:59:59.999Z`);
+  const fechaStr = req.query.fecha ? String(req.query.fecha) : hoyNegocioStr();
+  const inicio = inicioDiaNegocio(fechaStr);
+  const fin = finDiaNegocio(fechaStr);
   if (Number.isNaN(inicio.getTime())) {
     return res.status(400).json({ error: 'fecha inválida, usa formato YYYY-MM-DD.' });
   }
@@ -213,8 +213,10 @@ router.get(
     };
     if (fechaInicio || fechaFin) {
       where.createdAt = {};
-      if (fechaInicio) where.createdAt.gte = new Date(`${fechaInicio}T00:00:00.000Z`);
-      if (fechaFin) where.createdAt.lte = new Date(`${fechaFin}T23:59:59.999Z`);
+      // Horario de México, no UTC (ver utils/fechas.js) — mismo criterio
+      // que /corte-dia.
+      if (fechaInicio) where.createdAt.gte = inicioDiaNegocio(String(fechaInicio));
+      if (fechaFin) where.createdAt.lte = finDiaNegocio(String(fechaFin));
     }
 
     const ventas = await prisma.venta.findMany({

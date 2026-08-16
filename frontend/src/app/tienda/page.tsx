@@ -13,6 +13,25 @@ interface VarianteTienda {
   stockTotal: number;
 }
 
+// Orden para tallas de ropa (no numéricas): el índice en este arreglo, no el
+// alfabético — si no, "L" quedaría antes que "M".
+const ORDEN_ROPA = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+
+// El campo `orden` de la Talla en la base de datos es correcto solo DENTRO
+// de un mismo tipo (TD/PS/GS/WMNS/MENS/ropa) — ver prisma/seed.js. Pero el
+// filtro de tallas del catálogo junta las tallas de TODOS los productos (de
+// todos los tipos) en una sola lista por valor, y esos rangos se traslapan
+// (ej. "25" es GS y también MENS, con un `orden` distinto en cada uno) —
+// usar ese `orden` ahí mezcla índices de grupos distintos y el resultado
+// sale desordenado. Por eso aquí se ordena por el valor mismo: numérico si
+// es una talla de calzado, o por la posición en ORDEN_ROPA si es de ropa.
+function claveOrdenTalla(valor: string): number {
+  const num = Number(valor);
+  if (!Number.isNaN(num)) return num;
+  const posicion = ORDEN_ROPA.indexOf(valor.toUpperCase());
+  return posicion >= 0 ? 1000 + posicion : 9999;
+}
+
 interface ProductoTienda {
   id: number;
   nombre: string;
@@ -43,14 +62,14 @@ export default function TiendaCatalogoPage() {
   const facetas = useMemo(() => {
     const marcas = new Set<string>();
     const categorias = new Set<string>();
-    const tallas = new Map<string, number>();
+    const tallas = new Set<string>();
     const colores = new Set<string>();
 
     productos?.forEach((p) => {
       if (p.marca?.nombre) marcas.add(p.marca.nombre);
       if (p.categoria?.nombre) categorias.add(p.categoria.nombre);
       p.variantes?.forEach((v) => {
-        if (v.talla?.valor) tallas.set(v.talla.valor, v.talla.orden ?? 0);
+        if (v.talla?.valor) tallas.add(v.talla.valor);
         if (v.color) colores.add(v.color);
       });
     });
@@ -58,7 +77,7 @@ export default function TiendaCatalogoPage() {
     return {
       marcas: [...marcas].sort(),
       categorias: [...categorias].sort(),
-      tallas: [...tallas.entries()].sort((a, b) => a[1] - b[1]).map(([valor]) => valor),
+      tallas: [...tallas].sort((a, b) => claveOrdenTalla(a) - claveOrdenTalla(b) || a.localeCompare(b)),
       colores: [...colores].sort(),
     };
   }, [productos]);

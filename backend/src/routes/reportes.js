@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { generarReporteVentasExcel } = require('../utils/reportesExcel');
+const { inicioDiaNegocio, finDiaNegocio, hoyNegocioStr, fechaNegocioDeInstante } = require('../utils/fechas');
 
 const router = express.Router();
 
@@ -20,13 +21,15 @@ function esAdmin(rol) {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers de fechas — mismos criterios que ventas.js (corte-dia/historial):
-// el "día" se calcula en UTC (00:00 a 23:59:59.999 UTC de la fecha indicada).
+// Helpers de fechas — "hoy" y los límites de cada día se calculan en
+// horario de México (America/Mexico_City, ver utils/fechas.js), no en UTC.
+// sumarDias/diasEntre solo hacen aritmética de calendario sobre strings
+// "YYYY-MM-DD" (sumar/restar días, contar cuántos hay entre dos fechas) —
+// eso sí es correcto hacerlo en UTC puro, porque no representa un instante
+// real: "el día siguiente a 2026-08-16" es 2026-08-17 sin importar la zona
+// horaria, mientras no se convierta a un instante concreto (eso lo hacen
+// inicioDiaNegocio/finDiaNegocio más abajo, cuando sí importa la zona).
 // ---------------------------------------------------------------------------
-
-function hoyStr() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function sumarDias(fechaStr, dias) {
   const d = new Date(`${fechaStr}T00:00:00.000Z`);
@@ -43,11 +46,11 @@ function diasEntre(desdeStr, hastaStr) {
 // Resuelve { desdeStr, hastaStr, desde, hasta } a partir de ?desde=&hasta= en
 // la query. Por defecto: últimos 30 días (incluyendo hoy).
 function resolverRango(req) {
-  const hastaStr = req.query.hasta ? String(req.query.hasta) : hoyStr();
+  const hastaStr = req.query.hasta ? String(req.query.hasta) : hoyNegocioStr();
   const desdeStr = req.query.desde ? String(req.query.desde) : sumarDias(hastaStr, -29);
 
-  const desde = new Date(`${desdeStr}T00:00:00.000Z`);
-  const hasta = new Date(`${hastaStr}T23:59:59.999Z`);
+  const desde = inicioDiaNegocio(desdeStr);
+  const hasta = finDiaNegocio(hastaStr);
   if (Number.isNaN(desde.getTime()) || Number.isNaN(hasta.getTime()) || desde > hasta) {
     const err = new Error('FECHA_INVALIDA');
     err.status = 400;
@@ -65,8 +68,8 @@ function rangoAnterior(desdeStr, hastaStr) {
   return {
     desdeStr: anteriorDesdeStr,
     hastaStr: anteriorHastaStr,
-    desde: new Date(`${anteriorDesdeStr}T00:00:00.000Z`),
-    hasta: new Date(`${anteriorHastaStr}T23:59:59.999Z`),
+    desde: inicioDiaNegocio(anteriorDesdeStr),
+    hasta: finDiaNegocio(anteriorHastaStr),
   };
 }
 
@@ -191,7 +194,7 @@ function calcularResumen(ventas) {
 function agruparPorDia(ventas, desdeStr, hastaStr) {
   const porFecha = new Map();
   for (const v of ventas) {
-    const fecha = v.createdAt.toISOString().slice(0, 10);
+    const fecha = fechaNegocioDeInstante(v.createdAt);
     const actual = porFecha.get(fecha) || { ventas: 0, monto: 0 };
     actual.ventas += 1;
     actual.monto += Number(v.total);
@@ -344,7 +347,7 @@ function calcularEstimacion(serieHistorica, horizonteDias) {
   const pendiente = den > 0 ? num / den : 0;
   const intercepto = promedioGeneral - pendiente * meanT;
 
-  const ultimaFecha = serieHistorica[n - 1]?.fecha || hoyStr();
+  const ultimaFecha = serieHistorica[n - 1]?.fecha || hoyNegocioStr();
 
   const proyeccion = [];
   for (let i = 1; i <= horizonteDias; i++) {
@@ -492,10 +495,10 @@ router.get(
     const historialDias = Math.min(Math.max(Number(req.query.historialDias) || 90, 14), 365);
     const horizonte = Math.min(Math.max(Number(req.query.horizonte) || 30, 1), 90);
 
-    const hastaStr = hoyStr();
+    const hastaStr = hoyNegocioStr();
     const desdeStr = sumarDias(hastaStr, -(historialDias - 1));
-    const desde = new Date(`${desdeStr}T00:00:00.000Z`);
-    const hasta = new Date(`${hastaStr}T23:59:59.999Z`);
+    const desde = inicioDiaNegocio(desdeStr);
+    const hasta = finDiaNegocio(hastaStr);
 
     const ventas = await fetchVentasCompletadas(desde, hasta, req.sucursalReporte);
     const serieHistorica = agruparPorDia(ventas, desdeStr, hastaStr);
