@@ -98,6 +98,17 @@ function claveExistencia(e: Existencia) {
   return `${e.variante.id}:${e.proveedorId ?? 'null'}:${e.sucursalId}`;
 }
 
+// Un renglón del carrito de la venta actual: la misma existencia (variante +
+// proveedor) puede aparecer varias veces en una compra si el cliente pide
+// varios artículos distintos, por eso el carrito es una lista de renglones
+// en vez de un solo "seleccionado" — antes solo se podía vender un producto
+// a la vez porque el formulario solo guardaba una selección.
+interface ItemCarrito {
+  key: string;
+  existencia: Existencia;
+  cantidad: number;
+}
+
 const METODOS_PAGO = [
   { valor: 'EFECTIVO', etiqueta: 'Efectivo' },
   { valor: 'TARJETA', etiqueta: 'Tarjeta' },
@@ -188,6 +199,12 @@ export default function VentasPage() {
 
   const [cantidad, setCantidad] = useState(1);
 
+  // Carrito de la venta en curso: uno o más artículos disponibles en la
+  // sucursal propia, cada uno con su cantidad. Los productos que solo están
+  // en otra sucursal NO entran aquí — para esos sigue existiendo el flujo de
+  // "Apartar para el cliente" de un solo artículo (ver seleccion más abajo).
+  const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
+
   // Venta local (producto disponible en la sucursal propia)
   const [cliente, setCliente] = useState('');
   // Opcional: solo se pide para poder mandar el ticket digital por WhatsApp
@@ -244,6 +261,10 @@ export default function VentasPage() {
     setSeleccion(null);
     setBusqueda('');
     setResultados([]);
+    // El carrito son existencias de una sucursal concreta — al cambiar de
+    // sucursal ya no aplican (el stock disponible es otro), así que se
+    // vacía en vez de arrastrar renglones que ya no son válidos.
+    setCarrito([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalId]);
 
@@ -277,11 +298,59 @@ export default function VentasPage() {
     };
   }, [busqueda, seleccion]);
 
+  // Elegir un resultado de la búsqueda tiene dos caminos distintos:
+  //  - Si el producto SÍ está en la sucursal propia, se agrega directo al
+  //    carrito (puede ser el primero de varios) y la búsqueda se limpia para
+  //    poder seguir agregando más artículos a la misma venta.
+  //  - Si solo está en otra sucursal, no se puede vender de aquí — se guarda
+  //    como "seleccion" para ofrecer apartarlo, igual que antes (eso sigue
+  //    siendo de un artículo a la vez).
   function elegirResultado(e: Existencia) {
-    setSeleccion(e);
+    const esLocalResultado = e.sucursalId === Number(sucursalId);
     setMostrarResultados(false);
-    setBusqueda(`${e.variante.producto.nombre}${e.variante.talla ? ` (${e.variante.talla.valor})` : ''}`);
     setMensaje(null);
+    if (esLocalResultado) {
+      agregarAlCarrito(e);
+      setSeleccion(null);
+      setBusqueda('');
+      setResultados([]);
+    } else {
+      setSeleccion(e);
+      setBusqueda(`${e.variante.producto.nombre}${e.variante.talla ? ` (${e.variante.talla.valor})` : ''}`);
+    }
+  }
+
+  // Agrega una existencia al carrito. Si ya estaba (mismo variante +
+  // proveedor + sucursal), solo suma 1 a la cantidad en vez de duplicar el
+  // renglón — así buscar el mismo producto dos veces simplemente incrementa
+  // la cantidad. Nunca deja pasar de la cantidad disponible en stock.
+  function agregarAlCarrito(e: Existencia) {
+    const key = claveExistencia(e);
+    setCarrito((actual) => {
+      const existente = actual.find((it) => it.key === key);
+      if (existente) {
+        if (existente.cantidad >= e.stockActual) return actual;
+        return actual.map((it) => (it.key === key ? { ...it, cantidad: it.cantidad + 1 } : it));
+      }
+      return [...actual, { key, existencia: e, cantidad: Math.min(1, e.stockActual) }];
+    });
+  }
+
+  function quitarDelCarrito(key: string) {
+    setCarrito((actual) => actual.filter((it) => it.key !== key));
+  }
+
+  // Cambia la cantidad de un renglón del carrito, siempre entre 1 y el stock
+  // disponible de esa existencia (no se puede vender más de lo que hay).
+  function cambiarCantidadCarrito(key: string, nuevaCantidad: number) {
+    setCarrito((actual) =>
+      actual.map((it) => {
+        if (it.key !== key) return it;
+        const max = it.existencia.stockActual;
+        const cantidad = Number.isFinite(nuevaCantidad) ? Math.max(1, Math.min(nuevaCantidad, max)) : 1;
+        return { ...it, cantidad };
+      })
+    );
   }
 
   function limpiarSeleccion() {
@@ -289,6 +358,7 @@ export default function VentasPage() {
     setBusqueda('');
     setResultados([]);
     setCantidad(1);
+    setCarrito([]);
     setEfectivoRecibido('');
     setAplicarDescuento(false);
     setDescuentoTipo('PORCENTAJE');
@@ -302,8 +372,17 @@ export default function VentasPage() {
   // apartarlo (ver más abajo), nunca "Registrar venta".
   const esLocal = seleccion ? seleccion.sucursalId === Number(sucursalId) : true;
 
+  // Solo para el flujo de apartado (un artículo de otra sucursal): su propio
+  // precio y "cantidad" separados del carrito de la venta directa.
   const precioUnitario = seleccion ? Number(seleccion.variante.producto.precioVenta) : 0;
-  const subtotalVenta = precioUnitario * cantidad;
+  const subtotalApartado = precioUnitario * cantidad;
+
+  // Suma de todos los renglones del carrito de la venta directa (uno o más
+  // productos) — antes esto solo consideraba el único producto seleccionado.
+  const subtotalVenta = carrito.reduce(
+    (acc, it) => acc + Number(it.existencia.variante.producto.precioVenta) * it.cantidad,
+    0
+  );
   // Solo es una vista previa para el cajero — el monto real en pesos
   // siempre lo recalcula y valida el servidor (ver POST /ventas).
   const descuentoValorNum = Number(descuentoValor) || 0;
@@ -318,7 +397,7 @@ export default function VentasPage() {
   const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - totalVenta : null;
 
   async function registrarVenta() {
-    if (!seleccion || !sucursalId) return;
+    if (carrito.length === 0 || !sucursalId) return;
     if (metodoPago === 'TRANSFERENCIA' && !cuentaTransferenciaId) {
       setMensaje('Elige a qué cuenta llegó la transferencia.');
       return;
@@ -360,16 +439,17 @@ export default function VentasPage() {
         descuentoTipo: aplicarDescuento && descuentoValorNum > 0 ? descuentoTipo : undefined,
         descuentoValor: aplicarDescuento && descuentoValorNum > 0 ? descuentoValorNum : undefined,
         descuentoMotivo: aplicarDescuento && descuentoMotivo.trim() ? descuentoMotivo.trim() : undefined,
-        items: [
-          {
-            varianteId: seleccion.variante.id,
-            cantidad,
-            precioUnitario: Number(seleccion.variante.producto.precioVenta),
-            // De qué proveedor sale el stock vendido — ya viene fijo desde
-            // que se eligió el renglón en la búsqueda.
-            proveedorId: seleccion.proveedorId,
-          },
-        ],
+        // Uno o más renglones, cada uno con su propia variante, cantidad y
+        // proveedor de stock — antes aquí solo podía ir un artículo porque
+        // el formulario solo guardaba una selección.
+        items: carrito.map((it) => ({
+          varianteId: it.existencia.variante.id,
+          cantidad: it.cantidad,
+          precioUnitario: Number(it.existencia.variante.producto.precioVenta),
+          // De qué proveedor sale el stock vendido — ya viene fijo desde
+          // que se eligió el renglón en la búsqueda.
+          proveedorId: it.existencia.proveedorId,
+        })),
       };
 
       const formData = new FormData();
@@ -599,61 +679,134 @@ export default function VentasPage() {
               </p>
             )}
 
-            <label style={{ fontSize: 13 }}>Cantidad</label>
-            <div style={{ marginBottom: 10 }}>
-              <input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
-            </div>
-
-            {seleccion && (
-              <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 4 }}>
-                {descuentoMontoPreview > 0 ? (
-                  <>
-                    Subtotal: ${subtotalVenta.toFixed(2)} — Descuento: -${descuentoMontoPreview.toFixed(2)}
-                    <br />
-                    Total: ${totalVenta.toFixed(2)}
-                  </>
-                ) : (
-                  <>Total: ${totalVenta.toFixed(2)}</>
-                )}
-              </p>
-            )}
-
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
-                Aplicar descuento
-              </label>
-              {aplicarDescuento && (
-                <div style={{ marginTop: 6, paddingLeft: 4 }}>
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                    <select
-                      value={descuentoTipo}
-                      onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}
-                      style={{ maxWidth: 80 }}
-                    >
-                      <option value="PORCENTAJE">%</option>
-                      <option value="MONTO">$</option>
-                    </select>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={descuentoValor}
-                      onChange={(e) => setDescuentoValor(e.target.value)}
-                      placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
-                    />
-                  </div>
-                  <input
-                    value={descuentoMotivo}
-                    onChange={(e) => setDescuentoMotivo(e.target.value)}
-                    placeholder="Motivo del descuento (opcional)"
-                  />
-                </div>
-              )}
-            </div>
-
             {esLocal ? (
               <>
+                {/* Carrito de la venta: cada búsqueda que coincide con la
+                    sucursal propia se agrega aquí en vez de reemplazar la
+                    selección anterior — así se pueden vender varios
+                    productos distintos en una sola venta. */}
+                {carrito.length > 0 ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 13 }}>Artículos de la venta ({carrito.length})</label>
+                    <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, marginTop: 4 }}>
+                      {carrito.map((it) => {
+                        const p = it.existencia.variante.producto;
+                        const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
+                          .filter(Boolean)
+                          .join(' / ');
+                        const precio = Number(p.precioVenta);
+                        return (
+                          <div
+                            key={it.key}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '8px 10px',
+                              borderBottom: '1px solid var(--color-border)',
+                            }}
+                          >
+                            <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={32} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                                {p.nombre}
+                                {detalle ? ` (${detalle})` : ''}
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
+                                ${precio.toFixed(2)} c/u · SKU {it.existencia.variante.sku}
+                              </div>
+                            </div>
+                            <input
+                              type="number"
+                              min={1}
+                              max={it.existencia.stockActual}
+                              value={it.cantidad}
+                              onChange={(e) => cambiarCantidadCarrito(it.key, Number(e.target.value))}
+                              style={{ width: 56 }}
+                            />
+                            <div style={{ fontSize: 13, fontWeight: 600, width: 70, textAlign: 'right' }}>
+                              ${(precio * it.cantidad).toFixed(2)}
+                            </div>
+                            <button
+                              onClick={() => quitarDelCarrito(it.key)}
+                              title="Quitar de la venta"
+                              style={{
+                                border: 'none',
+                                background: 'transparent',
+                                color: '#c0392b',
+                                cursor: 'pointer',
+                                fontSize: 16,
+                                lineHeight: 1,
+                                padding: 4,
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 12 }}>
+                    Busca y agrega uno o más productos arriba para armar la venta.
+                  </p>
+                )}
+
+                {carrito.length > 0 && (
+                  <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 4 }}>
+                    {descuentoMontoPreview > 0 ? (
+                      <>
+                        Subtotal: ${subtotalVenta.toFixed(2)} — Descuento: -${descuentoMontoPreview.toFixed(2)}
+                        <br />
+                        Total: ${totalVenta.toFixed(2)}
+                      </>
+                    ) : (
+                      <>Total: ${totalVenta.toFixed(2)}</>
+                    )}
+                  </p>
+                )}
+
+                {carrito.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={aplicarDescuento}
+                        onChange={(e) => setAplicarDescuento(e.target.checked)}
+                      />
+                      Aplicar descuento
+                    </label>
+                    {aplicarDescuento && (
+                      <div style={{ marginTop: 6, paddingLeft: 4 }}>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                          <select
+                            value={descuentoTipo}
+                            onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}
+                            style={{ maxWidth: 80 }}
+                          >
+                            <option value="PORCENTAJE">%</option>
+                            <option value="MONTO">$</option>
+                          </select>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={descuentoValor}
+                            onChange={(e) => setDescuentoValor(e.target.value)}
+                            placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                          />
+                        </div>
+                        <input
+                          value={descuentoMotivo}
+                          onChange={(e) => setDescuentoMotivo(e.target.value)}
+                          placeholder="Motivo del descuento (opcional)"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <label style={{ fontSize: 13 }}>Cliente (opcional)</label>
                 <div style={{ marginBottom: 10 }}>
                   <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
@@ -740,6 +893,19 @@ export default function VentasPage() {
               </>
             ) : (
               <>
+                <label style={{ fontSize: 13 }}>Cantidad</label>
+                <div style={{ marginBottom: 10 }}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={cantidad}
+                    onChange={(e) => setCantidad(Number(e.target.value))}
+                  />
+                </div>
+                <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 4 }}>
+                  Total: ${subtotalApartado.toFixed(2)}
+                </p>
+
                 <label style={{ fontSize: 13 }}>Nombre del cliente</label>
                 <div style={{ marginBottom: 10 }}>
                   <input
@@ -777,7 +943,7 @@ export default function VentasPage() {
             )}
 
             {esLocal ? (
-              <button className="btn" onClick={registrarVenta} disabled={!seleccion || guardando}>
+              <button className="btn" onClick={registrarVenta} disabled={carrito.length === 0 || guardando}>
                 {guardando ? 'Guardando...' : 'Registrar venta'}
               </button>
             ) : (
@@ -787,9 +953,13 @@ export default function VentasPage() {
             )}
           </div>
 
-          {/* Imagen grande del producto elegido, a la derecha del formulario.
+          {/* Imagen grande del producto elegido, a la derecha del formulario
+              — solo aplica al flujo de apartado (un artículo de otra
+              sucursal); en el carrito de la venta directa cada renglón ya
+              trae su propia miniatura en la lista de arriba.
               object-fit: contain (vía fit="contain") para que se vea la foto
               completa sin recortarla, aunque no sea cuadrada. */}
+          {seleccion && (
           <div
             style={{
               flex: '0 0 220px',
@@ -831,6 +1001,7 @@ export default function VentasPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 
