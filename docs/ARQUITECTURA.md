@@ -229,6 +229,53 @@ de total por sucursal además del listado detallado.
 - La pantalla de Apartados también muestra un resumen de "clientes con
   adeudo" (suma del saldo pendiente de sus apartados activos).
 
+## Reportes y estimaciones de ventas
+
+Dashboard en `/dashboard/reportes` (rutas `GET /reportes/ventas/*`) con
+gráficas y una proyección simple de ventas futuras, para apoyar decisiones
+de compra/metas sin depender de hojas de cálculo aparte.
+
+**Acceso.** Mismos roles que pueden registrar ventas: ADMIN_PRINCIPAL/
+DESARROLLO ven todas las sucursales (o filtran por una); VENTAS siempre
+queda acotado a su propia sucursal asignada, igual criterio que
+`/ventas` y `/ventas/corte-dia` (`resolverSucursalReporte` en
+`routes/reportes.js`). Solo se cuentan ventas `COMPLETADA` — las
+`CANCELADA`/`PENDIENTE` no entran en ningún total.
+
+**Endpoints:**
+
+- `GET /resumen` — KPIs del periodo filtrado (total vendido, # ventas,
+  ticket promedio, descuentos aplicados) comparados contra el periodo
+  inmediatamente anterior de la misma duración, con variación %.
+- `GET /serie` — monto/ventas por día, para la gráfica de tendencia
+  (rellena con 0 los días sin ventas, así el gráfico no tiene huecos).
+- `GET /por-metodo-pago` y `GET /por-sucursal` — desgloses para las
+  gráficas correspondientes.
+- `GET /desglose` — a partir de los renglones de venta (`venta_items`),
+  arma en una sola pasada el top de productos, y el desglose por marca,
+  categoría, talla y proveedor — así el reporte también sirve para ver
+  **qué** se vende, no solo cuánto (clasificación por marca/modelo/talla,
+  como se pidió desde el inicio del proyecto).
+- `GET /estimacion` — proyección de ventas futuras, ver algoritmo abajo.
+- `GET /exportar` — descarga un `.xlsx` con todo lo anterior (reusa
+  `utils/reportesExcel.js`, mismo patrón que la exportación de catálogo en
+  `utils/excel.js`).
+
+**Algoritmo de estimación** (`calcularEstimacion` en `routes/reportes.js`):
+regresión lineal simple (mínimos cuadrados) sobre el histórico reciente
+(90 días por defecto) para capturar la tendencia general, combinada con un
+índice de estacionalidad por día de la semana (promedio de ese día de la
+semana ÷ promedio general) para que sábados/domingos no se proyecten igual
+que un martes. Es una estimación deliberadamente simple y explicable — no
+un modelo de series de tiempo real — pensada para un negocio con un
+volumen de datos modesto, sin necesitar librerías de ML. Con menos de 14
+días de histórico o sin ventas registradas, el endpoint marca
+`suficienteDatos: false` y el frontend muestra un aviso en vez de tratar la
+proyección como confiable.
+
+*Limitación conocida*: al igual que el corte del día, los días se calculan
+en UTC, no en la zona horaria del negocio (ver limitación análoga arriba).
+
 ## Proveedores: clasificación de mercancía, stock separado y pagos
 
 El negocio compra a varios proveedores (hoy 3) que en ocasiones surten el
@@ -701,7 +748,9 @@ con otro proveedor distinto.
 
 ## Próximos pasos sugeridos (no incluidos en este scaffold inicial)
 
-- Reportes/dashboards de ventas (por periodo, por vendedor, por producto).
+- Reporte de ventas por vendedor (hoy `/dashboard/reportes` desglosa por
+  producto/marca/categoría/talla/sucursal/método de pago, no por usuario
+  que hizo la venta).
 - Notificaciones de bajo stock (correo o WhatsApp).
 - Actualización masiva de precios por Excel (hoy la importación solo crea,
   no actualiza, productos existentes — ver sección de importar/exportar).

@@ -116,6 +116,10 @@ export const PERMISOS = {
   // Cupones de la tienda en línea: mismos roles que administran cuentas de
   // transferencia (información financiera/promocional sensible).
   cupones: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  // Dashboard de reportes/estimaciones de ventas: mismos roles que registran
+  // ventas (ver GET /reportes/* en el backend) — ADMIN_PRINCIPAL/DESARROLLO
+  // ven todas las sucursales, VENTAS ve acotado a la suya.
+  reportes: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

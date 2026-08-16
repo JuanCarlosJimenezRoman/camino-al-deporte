@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Tag,
   LucideIcon,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
 import { NavItem } from './NavItem';
@@ -94,6 +95,12 @@ export function AppSidebar({
           label: 'Transferencias',
           icon: ArrowLeftRight,
         },
+      ].filter(Boolean) as NavLink[],
+    },
+    {
+      titulo: 'Reportes',
+      items: [
+        puedeVer('reportes', rol) && { href: '/dashboard/reportes', label: 'Ventas y estimaciones', icon: BarChart3 },
       ].filter(Boolean) as NavLink[],
     },
     {
