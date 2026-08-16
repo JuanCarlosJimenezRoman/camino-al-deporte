@@ -129,9 +129,9 @@ export default function ImportarProductosPage() {
         <div className="card" style={{ flex: 1, minWidth: 260 }}>
           <h2 style={{ fontSize: 15, marginBottom: 8 }}>1. Descarga la plantilla</h2>
           <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 10 }}>
-            Trae dos filas de ejemplo y una hoja de instrucciones. Solo nombre, marca, categoría y SKU son
-            obligatorios por fila; proveedor es opcional (si lo dejas vacío, la variante queda sin proveedor
-            y se puede asignar después).
+            Trae dos filas de ejemplo y una hoja de instrucciones. Nombre, marca, categoría y SKU son
+            obligatorios por fila; proveedor es opcional solo si la fila no trae stock inicial — si trae
+            stock, el proveedor es obligatorio (todo stock debe quedar clasificado por proveedor).
           </p>
           <button
             className="btn-secondary btn"

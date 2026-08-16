@@ -107,6 +107,21 @@ async function analizarImportacion(filasCrudas) {
       resultado.push({ ...f, estado: 'error', motivo: `Faltan campos obligatorios: ${f.faltantes.join(', ')}` });
       continue;
     }
+    // El proveedor es opcional en general (se puede asignar después desde
+    // Productos), pero si la fila va a cargar stock inicial (stock_inicial >
+    // 0) sí es obligatorio: no tiene sentido registrar existencia sin saber
+    // de qué proveedor viene ese bulto de stock — igual que en
+    // POST /inventario/movimientos, donde proveedorId siempre se manda
+    // explícitamente.
+    if (f.stockInicial > 0 && !f.proveedor) {
+      resultado.push({
+        ...f,
+        estado: 'error',
+        motivo: 'Falta el proveedor: esta fila trae stock inicial y todo stock debe quedar clasificado por proveedor.',
+      });
+      continue;
+    }
+
     const claveProducto = claveGrupo(f.nombre, f.marca);
     const clave = claveVariante(claveProducto, f.talla, f.tipoTalla, f.color);
 
