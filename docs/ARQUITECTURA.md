@@ -302,6 +302,32 @@ queda acotado a su propia sucursal asignada, igual criterio que
 `routes/reportes.js`). Solo se cuentan ventas `COMPLETADA` — las
 `CANCELADA`/`PENDIENTE` no entran en ningún total.
 
+**Incluye la tienda en línea.** Todos los endpoints de abajo combinan las
+ventas de mostrador con los pedidos de la tienda en línea que ya se
+consideran cobrados (`Pedido.estado` en `PAGADO`/`ENVIADO`/`RECIBIDO` —
+`PENDIENTE_PAGO`/`EN_VALIDACION` todavía no son dinero confirmado y
+`CANCELADO` no cuenta, mismo criterio que una Venta `CANCELADA`; ver
+`fetchPedidosPagados` en `routes/reportes.js`). La fecha que se usa para un
+pedido es `Pedido.validadoAt` (cuándo un empleado confirmó que el pago
+llegó), no `createdAt` (cuándo el cliente armó el pedido, que puede ser
+días antes) — así el reporte de un día refleja cuándo entró el dinero de
+verdad. Dos simplificaciones a tener presentes:
+
+- Un pedido puede tener artículos que salieron de sucursales distintas
+  (cada renglón elige su propia sucursal de stock al crearse, ver
+  `routes/tienda/pedidos.js`) — a diferencia de una Venta, que siempre es de
+  una sola sucursal. Por eso un reporte acotado a una sucursal (rol VENTAS,
+  o un admin filtrando una) solo cuenta, de cada pedido, la parte que
+  realmente salió de ahí (suma de `PedidoItem.subtotal` de esos renglones) —
+  nunca el total completo del pedido, que sobre-contaría lo que salió de
+  otra sucursal.
+- `GET /por-metodo-pago` no mete los pedidos en línea dentro de
+  `TRANSFERENCIA`: los pedidos siempre se pagan por transferencia SPEI, pero
+  se cuentan aparte como "Pedidos en línea" (canal distinto: un empleado
+  valida el comprobante, no un cajero cobrando en el momento) — mezclarlos
+  ocultaría cuánto de lo vendido es en línea, que es justo lo que este
+  desglose necesita mostrar.
+
 **Endpoints:**
 
 - `GET /resumen` — KPIs del periodo filtrado (total vendido, # ventas,
@@ -309,13 +335,14 @@ queda acotado a su propia sucursal asignada, igual criterio que
   inmediatamente anterior de la misma duración, con variación %.
 - `GET /serie` — monto/ventas por día, para la gráfica de tendencia
   (rellena con 0 los días sin ventas, así el gráfico no tiene huecos).
-- `GET /por-metodo-pago` y `GET /por-sucursal` — desgloses para las
-  gráficas correspondientes.
-- `GET /desglose` — a partir de los renglones de venta (`venta_items`),
-  arma en una sola pasada el top de productos, y el desglose por marca,
-  categoría, talla y proveedor — así el reporte también sirve para ver
-  **qué** se vende, no solo cuánto (clasificación por marca/modelo/talla,
-  como se pidió desde el inicio del proyecto).
+- `GET /por-metodo-pago` — desglose para la gráfica correspondiente;
+  incluye el bucket "Pedidos en línea" (ver arriba).
+- `GET /por-sucursal` — desglose para la gráfica correspondiente.
+- `GET /desglose` — a partir de los renglones de venta (`venta_items` +
+  `pedido_items`), arma en una sola pasada el top de productos, y el
+  desglose por marca, categoría, talla y proveedor — así el reporte también
+  sirve para ver **qué** se vende, no solo cuánto (clasificación por
+  marca/modelo/talla, como se pidió desde el inicio del proyecto).
 - `GET /estimacion` — proyección de ventas futuras, ver algoritmo abajo.
 - `GET /exportar` — descarga un `.xlsx` con todo lo anterior (reusa
   `utils/reportesExcel.js`, mismo patrón que la exportación de catálogo en

@@ -37,19 +37,25 @@ import {
 // ---------------------------------------------------------------------------
 // Colores: se reutilizan los tokens de marca ya definidos en globals.css
 // (--chart-1..5) en vez de inventar una paleta nueva, para que este
-// dashboard se vea consistente con el resto del sistema. Se evitan a
-// propósito --chart-3 (ámbar) y --chart-5 (rojo) como color de SERIE porque
-// coinciden exactamente con los tokens de estado warning/destructive que ya
-// se usan en esta misma pantalla (flechas de variación) — usarlos también
-// para una categoría de la gráfica generaría confusión entre "esto subió/
-// bajó" y "esto es la serie X". Validado con el validador de paletas del
-// skill de dataviz (orden orange/green/amber/violet/red: PASS en CVD y
-// contraste normal, con la advertencia de contraste esperable en verde/ámbar
-// — por eso aquí siempre hay leyenda + valores directos, nunca solo color).
+// dashboard se vea consistente con el resto del sistema. Se evita a
+// propósito --chart-5 (rojo) como color de SERIE porque coincide con el
+// token de estado destructive que ya se usa en esta misma pantalla (flechas
+// de variación) — usarlo también para una categoría de la gráfica generaría
+// confusión entre "esto bajó" y "esto es la serie X". --chart-3 (ámbar) sí
+// se usa aquí para "Pedidos en línea" (ver COLORES_METODO_PAGO): coincide
+// con el token warning, pero ese solo aparece en la tarjeta de Estimación,
+// separada de esta gráfica, así que el riesgo de confundirlos es bajo.
+// Validado con el validador de paletas del skill de dataviz (orden orange/
+// green/violet/amber: PASS en CVD y contraste normal —tanto adyacente como
+// --pairs all, que es el caso real de un pie donde cualquier rebanada puede
+// quedar junto a cualquier otra—, con la advertencia de contraste esperable
+// en verde/ámbar — por eso aquí siempre hay leyenda + valores directos,
+// nunca solo color).
 const COLOR_PRIMARIO = '#FF4E00'; // --chart-1 / --primary
 const COLOR_PRIMARIO_SUAVE = 'rgba(255, 78, 0, 0.14)';
 const COLOR_PROYECCION = '#FFB088'; // tinte claro del mismo hue, para la línea de estimación
-const COLORES_METODO_PAGO = ['#FF4E00', '#10B981', '#8B5CF6']; // Efectivo, Tarjeta, Transferencia
+// Efectivo, Tarjeta, Transferencia (mostrador), Pedidos en línea
+const COLORES_METODO_PAGO = ['#FF4E00', '#10B981', '#8B5CF6', '#F59E0B'];
 const COLOR_GRID = '#e5e7eb'; // --border
 const COLOR_EJE = '#9ca3af';
 const COLOR_TEXTO_SECUNDARIO = '#6b7280'; // --muted-foreground
@@ -386,8 +392,8 @@ export default function ReportesVentasPage() {
           <h1 className="text-xl sm:text-2xl font-semibold">Reportes y estimaciones de ventas</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {esAdmin
-              ? 'Visión global de todas las sucursales. Filtra por sucursal o periodo para profundizar.'
-              : `Datos de tu sucursal${usuario?.sucursal?.nombre ? ` (${usuario.sucursal.nombre})` : ''}.`}
+              ? 'Visión global de todas las sucursales, incluyendo la tienda en línea. Filtra por sucursal o periodo para profundizar.'
+              : `Datos de tu sucursal${usuario?.sucursal?.nombre ? ` (${usuario.sucursal.nombre})` : ''} más los pedidos en línea que salieron de ahí.`}
           </p>
         </div>
         <Button onClick={exportar} disabled={exportando || cargando} variant="secondary" size="sm">
@@ -544,6 +550,7 @@ export default function ReportesVentasPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Ventas por método de pago</CardTitle>
+            <CardDescription>Incluye "Pedidos en línea" — pagados por transferencia SPEI, ya validados.</CardDescription>
           </CardHeader>
           <CardContent>
             {!porMetodoPago || porMetodoPago.every((m) => m.monto === 0) ? (

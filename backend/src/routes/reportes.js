@@ -146,6 +146,95 @@ async function fetchVentasCompletadas(desde, hasta, sucursalId) {
   });
 }
 
+// Pedidos de la tienda en línea que ya cuentan como "vendidos": el pago se
+// validó (PAGADO, o un paso posterior — ENVIADO/RECIBIDO). Antes de eso
+// (PENDIENTE_PAGO/EN_VALIDACION) el dinero todavía no se confirmó, así que no
+// es una venta real todavía; CANCELADO tampoco, mismo criterio que una Venta
+// CANCELADA. La fecha que cuenta es `validadoAt` (cuándo un empleado
+// confirmó que el pago llegó), no `createdAt` (cuándo el cliente armó el
+// pedido, que puede ser días antes de que se confirme el pago) — así el
+// corte de un día refleja cuándo entró el dinero de verdad, igual criterio
+// que una Venta de mostrador (que se registra en el momento exacto en que se
+// cobra).
+const ESTADOS_PEDIDO_PAGADO = ['PAGADO', 'ENVIADO', 'RECIBIDO'];
+
+// A diferencia de una Venta (siempre de una sola sucursal), un Pedido puede
+// tener artículos que salieron de sucursales distintas — cada renglón elige
+// su propia sucursal de stock al crearse (ver routes/tienda/pedidos.js). Por
+// eso esta consulta regresa también los items (con su sucursalStockId), no
+// solo el total del pedido: reportes/desglose y reportes/por-sucursal los
+// necesitan a nivel de renglón, mientras que resumen/serie/por-metodo-pago
+// usan el total ya resuelto en `total`. Se resuelve todo en una sola
+// consulta (en vez de separar "solo totales" / "solo items" como con
+// Venta/VentaItem) porque, a diferencia de Venta, aquí el total "correcto"
+// para un reporte acotado a una sucursal DEPENDE de los items (ver abajo) —
+// separarlo forzaría a duplicar esa misma lógica en dos lugares.
+async function fetchPedidosPagados(desde, hasta, sucursalId) {
+  const pedidos = await prisma.pedido.findMany({
+    where: {
+      estado: { in: ESTADOS_PEDIDO_PAGADO },
+      validadoAt: { gte: desde, lte: hasta },
+    },
+    select: {
+      id: true,
+      total: true,
+      cuponDescuento: true,
+      descuentoManualMonto: true,
+      validadoAt: true,
+      items: {
+        select: {
+          cantidad: true,
+          subtotal: true,
+          sucursalStockId: true,
+          sucursalStock: { select: { nombre: true } },
+          proveedor: { select: { id: true, nombre: true } },
+          variante: {
+            select: {
+              color: true,
+              talla: { select: { valor: true, tipo: true } },
+              producto: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  marca: { select: { id: true, nombre: true } },
+                  categoria: { select: { id: true, nombre: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Cuando el reporte está acotado a una sucursal (rol VENTAS, o un admin
+  // filtrando una en particular), NO se cuenta el total completo del pedido
+  // si tiene artículos de otras sucursales — eso sobre-contaría dinero que
+  // en realidad salió de otra sucursal. En su lugar se suma solo el
+  // subtotal de los artículos que sí salieron de la sucursal filtrada (el
+  // envío y los descuentos globales del pedido no se reparten por sucursal,
+  // así que quedan fuera de esa suma parcial — misma limitación que ya tenía
+  // calcularDesglose con Venta: VentaItem.subtotal tampoco resta el
+  // descuento de la venta). Sin filtro (todas las sucursales), si se usa
+  // pedido.total completo, que es la cifra exacta que pagó el cliente.
+  return pedidos
+    .map((p) => {
+      const itemsSucursal = sucursalId ? p.items.filter((it) => it.sucursalStockId === sucursalId) : p.items;
+      if (sucursalId && itemsSucursal.length === 0) return null;
+      const monto = sucursalId
+        ? itemsSucursal.reduce((acc, it) => acc + Number(it.subtotal), 0)
+        : Number(p.total);
+      return {
+        id: p.id,
+        total: monto,
+        descuentoMonto: sucursalId ? 0 : Number(p.cuponDescuento || 0) + Number(p.descuentoManualMonto || 0),
+        createdAt: p.validadoAt,
+        items: itemsSucursal,
+      };
+    })
+    .filter(Boolean);
+}
+
 async function fetchVentaItemsCompletados(desde, hasta, sucursalId) {
   return prisma.ventaItem.findMany({
     where: {
@@ -211,13 +300,35 @@ function agruparPorDia(ventas, desdeStr, hastaStr) {
   return serie;
 }
 
-function agruparPorMetodoPago(ventas) {
-  const base = { EFECTIVO: { ventas: 0, monto: 0 }, TARJETA: { ventas: 0, monto: 0 }, TRANSFERENCIA: { ventas: 0, monto: 0 } };
+// Los pedidos de la tienda en línea siempre se pagan por transferencia SPEI
+// (ver Pedido.referenciaPago/cuentaTransferenciaId en schema.prisma — no hay
+// un `metodoPago` distinto que elegir, a diferencia de una Venta de
+// mostrador). Se cuentan aparte, como "Pedidos en línea", en vez de sumarlos
+// dentro de TRANSFERENCIA: son operativamente un canal distinto (validación
+// de comprobante por un empleado, no un cajero cobrando en el momento) y
+// mezclarlos ahí ocultaría cuánto de la venta es en línea, que es justo lo
+// que este reporte necesita mostrar.
+function agruparPorMetodoPago(ventas, pedidos = []) {
+  const base = {
+    EFECTIVO: { ventas: 0, monto: 0 },
+    TARJETA: { ventas: 0, monto: 0 },
+    TRANSFERENCIA: { ventas: 0, monto: 0 },
+    PEDIDO_ONLINE: { ventas: 0, monto: 0 },
+  };
   for (const v of ventas) {
     base[v.metodoPago].ventas += 1;
     base[v.metodoPago].monto += Number(v.total);
   }
-  const etiquetas = { EFECTIVO: 'Efectivo', TARJETA: 'Tarjeta', TRANSFERENCIA: 'Transferencia' };
+  for (const p of pedidos) {
+    base.PEDIDO_ONLINE.ventas += 1;
+    base.PEDIDO_ONLINE.monto += Number(p.total);
+  }
+  const etiquetas = {
+    EFECTIVO: 'Efectivo',
+    TARJETA: 'Tarjeta',
+    TRANSFERENCIA: 'Transferencia',
+    PEDIDO_ONLINE: 'Pedidos en línea',
+  };
   return Object.entries(base).map(([metodo, r]) => ({
     metodo,
     etiqueta: etiquetas[metodo],
@@ -226,7 +337,17 @@ function agruparPorMetodoPago(ventas) {
   }));
 }
 
-function agruparPorSucursal(ventas) {
+// Una Venta pertenece siempre a una sola sucursal, así que su aportación se
+// suma a nivel de venta completa (v.total). Un Pedido puede tener artículos
+// de sucursales distintas (ver fetchPedidosPagados arriba), así que su
+// aportación se suma a nivel de renglón (item.subtotal + sucursalStockId) —
+// por lo mismo, el total de esta tabla puede no coincidir exactamente con el
+// "Total vendido" del resumen cuando hay pedidos en línea en el periodo
+// (envío y descuentos del pedido no se reparten por sucursal). "ventas" por
+// pedido cuenta PEDIDOS distintos que tocaron esa sucursal, no un renglón
+// por artículo, para no inflar el conteo de un pedido con varios artículos
+// de la misma sucursal.
+function agruparPorSucursal(ventas, pedidos = []) {
   const porSucursal = new Map();
   for (const v of ventas) {
     const clave = v.sucursalId;
@@ -235,13 +356,38 @@ function agruparPorSucursal(ventas) {
     actual.monto += Number(v.total);
     porSucursal.set(clave, actual);
   }
+
+  const pedidosPorSucursal = new Map(); // sucursalId -> Set(pedidoId)
+  for (const p of pedidos) {
+    for (const item of p.items) {
+      const clave = item.sucursalStockId;
+      const actual = porSucursal.get(clave) || {
+        sucursalId: clave,
+        nombre: item.sucursalStock?.nombre || `Sucursal ${clave}`,
+        ventas: 0,
+        monto: 0,
+      };
+      actual.monto += Number(item.subtotal);
+      porSucursal.set(clave, actual);
+
+      if (!pedidosPorSucursal.has(clave)) pedidosPorSucursal.set(clave, new Set());
+      pedidosPorSucursal.get(clave).add(p.id);
+    }
+  }
+  for (const [clave, idsPedidos] of pedidosPorSucursal.entries()) {
+    porSucursal.get(clave).ventas += idsPedidos.size;
+  }
+
   return [...porSucursal.values()]
     .map((r) => ({ ...r, monto: Math.round(r.monto * 100) / 100 }))
     .sort((a, b) => b.monto - a.monto);
 }
 
-// A partir de los renglones de venta (VentaItem), arma varios desgloses a la
-// vez (producto, marca, categoría, talla, proveedor) sin repetir la consulta.
+// A partir de renglones de venta — VentaItem (mostrador) y/o PedidoItem
+// (tienda en línea, ver fetchPedidosPagados) mezclados en una sola lista,
+// ambos con la misma forma (cantidad, subtotal, proveedor, variante) — arma
+// varios desgloses a la vez (producto, marca, categoría, talla, proveedor)
+// sin repetir la consulta.
 function calcularDesglose(items, limiteProductos) {
   const porProducto = new Map();
   const porMarca = new Map();
@@ -398,13 +544,18 @@ router.get(
     const { desdeStr, hastaStr, desde, hasta } = req.rango;
     const anterior = rangoAnterior(desdeStr, hastaStr);
 
-    const [ventasActual, ventasAnterior] = await Promise.all([
+    const [ventasActual, pedidosActual, ventasAnterior, pedidosAnterior] = await Promise.all([
       fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
       fetchVentasCompletadas(anterior.desde, anterior.hasta, req.sucursalReporte),
+      fetchPedidosPagados(anterior.desde, anterior.hasta, req.sucursalReporte),
     ]);
 
-    const actual = calcularResumen(ventasActual);
-    const previo = calcularResumen(ventasAnterior);
+    // Ventas de mostrador + pedidos de la tienda en línea ya pagados, juntos
+    // (ver fetchPedidosPagados arriba) — "total vendido" ya incluye ambos
+    // canales.
+    const actual = calcularResumen([...ventasActual, ...pedidosActual]);
+    const previo = calcularResumen([...ventasAnterior, ...pedidosAnterior]);
 
     res.json({
       periodo: { desde: desdeStr, hasta: hastaStr },
@@ -430,8 +581,14 @@ router.get(
   conRangoResuelto,
   asyncHandler(async (req, res) => {
     const { desdeStr, hastaStr, desde, hasta } = req.rango;
-    const ventas = await fetchVentasCompletadas(desde, hasta, req.sucursalReporte);
-    res.json({ periodo: { desde: desdeStr, hasta: hastaStr }, serie: agruparPorDia(ventas, desdeStr, hastaStr) });
+    const [ventas, pedidos] = await Promise.all([
+      fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
+    ]);
+    res.json({
+      periodo: { desde: desdeStr, hasta: hastaStr },
+      serie: agruparPorDia([...ventas, ...pedidos], desdeStr, hastaStr),
+    });
   })
 );
 
@@ -444,8 +601,11 @@ router.get(
   conRangoResuelto,
   asyncHandler(async (req, res) => {
     const { desde, hasta } = req.rango;
-    const ventas = await fetchVentasCompletadas(desde, hasta, req.sucursalReporte);
-    res.json({ porMetodoPago: agruparPorMetodoPago(ventas) });
+    const [ventas, pedidos] = await Promise.all([
+      fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
+    ]);
+    res.json({ porMetodoPago: agruparPorMetodoPago(ventas, pedidos) });
   })
 );
 
@@ -461,8 +621,11 @@ router.get(
   conRangoResuelto,
   asyncHandler(async (req, res) => {
     const { desde, hasta } = req.rango;
-    const ventas = await fetchVentasCompletadas(desde, hasta, req.sucursalReporte);
-    res.json({ porSucursal: agruparPorSucursal(ventas) });
+    const [ventas, pedidos] = await Promise.all([
+      fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
+    ]);
+    res.json({ porSucursal: agruparPorSucursal(ventas, pedidos) });
   })
 );
 
@@ -478,8 +641,12 @@ router.get(
   asyncHandler(async (req, res) => {
     const { desde, hasta } = req.rango;
     const limite = Math.min(Number(req.query.limite) || 10, 50);
-    const items = await fetchVentaItemsCompletados(desde, hasta, req.sucursalReporte);
-    res.json(calcularDesglose(items, limite));
+    const [items, pedidos] = await Promise.all([
+      fetchVentaItemsCompletados(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
+    ]);
+    const itemsPedidos = pedidos.flatMap((p) => p.items);
+    res.json(calcularDesglose([...items, ...itemsPedidos], limite));
   })
 );
 
@@ -500,8 +667,11 @@ router.get(
     const desde = inicioDiaNegocio(desdeStr);
     const hasta = finDiaNegocio(hastaStr);
 
-    const ventas = await fetchVentasCompletadas(desde, hasta, req.sucursalReporte);
-    const serieHistorica = agruparPorDia(ventas, desdeStr, hastaStr);
+    const [ventas, pedidos] = await Promise.all([
+      fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
+    ]);
+    const serieHistorica = agruparPorDia([...ventas, ...pedidos], desdeStr, hastaStr);
     const estimacion = calcularEstimacion(serieHistorica, horizonte);
 
     res.json({ historico: serieHistorica, ...estimacion });
@@ -522,14 +692,16 @@ router.get(
     const anterior = rangoAnterior(desdeStr, hastaStr);
     const limite = Math.min(Number(req.query.limite) || 10, 50);
 
-    const [ventasActual, ventasAnterior, items] = await Promise.all([
+    const [ventasActual, pedidosActual, ventasAnterior, pedidosAnterior, items] = await Promise.all([
       fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
       fetchVentasCompletadas(anterior.desde, anterior.hasta, req.sucursalReporte),
+      fetchPedidosPagados(anterior.desde, anterior.hasta, req.sucursalReporte),
       fetchVentaItemsCompletados(desde, hasta, req.sucursalReporte),
     ]);
 
-    const actual = calcularResumen(ventasActual);
-    const previo = calcularResumen(ventasAnterior);
+    const actual = calcularResumen([...ventasActual, ...pedidosActual]);
+    const previo = calcularResumen([...ventasAnterior, ...pedidosAnterior]);
     const resumen = {
       actual,
       anterior: previo,
@@ -539,10 +711,10 @@ router.get(
       },
     };
 
-    const serie = agruparPorDia(ventasActual, desdeStr, hastaStr);
-    const porMetodoPago = agruparPorMetodoPago(ventasActual);
-    const porSucursal = agruparPorSucursal(ventasActual);
-    const desglose = calcularDesglose(items, limite);
+    const serie = agruparPorDia([...ventasActual, ...pedidosActual], desdeStr, hastaStr);
+    const porMetodoPago = agruparPorMetodoPago(ventasActual, pedidosActual);
+    const porSucursal = agruparPorSucursal(ventasActual, pedidosActual);
+    const desglose = calcularDesglose([...items, ...pedidosActual.flatMap((p) => p.items)], limite);
 
     // La estimación en el Excel usa el mismo histórico del periodo filtrado
     // (no los 90 días por defecto de /estimacion) para que el archivo
