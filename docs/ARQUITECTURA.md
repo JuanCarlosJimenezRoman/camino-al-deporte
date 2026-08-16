@@ -491,7 +491,12 @@ En Productos → "Importar / exportar Excel". Cada fila del Excel es una
 variante (una combinación talla/color con su propio SKU); varias filas con
 el mismo nombre+marca se agrupan como el mismo producto. Obligatorio por
 fila: `nombre`, `marca`, `categoria`, `sku` — todo lo demás (modelo,
-descripción, precios, talla, color, stock inicial) es opcional. La carga de
+descripción, precios, talla, color, proveedor, stock inicial) es opcional. La
+columna `proveedor` es por variante (fila): si se llena, se busca/crea ese
+proveedor y se asigna tanto a `ProductoVariante.proveedorId` como a la
+`Existencia` que se crea en la sucursal elegida (mismo criterio que usan el
+alta manual y la importación por KicksDB); si se deja vacía, la variante
+queda sin proveedor y se puede asignar después desde Productos. La carga de
 stock inicial es opcional a propósito: los ajustes de inventario "de verdad"
 (entradas, salidas, conteos) tienen su propio flujo en Inventario, con su
 propio registro en `movimientos_inventario`; el Excel es solo para

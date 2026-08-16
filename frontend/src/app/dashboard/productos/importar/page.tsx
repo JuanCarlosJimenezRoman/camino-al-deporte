@@ -17,6 +17,7 @@ interface FilaAnalizada {
   talla: string;
   color: string | null;
   sku: string;
+  proveedor: string | null;
   stockInicial: number;
   estado: 'ok' | 'omitida' | 'error';
   motivo?: string;
@@ -129,7 +130,8 @@ export default function ImportarProductosPage() {
           <h2 style={{ fontSize: 15, marginBottom: 8 }}>1. Descarga la plantilla</h2>
           <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 10 }}>
             Trae dos filas de ejemplo y una hoja de instrucciones. Solo nombre, marca, categoría y SKU son
-            obligatorios por fila.
+            obligatorios por fila; proveedor es opcional (si lo dejas vacío, la variante queda sin proveedor
+            y se puede asignar después).
           </p>
           <button
             className="btn-secondary btn"
@@ -198,6 +200,7 @@ export default function ImportarProductosPage() {
                   <th>Marca</th>
                   <th>Talla</th>
                   <th>SKU</th>
+                  <th>Proveedor</th>
                   <th>Stock</th>
                   <th>Estado</th>
                 </tr>
@@ -210,6 +213,7 @@ export default function ImportarProductosPage() {
                     <td>{f.marca}</td>
                     <td>{f.talla || '—'}</td>
                     <td>{f.sku}</td>
+                    <td>{f.proveedor || '—'}</td>
                     <td>{f.stockInicial}</td>
                     <td style={{ color: ESTADO_STYLE[f.estado].color, fontSize: 12 }}>
                       {ESTADO_STYLE[f.estado].label}

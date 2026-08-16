@@ -50,6 +50,7 @@ function normalizarFilas(filasCrudas) {
       tipoTalla: normalizarTexto(raw.tipo_talla) || 'general',
       color: normalizarTexto(raw.color) || null,
       sku,
+      proveedor: normalizarTexto(raw.proveedor) || null,
       stockInicial: normalizarNumero(raw.stock_inicial),
       stockMinimo: normalizarNumero(raw.stock_minimo),
       faltantes,
@@ -175,6 +176,12 @@ async function buscarProductoExistente(tx, nombre, marcaId) {
   });
 }
 
+async function buscarOCrearProveedor(tx, nombre) {
+  const existente = await tx.proveedor.findFirst({ where: { nombre: { equals: nombre, mode: 'insensitive' } } });
+  if (existente) return existente;
+  return tx.proveedor.create({ data: { nombre } });
+}
+
 /**
  * Ejecuta la importación de verdad, dentro de una transacción. Vuelve a
  * correr la misma validación (analizarImportacion) por si algo cambió en la
@@ -190,6 +197,7 @@ async function ejecutarImportacion(filasCrudas, { sucursalId, usuarioId }) {
   await prisma.$transaction(
     async (tx) => {
       const cacheProducto = new Map(); // clave nombre+marca -> productoId
+      const proveedoresPorNombre = new Map(); // nombre en minúsculas -> proveedorId
 
       for (const f of filasValidas) {
         const marca = await buscarOCrearMarca(tx, f.marca);
@@ -232,9 +240,26 @@ async function ejecutarImportacion(filasCrudas, { sucursalId, usuarioId }) {
           tallaId = talla.id;
         }
 
+        // proveedor es opcional: si se llenó esa celda, se busca/crea y se
+        // asigna tanto a la variante (proveedor por defecto) como a la
+        // existencia (proveedor real de ese bulto de stock); si se dejó en
+        // blanco queda null y se asigna después desde Productos, igual que
+        // en el alta manual y en la importación por KicksDB.
+        let proveedorId;
+        if (f.proveedor) {
+          const proveedorCache = proveedoresPorNombre.get(f.proveedor.toLowerCase());
+          if (proveedorCache) {
+            proveedorId = proveedorCache;
+          } else {
+            const proveedor = await buscarOCrearProveedor(tx, f.proveedor);
+            proveedoresPorNombre.set(f.proveedor.toLowerCase(), proveedor.id);
+            proveedorId = proveedor.id;
+          }
+        }
+
         const codigoInterno = await generarCodigoInterno(tx, { sku: f.sku, tallaValor: f.talla || null, color: f.color });
         const variante = await tx.productoVariante.create({
-          data: { productoId, tallaId, color: f.color, sku: f.sku, codigoInterno },
+          data: { productoId, tallaId, color: f.color, sku: f.sku, codigoInterno, proveedorId },
         });
         stats.variantesCreadas++;
 
@@ -248,6 +273,7 @@ async function ejecutarImportacion(filasCrudas, { sucursalId, usuarioId }) {
             varianteId: variante.id,
             stockActual: f.stockInicial,
             stockMinimo: f.stockMinimo,
+            proveedorId,
           },
         });
         if (f.stockInicial > 0) {
@@ -285,5 +311,6 @@ module.exports = {
   buscarOCrearCategoria,
   buscarOCrearModelo,
   buscarOCrearTalla,
+  buscarOCrearProveedor,
   buscarProductoExistente,
 };

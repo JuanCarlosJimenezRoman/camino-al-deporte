@@ -14,6 +14,7 @@ const COLUMNAS = [
   'tipo_talla',
   'color',
   'sku',
+  'proveedor',
   'stock_inicial',
   'stock_minimo',
 ];
@@ -48,6 +49,7 @@ function generarPlantilla() {
     tipo_talla: 'MENS',
     color: 'Negro',
     sku: 'NIKE-AIRMAX-9-NEG',
+    proveedor: '',
     stock_inicial: 10,
     stock_minimo: 2,
   };
@@ -77,6 +79,10 @@ function generarPlantilla() {
     [''],
     ['Si la marca, categoría o talla no existen todavía en el sistema, se crean solas al importar.'],
     ['Si un SKU ya existe, esa fila se omite (no se sobreescribe ningún dato existente).'],
+    [''],
+    ['proveedor es opcional. Si escribes un nombre, esa variante queda asignada a ese proveedor'],
+    ['(se crea solo si no existe todavía). Si dejas la celda vacía, la variante queda sin proveedor'],
+    ['y puedes asignárselo después desde Productos.'],
     [''],
     ['tipo_talla: para calzado usa uno de estos códigos (según el público/edad):'],
     ['  TD = bebé (~1-4 años), PS = preescolar (~4-7), GS = escolar (~7-12),'],
