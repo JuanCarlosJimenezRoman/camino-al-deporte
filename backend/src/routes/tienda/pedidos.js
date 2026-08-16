@@ -6,6 +6,7 @@ const { asyncHandler } = require('../../utils/asyncHandler');
 const { manejarSubidaImagen, manejarSubidaImagenes } = require('../../middleware/uploadImagen');
 const { subirImagen } = require('../../config/cloudinary');
 const { buscarCupon, calcularDescuentoCupon, mensajeError } = require('../../utils/cupones');
+const { verificarBajoStockYNotificar } = require('../../utils/bajoStock');
 
 const router = express.Router();
 
@@ -139,6 +140,14 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
   }
   const { items, cuponCodigo, ...direccion } = parsed.data;
 
+  // La sucursal de la que sale el stock de cada artículo se elige AUTOMÁTICO
+  // dentro de la transacción (ver comentario del modelo Pedido en
+  // schema.prisma) — no se sabe de antemano. Se va llenando aquí para poder
+  // revisar bajo stock después de que la transacción confirme (ver
+  // utils/bajoStock.js), sin depender de la forma del include de la
+  // respuesta.
+  const cambiosStock = [];
+
   try {
     const pedido = await prisma.$transaction(async (tx) => {
       const cuenta = await tx.cuentaTransferencia.findFirst({
@@ -199,6 +208,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
           where: { id: elegida.id },
           data: { stockActual: { decrement: item.cantidad } },
         });
+        cambiosStock.push({ sucursalId: elegida.sucursalId, varianteId: item.varianteId });
 
         itemsData.push({
           varianteId: item.varianteId,
@@ -278,6 +288,12 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
 
       return nuevo;
     });
+
+    // Best-effort y en segundo plano: alguna sucursal elegida automáticamente
+    // pudo haber quedado en o bajo el mínimo (ver utils/bajoStock.js).
+    verificarBajoStockYNotificar(cambiosStock).catch((err) =>
+      console.error('Error verificando bajo stock tras el pedido en línea:', err)
+    );
 
     res.status(201).json(await conWhatsapp(pedido));
   } catch (err) {

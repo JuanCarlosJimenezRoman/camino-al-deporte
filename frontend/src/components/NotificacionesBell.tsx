@@ -29,10 +29,13 @@ interface Notificacion {
   } | null;
 }
 
-// Campanita de notificaciones dentro del sistema (no hay correo/SMS
-// configurado todavía — ver docs/ARQUITECTURA.md). Por ahora las genera
-// únicamente el flujo de "pedir mercancía a otra sucursal" desde Ventas,
-// pero está pensada para reutilizarse con más eventos a futuro.
+// Campanita de notificaciones dentro del sistema. Además de esto, algunos
+// eventos también mandan correo cuando está configurado (ver
+// config/email.js) — el bajo stock es el primero que lo hace (ver
+// utils/bajoStock.js), pero esta campanita muestra CUALQUIER tipo de
+// notificación de forma genérica (transferencias, apartados de otra
+// sucursal, bajo stock, y lo que se agregue a futuro) sin necesitar cambios
+// aquí — ver docs/ARQUITECTURA.md.
 export function NotificacionesBell() {
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
   const [cargando, setCargando] = useState(false);

@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { notificarPedidoSucursal } = require('../utils/notificaciones');
+const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
 
 const router = express.Router();
 
@@ -117,6 +118,12 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
 
       return nueva;
     });
+
+    // Best-effort y en segundo plano: la sucursal de origen pudo haber
+    // quedado en o bajo el mínimo de esta variante (ver utils/bajoStock.js).
+    verificarBajoStockYNotificar([{ sucursalId: sucursalOrigenId, varianteId }]).catch((err) =>
+      console.error('Error verificando bajo stock tras la transferencia:', err)
+    );
 
     res.status(201).json(transferencia);
   } catch (err) {

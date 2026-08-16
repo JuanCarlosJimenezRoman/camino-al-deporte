@@ -8,6 +8,7 @@ const { manejarSubidaImagen } = require('../middleware/uploadImagen');
 const { subirImagen, subirPdf } = require('../config/cloudinary');
 const { enviarTicketVenta } = require('../config/whatsapp');
 const { generarTicketPdf } = require('../utils/ticketPdf');
+const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
 
 const router = express.Router();
 
@@ -482,6 +483,14 @@ router.post(
           },
         });
       });
+
+      // Best-effort y en segundo plano (no se espera aquí): si alguna de las
+      // variantes vendidas quedó en o bajo su mínimo, avisa a quien le toca
+      // reabastecerla (ver utils/bajoStock.js). No debe agregar latencia al
+      // cajero ni tumbar la venta si algo falla.
+      verificarBajoStockYNotificar(items.map((i) => ({ sucursalId, varianteId: i.varianteId }))).catch((err) =>
+        console.error('Error verificando bajo stock tras la venta:', err)
+      );
 
       // A partir de aquí la venta YA quedó registrada (la transacción de
       // arriba ya se guardó en la base de datos y ya se descontó el stock).

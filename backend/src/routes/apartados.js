@@ -9,6 +9,7 @@ const { subirImagen, subirPdf } = require('../config/cloudinary');
 const { notificarApartadoOtraSucursal } = require('../utils/notificaciones');
 const { enviarComprobanteApartado } = require('../config/whatsapp');
 const { generarComprobanteApartado } = require('../utils/apartadoPdf');
+const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
 
 const router = express.Router();
 
@@ -381,6 +382,13 @@ router.post(
 
         return nuevoApartado;
       });
+
+      // Best-effort y en segundo plano: el stock reservado pudo haber dejado
+      // alguna variante en o bajo su mínimo en la sucursal de donde salió
+      // (ver utils/bajoStock.js).
+      verificarBajoStockYNotificar(items.map((i) => ({ sucursalId: i.sucursalStockId, varianteId: i.varianteId }))).catch(
+        (err) => console.error('Error verificando bajo stock tras el apartado:', err)
+      );
 
       // El apartado (y su anticipo, si lo hubo) ya quedó registrado en la
       // base de datos en este punto — lo que sigue (comprobante en PDF +

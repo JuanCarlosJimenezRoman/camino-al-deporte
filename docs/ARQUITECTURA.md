@@ -149,18 +149,69 @@ reserva de inmediato en la sucursal donde sí lo hay, con los datos mínimos
 del cliente (nombre + teléfono); el anticipo y el seguimiento se completan
 después desde la pantalla de Apartados.
 
-**Notificaciones dentro del sistema** (`notificaciones`, sin correo/SMS por
-ahora): un renglón por destinatario. Dos eventos las generan
-(`utils/notificaciones.js`): 1) una transferencia solicitada entre sucursales
-(`notificarPedidoSucursal`), y 2) un apartado cuyo stock se reservó en una
-sucursal distinta a la que atendió al cliente (`notificarApartadoOtraSucursal`,
-disparado desde `POST /apartados`) — este último es el que aplica al flujo de
-Ventas descrito arriba. En ambos casos se avisa a ADMIN_PRINCIPAL/DESARROLLO
-y al personal de las sucursales involucradas, excepto a quien lo generó. El
-campo `tipo` es texto libre a propósito para poder sumar más eventos a futuro
-sin migración nueva. El frontend las muestra con una campanita en la barra
-superior (`NotificacionesBell.tsx`), que revisa cada 60 segundos (no hay
-websockets/push todavía).
+**Notificaciones dentro del sistema** (`notificaciones`): un renglón por
+destinatario. Tres eventos las generan hoy: 1) una transferencia solicitada
+entre sucursales (`notificarPedidoSucursal`, en `utils/notificaciones.js`),
+2) un apartado cuyo stock se reservó en una sucursal distinta a la que
+atendió al cliente (`notificarApartadoOtraSucursal`, disparado desde `POST
+/apartados`) — este es el que aplica al flujo de Ventas descrito arriba —, y
+3) una variante que quedó en o bajo su stock mínimo (`verificarBajoStockYNotificar`,
+en `utils/bajoStock.js` — ver sección dedicada más abajo), que además manda
+correo si está configurado. El campo `tipo` es texto libre a propósito para
+poder sumar más eventos a futuro sin migración nueva. El frontend las
+muestra con una campanita en la barra superior (`NotificacionesBell.tsx`),
+que revisa cada 60 segundos (no hay websockets/push todavía) y no le importa
+de qué tipo sea la notificación — solo pinta título/mensaje/fecha.
+
+## Notificaciones automáticas de bajo stock
+
+Cuando una variante queda en o por debajo de su `stockMinimo` en una
+sucursal (mismo cálculo que `GET /inventario/bajo-stock`: suma el stock de
+todos los proveedores y lo compara contra el mínimo), el sistema avisa solo
+sin que nadie tenga que estar revisando el reporte de existencias.
+
+**Cuándo se dispara.** `verificarBajoStockYNotificar` (`utils/bajoStock.js`)
+se llama justo después de que la operación que restó el stock ya se guardó
+— es un efecto secundario "best-effort" en segundo plano (no se espera antes
+de responder), igual criterio que el ticket digital de `POST /ventas`: si
+algo falla aquí, la venta/apartado/pedido/transferencia/movimiento YA quedó
+registrado bien. Se revisa después de:
+
+- Registrar una venta de mostrador (`POST /ventas`).
+- Crear un apartado (`POST /apartados`).
+- Un pedido de la tienda en línea (`POST /tienda/pedidos`) — la sucursal se
+  elige automáticamente por variante, así que se revisan todas las que
+  terminaron usándose.
+- Solicitar una transferencia entre sucursales (`POST /transferencias`, la
+  sucursal de origen).
+- Un movimiento manual de salida o ajuste negativo (`POST
+  /inventario/movimientos`) — una entrada nunca deja algo más bajo, así que
+  ahí no se revisa.
+
+Variantes con `stockMinimo` en 0 (sin política de reorden configurada, ver
+`PUT /inventario/minimo`) nunca generan alerta — evita ruido en productos a
+los que nunca se les puso un mínimo.
+
+**A quién le llega.** ADMIN_PRINCIPAL/DESARROLLO (visibilidad total) más el
+personal INVENTARIO/VENTAS de esa sucursal específica. No es configurable
+desde la UI todavía (ver pendientes).
+
+**Canales.** Notificación in-app siempre (misma tabla `notificaciones` de
+arriba, se ve en la campanita). Además, correo a cada destinatario que
+tenga email, si `EMAIL_USER`/`EMAIL_APP_PASSWORD` están configurados (ver
+`config/email.js` — mismo canal que ya se usa para "olvidé mi contraseña").
+WhatsApp a personal interno no está implementado (el Cloud API que ya usa el
+sistema es para mandar tickets/comprobantes a clientes, no hay un número de
+staff configurado para recibir alertas) — queda como posible siguiente paso.
+
+**Anti-spam.** No hay una tabla aparte para rastrear "ya se avisó de esto":
+se aprovecha que `Notificacion.tipo` es texto libre para guardar una clave
+estable `BAJO_STOCK:<varianteId>:<sucursalId>`, y antes de notificar se
+revisa si ya existe una con esa clave creada en las últimas 24 horas — así
+una racha de varias ventas seguidas del mismo producto agotándose no manda
+una notificación (ni un correo) por cada una. *Limitación conocida*: si en
+ese mismo día se restablece el stock y vuelve a bajar, no se re-notifica
+hasta que pase la ventana de 24h.
 
 ## Modelo de datos (resumen)
 
@@ -751,7 +802,10 @@ con otro proveedor distinto.
 - Reporte de ventas por vendedor (hoy `/dashboard/reportes` desglosa por
   producto/marca/categoría/talla/sucursal/método de pago, no por usuario
   que hizo la venta).
-- Notificaciones de bajo stock (correo o WhatsApp).
+- Notificaciones de bajo stock por WhatsApp (hoy solo in-app + correo, ver
+  sección de notificaciones automáticas de bajo stock).
+- Que a quién se le notifica el bajo stock sea configurable desde la UI en
+  vez de estar fijo en código.
 - Actualización masiva de precios por Excel (hoy la importación solo crea,
   no actualiza, productos existentes — ver sección de importar/exportar).
 - Corte del día en la zona horaria del negocio en vez de UTC (ver limitación

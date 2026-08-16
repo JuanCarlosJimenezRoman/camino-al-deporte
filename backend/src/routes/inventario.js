@@ -4,6 +4,7 @@ const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
 
 const router = express.Router();
 
@@ -259,6 +260,15 @@ router.post(
 
     if (resultado.error === 'STOCK_INSUFICIENTE') {
       return res.status(409).json({ error: 'Stock insuficiente para esta salida.' });
+    }
+
+    // Best-effort y en segundo plano: solo tiene caso revisar cuando el
+    // movimiento resta stock (SALIDA, o un AJUSTE con cantidad negativa) —
+    // una ENTRADA nunca deja algo más bajo de lo que ya estaba.
+    if (delta < 0) {
+      verificarBajoStockYNotificar([{ sucursalId, varianteId }]).catch((err) =>
+        console.error('Error verificando bajo stock tras el movimiento de inventario:', err)
+      );
     }
 
     res.status(201).json(resultado);
