@@ -97,9 +97,12 @@ export const PERMISOS = {
   cuentasTransferencia: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   apartados: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   historialVentas: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
-  // Por el momento VENTAS no tiene acceso a pedidos en línea (se le puede
-  // volver a dar más adelante si hace falta).
-  pedidosOnline: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  // VENTAS ve esta sección para poder capturar pedidos manuales (WhatsApp,
+  // Instagram, etc. — ver Pedido.origen) y darles seguimiento; el backend
+  // (GET /pedidos-online, ver ROLES_PEDIDOS_MANUAL) filtra para que VENTAS
+  // solo vea esos, nunca los pedidos de la tienda en línea con SPEI a la
+  // cuenta del negocio, que siguen siendo exclusivos de administración.
+  pedidosOnline: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   // Reseñas de clientes de la tienda en línea: mismos roles que administran
   // pedidos en línea, ya que son parte de esa misma operación.
   resenas: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],

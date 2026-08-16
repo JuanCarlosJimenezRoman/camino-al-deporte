@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Star } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { api, apiUpload, ApiError } from '@/lib/api';
 import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
 
 function Estrellas({ valor }: { valor: number }) {
@@ -50,6 +50,12 @@ interface Pedido {
   id: number;
   folio: string;
   estado: 'PENDIENTE_PAGO' | 'EN_VALIDACION' | 'PAGADO' | 'ENVIADO' | 'RECIBIDO' | 'CANCELADO';
+  // Por qué canal llegó (ver enum OrigenPedido en schema.prisma) y con qué
+  // se pagó/pagará. Un pedido manual (todo lo que no sea TIENDA_ONLINE)
+  // puede ser efectivo/tarjeta, no solo transferencia.
+  origen: 'TIENDA_ONLINE' | 'WHATSAPP' | 'INSTAGRAM' | 'FACEBOOK' | 'TELEFONO' | 'OTRO';
+  metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+  creadoPor: { nombre: string } | null;
   total: string;
   costoEnvio: string;
   cliente: { nombre: string; telefono: string; email: string | null };
@@ -102,6 +108,21 @@ const ESTADO_LABEL: Record<string, string> = {
   CANCELADO: 'Cancelado',
 };
 
+const ORIGEN_LABEL: Record<string, string> = {
+  TIENDA_ONLINE: 'Tienda en línea',
+  WHATSAPP: 'WhatsApp',
+  INSTAGRAM: 'Instagram',
+  FACEBOOK: 'Facebook',
+  TELEFONO: 'Teléfono',
+  OTRO: 'Otro canal',
+};
+
+const METODO_PAGO_LABEL: Record<string, string> = {
+  EFECTIVO: 'Efectivo',
+  TARJETA: 'Tarjeta',
+  TRANSFERENCIA: 'Transferencia',
+};
+
 export default function PedidoOnlineDetallePage() {
   const params = useParams<{ id: string }>();
   const [pedido, setPedido] = useState<Pedido | null>(null);
@@ -111,6 +132,13 @@ export default function PedidoOnlineDetallePage() {
   const [numeroGuia, setNumeroGuia] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [cuentaReceptora, setCuentaReceptora] = useState(''); // '' = cuenta de la tienda
+
+  // Comprobante que el vendedor sube a mano para un pedido manual (ya lo
+  // tiene porque el cliente se lo mandó por chat) y acción de marcarlo
+  // pagado directo (efectivo/tarjeta, o transferencia ya confirmada por
+  // fuera) — ver POST /pedidos-online/:id/comprobante y /marcar-pagado.
+  const [comprobanteManual, setComprobanteManual] = useState<File | null>(null);
+  const [subiendoComprobante, setSubiendoComprobante] = useState(false);
 
   // Formulario para activar/editar el descuento manual post-pedido.
   const [mostrarFormDescuento, setMostrarFormDescuento] = useState(false);
@@ -169,6 +197,26 @@ export default function PedidoOnlineDetallePage() {
     accion('rechazar-comprobante', { motivo });
   }
 
+  // Sube el comprobante que el vendedor ya tiene (se lo mandó el cliente por
+  // chat) para un pedido manual — pasa a EN_VALIDACION, igual que cuando lo
+  // sube el cliente mismo desde la tienda en línea.
+  async function subirComprobanteManual() {
+    if (!comprobanteManual) return;
+    setSubiendoComprobante(true);
+    setMensaje(null);
+    try {
+      const formData = new FormData();
+      formData.append('comprobante', comprobanteManual);
+      const actualizado = await apiUpload<Pedido>(`/pedidos-online/${pedido!.id}/comprobante`, formData);
+      setPedido(actualizado);
+      setComprobanteManual(null);
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'No se pudo subir el comprobante.');
+    } finally {
+      setSubiendoComprobante(false);
+    }
+  }
+
   function cancelarPedido() {
     if (!window.confirm('¿Cancelar este pedido? El stock reservado regresará al inventario.')) return;
     accion('cancelar');
@@ -197,9 +245,24 @@ export default function PedidoOnlineDetallePage() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 24 }}>
       <div>
-        <h1 style={{ fontSize: 22, marginBottom: 4 }}>Pedido {pedido.folio}</h1>
+        <h1 style={{ fontSize: 22, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+          Pedido {pedido.folio}
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              padding: '2px 8px',
+              borderRadius: 999,
+              background: pedido.origen === 'TIENDA_ONLINE' ? 'var(--color-panel)' : 'var(--color-accent-muted, #e0f2ea)',
+              border: '1px solid var(--color-border)',
+            }}
+          >
+            {ORIGEN_LABEL[pedido.origen] || pedido.origen}
+          </span>
+        </h1>
         <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 16 }}>
-          {new Date(pedido.createdAt).toLocaleString('es-MX')} — {ESTADO_LABEL[pedido.estado]}
+          {new Date(pedido.createdAt).toLocaleString('es-MX')} — {ESTADO_LABEL[pedido.estado]} — {METODO_PAGO_LABEL[pedido.metodoPago]}
+          {pedido.creadoPor ? ` — capturado por ${pedido.creadoPor.nombre}` : ''}
         </p>
 
         <div className="card" style={{ marginBottom: 16 }}>
@@ -241,6 +304,25 @@ export default function PedidoOnlineDetallePage() {
           </div>
         )}
 
+        {pedido.metodoPago !== 'TRANSFERENCIA' && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 8 }}>Pago ({METODO_PAGO_LABEL[pedido.metodoPago]})</h2>
+            {pedido.estado === 'PENDIENTE_PAGO' || pedido.estado === 'EN_VALIDACION' ? (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 10 }}>Todavía no se ha marcado como pagado.</p>
+                <button className="btn" disabled={procesando} onClick={() => accion('marcar-pagado')}>
+                  Marcar como pagado
+                </button>
+              </>
+            ) : (
+              pedido.validadoPor && (
+                <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Marcado como pagado por {pedido.validadoPor.nombre}</p>
+              )
+            )}
+          </div>
+        )}
+
+        {pedido.metodoPago === 'TRANSFERENCIA' && (
         <div className="card" style={{ marginBottom: 16 }}>
           <h2 style={{ fontSize: 15, marginBottom: 8 }}>Pago por SPEI</h2>
           <div style={{ fontSize: 14 }}>
@@ -255,7 +337,21 @@ export default function PedidoOnlineDetallePage() {
               Ver comprobante subido
             </a>
           ) : (
-            <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>El cliente todavía no sube su comprobante.</p>
+            <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>
+              {pedido.origen === 'TIENDA_ONLINE' ? 'El cliente todavía no sube su comprobante.' : 'Aún no se ha subido un comprobante.'}
+            </p>
+          )}
+
+          {pedido.origen !== 'TIENDA_ONLINE' && pedido.estado === 'PENDIENTE_PAGO' && (
+            <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input type="file" accept="image/*" onChange={(e) => setComprobanteManual(e.target.files?.[0] || null)} />
+              <button className="btn-secondary btn" disabled={!comprobanteManual || subiendoComprobante} onClick={subirComprobanteManual}>
+                {subiendoComprobante ? 'Subiendo...' : 'Subir comprobante'}
+              </button>
+              <button className="btn" disabled={procesando} onClick={() => accion('marcar-pagado')}>
+                Ya se confirmó — marcar como pagado
+              </button>
+            </div>
           )}
 
           {pedido.comprobanteRechazadoMotivo && (
@@ -309,6 +405,7 @@ export default function PedidoOnlineDetallePage() {
             </div>
           )}
         </div>
+        )}
 
         {(pedido.estado === 'PENDIENTE_PAGO' || Number(pedido.descuentoManualMonto) > 0) && (
           <div className="card" style={{ marginBottom: 16 }}>

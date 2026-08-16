@@ -83,7 +83,10 @@ export function AppSidebar({
         puedeVer('apartados', rol) && { href: '/dashboard/apartados', label: 'Apartados', icon: CalendarClock },
         puedeVer('pedidosOnline', rol) && {
           href: '/dashboard/pedidos-online',
-          label: 'Pedidos en línea',
+          // Ya no es solo "en línea": también viven aquí los pedidos
+          // manuales capturados desde WhatsApp/Instagram/etc. (ver
+          // Pedido.origen).
+          label: 'Pedidos',
           icon: Globe,
         },
         puedeVer('cupones', rol) && {

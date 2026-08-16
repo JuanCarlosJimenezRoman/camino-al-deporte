@@ -64,6 +64,11 @@ model Usuario {
   notificaciones            Notificacion[]
   cuponesCreados            Cupon[]
   pedidosDescuentoAplicado  Pedido[] @relation("PedidosDescuentoAplicado")
+  // Pedidos capturados a mano por este usuario a partir de un pedido que
+  // llegó por otro canal (WhatsApp, Instagram, etc.) — ver Pedido.origen y
+  // Pedido.creadoPorId más abajo. Null en un pedido = lo armó el cliente
+  // mismo desde el checkout de la tienda en línea.
+  pedidosCreadosManualmente Pedido[] @relation("PedidosCreadosManualmente")
 
   @@map("usuarios")
 }
@@ -841,6 +846,26 @@ model ApartadoPago {
 // (prefiriendo la bodega central) y la guarda en
 // PedidoItem.sucursalStockId. Si el pedido se cancela antes de pagarse, el
 // stock regresa a esa misma sucursal.
+//
+// origen distingue un Pedido armado por el cliente mismo en el checkout de
+// la tienda (TIENDA_ONLINE, el caso de arriba) de uno que un vendedor
+// captura a mano porque el cliente hizo su pedido por otro canal (WhatsApp,
+// Instagram, etc. — ver POST /pedidos-online en routes/pedidosOnline.js).
+// Se reutiliza este mismo modelo en vez de crear una tabla aparte porque la
+// parte difícil (dirección de envío, reserva de stock, ciclo de estados,
+// PDF/paquetería) es idéntica; lo único que cambia es quién lo captura y
+// que el método de pago ya no es forzosamente SPEI (ver metodoPago). Un
+// pedido manual sí permite que el vendedor elija de qué sucursal sale cada
+// artículo (igual que Apartado), a diferencia del armado automático que
+// usa la tienda en línea.
+enum OrigenPedido {
+  TIENDA_ONLINE // el cliente lo armó solo desde el checkout de la tienda
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  TELEFONO
+  OTRO
+}
 
 enum EstadoPedido {
   PENDIENTE_PAGO // creado, stock reservado, esperando que el cliente suba su comprobante
@@ -858,6 +883,16 @@ model Pedido {
   cliente   Cliente      @relation(fields: [clienteId], references: [id])
 
   estado    EstadoPedido @default(PENDIENTE_PAGO)
+
+  // Por qué canal llegó este pedido (ver enum OrigenPedido arriba) y, si un
+  // vendedor lo capturó a mano, quién fue (null = lo armó el cliente mismo
+  // desde el checkout de la tienda en línea). ROLES_PEDIDOS_MANUAL en
+  // routes/pedidosOnline.js usa origen para decidir qué puede ver/operar
+  // el rol VENTAS: todo lo que no sea TIENDA_ONLINE.
+  origen     OrigenPedido @default(TIENDA_ONLINE)
+  creadoPorId Int?    @map("creado_por_id")
+  creadoPor   Usuario? @relation("PedidosCreadosManualmente", fields: [creadoPorId], references: [id])
+
   // total = suma de los artículos (PedidoItem.subtotal) + costoEnvio -
   // cuponDescuento - descuentoManualMonto. costoEnvio se "congela" al crear
   // el pedido (copiado de ConfiguracionTienda) para que si el negocio cambia
@@ -907,9 +942,21 @@ model Pedido {
   codigoPostal     String  @map("codigo_postal")
   referencias      String?
 
+  // Cómo se cobró/cobrará este pedido. Los pedidos de la tienda en línea
+  // (origen TIENDA_ONLINE) siempre son TRANSFERENCIA (único método que
+  // ofrece el checkout, ver arriba); un pedido manual puede ser efectivo o
+  // tarjeta también, típicamente cobrado en persona o ya confirmado por el
+  // vendedor antes de capturarlo (ver POST /pedidos-online/:id/marcar-pagado
+  // en routes/pedidosOnline.js). agruparPorMetodoPago en reportes.js usa
+  // este campo (junto con origen) para no meter todo bajo "Pedidos en
+  // línea" cuando en realidad fue efectivo/tarjeta de un pedido manual.
+  metodoPago MetodoPago @default(TRANSFERENCIA) @map("metodo_pago")
+
   // Pago por transferencia SPEI: cuenta que se le mostró al cliente y
   // referencia que se le pidió poner en el concepto, para poder ubicar el
-  // pago manualmente entre los movimientos bancarios reales.
+  // pago manualmente entre los movimientos bancarios reales. Solo aplica
+  // cuando metodoPago = TRANSFERENCIA; en un pedido manual pagado en
+  // efectivo/tarjeta, cuentaTransferenciaId queda nulo.
   cuentaTransferenciaId Int?                 @map("cuenta_transferencia_id")
   cuentaTransferencia   CuentaTransferencia? @relation(fields: [cuentaTransferenciaId], references: [id])
   referenciaPago        String               @map("referencia_pago")

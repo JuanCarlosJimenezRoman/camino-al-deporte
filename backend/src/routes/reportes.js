@@ -181,6 +181,11 @@ async function fetchPedidosPagados(desde, hasta, sucursalId) {
       cuponDescuento: true,
       descuentoManualMonto: true,
       validadoAt: true,
+      // origen/metodoPago: para poder distinguir un pedido de la tienda en
+      // línea (siempre SPEI) de uno manual por WhatsApp/Instagram/etc., que
+      // puede haberse cobrado en efectivo o tarjeta — ver agruparPorMetodoPago.
+      origen: true,
+      metodoPago: true,
       items: {
         select: {
           cantidad: true,
@@ -229,6 +234,8 @@ async function fetchPedidosPagados(desde, hasta, sucursalId) {
         total: monto,
         descuentoMonto: sucursalId ? 0 : Number(p.cuponDescuento || 0) + Number(p.descuentoManualMonto || 0),
         createdAt: p.validadoAt,
+        origen: p.origen,
+        metodoPago: p.metodoPago,
         items: itemsSucursal,
       };
     })
@@ -300,14 +307,20 @@ function agruparPorDia(ventas, desdeStr, hastaStr) {
   return serie;
 }
 
-// Los pedidos de la tienda en línea siempre se pagan por transferencia SPEI
-// (ver Pedido.referenciaPago/cuentaTransferenciaId en schema.prisma — no hay
-// un `metodoPago` distinto que elegir, a diferencia de una Venta de
-// mostrador). Se cuentan aparte, como "Pedidos en línea", en vez de sumarlos
-// dentro de TRANSFERENCIA: son operativamente un canal distinto (validación
-// de comprobante por un empleado, no un cajero cobrando en el momento) y
-// mezclarlos ahí ocultaría cuánto de la venta es en línea, que es justo lo
-// que este reporte necesita mostrar.
+// Los pedidos de la tienda en línea (origen TIENDA_ONLINE) siempre se pagan
+// por transferencia SPEI a la cuenta del negocio — se cuentan aparte, como
+// "Pedidos en línea", en vez de sumarlos dentro de TRANSFERENCIA: son
+// operativamente un canal distinto (validación de comprobante por un
+// empleado, no un cajero cobrando en el momento) y mezclarlos ahí ocultaría
+// cuánto de la venta es en línea, que es justo lo que este reporte necesita
+// mostrar.
+//
+// Un pedido MANUAL (WhatsApp/Instagram/etc., ver Pedido.origen) es distinto:
+// el vendedor sí elige un método de pago real (efectivo, tarjeta o
+// transferencia) al capturarlo, igual que en una Venta de mostrador — así
+// que aquí se suma en su bucket real (metodoPago), junto con las ventas, en
+// vez de en "Pedidos en línea" (que quedaría engañoso si dijera que todo
+// fue SPEI cuando en realidad fue efectivo en mano).
 function agruparPorMetodoPago(ventas, pedidos = []) {
   const base = {
     EFECTIVO: { ventas: 0, monto: 0 },
@@ -320,8 +333,9 @@ function agruparPorMetodoPago(ventas, pedidos = []) {
     base[v.metodoPago].monto += Number(v.total);
   }
   for (const p of pedidos) {
-    base.PEDIDO_ONLINE.ventas += 1;
-    base.PEDIDO_ONLINE.monto += Number(p.total);
+    const bucket = p.origen === 'TIENDA_ONLINE' ? 'PEDIDO_ONLINE' : p.metodoPago || 'TRANSFERENCIA';
+    base[bucket].ventas += 1;
+    base[bucket].monto += Number(p.total);
   }
   const etiquetas = {
     EFECTIVO: 'Efectivo',
