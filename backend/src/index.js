@@ -31,6 +31,13 @@ const tiendaFavoritosRoutes = require('./routes/tienda/favoritos');
 
 const app = express();
 
+// Render pone el backend detrás de un solo proxy (su edge/load balancer),
+// así que hay que confiar en un salto para que req.ip refleje la IP real
+// del cliente y no la del proxy — si no, todas las peticiones se ven como
+// si vinieran de la misma IP, lo cual rompe el rate limiting de abajo (ver
+// routes/tienda/auth.js: límites de intentos en olvide-password/restablecer).
+app.set('trust proxy', 1);
+
 app.use(
   helmet({
     hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },

@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
 const prisma = require('../../db');
 const { requireClienteAuth } = require('../../middleware/authCliente');
@@ -10,6 +11,26 @@ const { enviarCodigoRecuperacion } = require('../../config/whatsapp');
 const { enviarCodigoRecuperacionEmail } = require('../../config/email');
 
 const router = express.Router();
+
+// Límites para el flujo de "olvidé mi contraseña": son las dos únicas rutas
+// públicas (sin sesión) de toda la tienda que, sin freno, se podrían usar
+// para bombardear el correo de alguien a pedidos, o para adivinar por fuerza
+// bruta un código de 6 dígitos dentro de su ventana de 10 minutos. Por IP,
+// no por cuenta — no hace falta saber si el correo existe para aplicarlo.
+const limitarOlvidePassword = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Espera unos minutos e intenta de nuevo.' },
+});
+const limitarRestablecer = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Espera unos minutos e intenta de nuevo.' },
+});
 
 function firmar(cliente) {
   return jwt.sign(
@@ -195,7 +216,7 @@ const olvidePasswordSchema = z.object({
 // sigue funcionando. La respuesta es siempre la misma exista o no la
 // cuenta, para no revelar qué correos están registrados (mismo criterio
 // que el resto del sistema).
-router.post('/olvide-password', asyncHandler(async (req, res) => {
+router.post('/olvide-password', limitarOlvidePassword, asyncHandler(async (req, res) => {
   const parsed = olvidePasswordSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Ingresa un correo válido.' });
@@ -211,14 +232,24 @@ router.post('/olvide-password', asyncHandler(async (req, res) => {
     return res.json(mensajeGenerico);
   }
 
+  // Cualquier código anterior sin usar queda invalidado antes de crear el
+  // nuevo: así nunca hay más de un código vigente por cliente al mismo
+  // tiempo, aunque alguien pida varios seguidos (reduce la superficie para
+  // adivinar por fuerza bruta).
   const codigo = generarCodigo();
-  await prisma.clienteResetToken.create({
-    data: {
-      clienteId: cliente.id,
-      tokenHash: hashToken(codigo),
-      expiresAt: new Date(Date.now() + CODIGO_VIGENCIA_MIN * 60 * 1000),
-    },
-  });
+  await prisma.$transaction([
+    prisma.clienteResetToken.updateMany({
+      where: { clienteId: cliente.id, usedAt: null },
+      data: { usedAt: new Date() },
+    }),
+    prisma.clienteResetToken.create({
+      data: {
+        clienteId: cliente.id,
+        tokenHash: hashToken(codigo),
+        expiresAt: new Date(Date.now() + CODIGO_VIGENCIA_MIN * 60 * 1000),
+      },
+    }),
+  ]);
 
   // Best-effort: si el envío falla o el canal no está configurado, el
   // código ya quedó creado y la respuesta al cliente no cambia (no
@@ -260,7 +291,7 @@ const restablecerSchema = z.object({
 // bastante único como para buscarlo en toda la tabla sin riesgo de que
 // choque con el de otro cliente — con el email acotamos la búsqueda a los
 // códigos vigentes de esa cuenta.
-router.post('/restablecer', asyncHandler(async (req, res) => {
+router.post('/restablecer', limitarRestablecer, asyncHandler(async (req, res) => {
   const parsed = restablecerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
