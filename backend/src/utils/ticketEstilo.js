@@ -11,7 +11,15 @@
 // dibujarEncabezado() por `doc.image('ruta/logo.png', ...)` (está señalado
 // con un comentario ahí mismo).
 
+const PDFDocument = require('pdfkit');
 const bwipjs = require('bwip-js');
+
+// Ancho fijo de página (el mismo ancho que A5) y margen — el ALTO ya no es
+// fijo: se calcula en cada documento con medirAltoContenido() para que el
+// ticket quepa completo en una sola hoja sin importar cuántos artículos
+// tenga (ver esa función más abajo).
+const ANCHO_TICKET = 419.53;
+const MARGEN_TICKET = 36;
 
 const PALETA = {
   primario: '#1D4ED8', // franja superior, insignia y textos de marca
@@ -205,7 +213,49 @@ function dibujarPieLegal(doc, { left, right, mensajeExtra } = {}) {
   doc.fillColor(PALETA.texto);
 }
 
+// Calcula el alto exacto que necesita un ticket ANTES de generarlo de
+// verdad, dibujándolo una vez en una página "de prueba" muy alta (se
+// descarta, nunca se manda a ningún lado) y viendo hasta dónde quedó el
+// cursor (doc.y) al terminar. Con ese alto se crea después la página real,
+// del tamaño justo — así el documento siempre sale en UNA sola hoja, sea
+// un ticket de un artículo o de veinte.
+//
+// @param {(doc: PDFKit.PDFDocument) => void} dibujarFn - función que dibuja
+//   todo el contenido del ticket/comprobante sobre el doc que recibe.
+async function medirAltoContenido(dibujarFn, { ancho = ANCHO_TICKET, margen = MARGEN_TICKET } = {}) {
+  return new Promise((resolve, reject) => {
+    // alturaPrueba muy generosa (unas 20 páginas A5 de contenido) para que,
+    // sea cual sea el ticket, nunca se dispare un salto de página
+    // automático durante esta medición — eso arruinaría el cálculo, porque
+    // doc.y se reiniciaría al pasar a una página nueva.
+    const alturaPrueba = 6000;
+    let doc;
+    try {
+      doc = new PDFDocument({ size: [ancho, alturaPrueba], margin: margen });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    // Nadie va a leer este PDF de prueba — solo dejamos que el stream
+    // fluya y se descarte, para no acumular el buffer en memoria de más.
+    doc.on('data', () => {});
+    doc.on('error', reject);
+    try {
+      dibujarFn(doc);
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const alto = Math.ceil(doc.y + margen);
+    doc.end();
+    resolve(Math.max(alto, 250));
+  });
+}
+
 module.exports = {
+  ANCHO_TICKET,
+  MARGEN_TICKET,
+  medirAltoContenido,
   PALETA,
   moneda,
   generarBarcodeBuffer,
