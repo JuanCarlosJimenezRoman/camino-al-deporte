@@ -159,6 +159,7 @@ export default function CorteDelDiaPage() {
           {corte.ventas.length === 0 ? (
             <EmptyState icon={Receipt} title="Sin ventas completadas este día" />
           ) : (
+            <div className="overflow-x-auto">
             <table>
               <thead>
                 <tr>
@@ -188,6 +189,7 @@ export default function CorteDelDiaPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </>
       ) : null}

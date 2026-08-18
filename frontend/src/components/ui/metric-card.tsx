@@ -61,7 +61,7 @@ export function MetricCard({ title, value, icon: Icon, delta, deltaLabel, descri
                 <Line
                   type="monotone"
                   dataKey="v"
-                  stroke={esPositivo ? 'rgb(16 185 129)' : 'rgb(239 68 68)'}
+                  stroke={esPositivo ? 'rgb(var(--success))' : 'rgb(var(--destructive))'}
                   strokeWidth={2}
                   dot={false}
                   isAnimationActive={false}

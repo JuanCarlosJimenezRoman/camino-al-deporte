@@ -671,7 +671,7 @@ function ProductoDetalleContenido() {
               <label>Nombre</label>
               <Input value={editProductoForm.nombre} onChange={(e) => setEditProductoForm((f) => ({ ...f, nombre: e.target.value }))} disabled={!puedeEditar} />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label>Marca</label>
                 <Select value={editProductoForm.marcaId} onChange={(e) => cambiarMarcaEditProducto(e.target.value)} disabled={!puedeEditar}>
@@ -700,7 +700,7 @@ function ProductoDetalleContenido() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label>Precio de compra</label>
                 <Input type="number" min={0} value={editProductoForm.precioCompra} onChange={(e) => setEditProductoForm((f) => ({ ...f, precioCompra: e.target.value }))} disabled={!puedeEditar} />
@@ -729,7 +729,7 @@ function ProductoDetalleContenido() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Campos personalizados</p>
                 <p className="text-xs text-muted-foreground mt-1">Definidos en Catálogo → &quot;Campos personalizados&quot;.</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {camposDefinidos.map((campo) => {
                   const valor = editProductoForm.valoresDefinidos[campo.clave] ?? '';
                   return (
@@ -799,6 +799,7 @@ function ProductoDetalleContenido() {
 
         {/* Variantes ------------------------------------------------------ */}
         <TabsContent value="variantes" className="space-y-4">
+          <div className="overflow-x-auto">
           <table>
             <thead>
               <tr>
@@ -873,6 +874,7 @@ function ProductoDetalleContenido() {
               )}
             </tbody>
           </table>
+          </div>
 
           {puedeEditar &&
             (nuevaTallaAbierta ? (
@@ -939,6 +941,7 @@ function ProductoDetalleContenido() {
               return <EmptyState icon={Warehouse} title="Sin existencias registradas" description="Este producto todavía no tiene stock cargado en ninguna sucursal." />;
             }
             return (
+              <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -970,6 +973,7 @@ function ProductoDetalleContenido() {
                   })}
                 </tbody>
               </table>
+              </div>
             );
           })()}
         </TabsContent>
@@ -986,6 +990,7 @@ function ProductoDetalleContenido() {
             ) : !ventasProducto || ventasProducto.length === 0 ? (
               <EmptyState icon={ShoppingCart} title="Sin ventas todavía" description="Este producto no aparece en ninguna venta registrada." />
             ) : (
+              <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -1018,6 +1023,7 @@ function ProductoDetalleContenido() {
                   )}
                 </tbody>
               </table>
+              </div>
             )}
           </TabsContent>
         )}

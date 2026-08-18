@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { LogOut, Menu, User as UserIcon, Settings, Search, HelpCircle, ChevronRight } from 'lucide-react';
+import { LogOut, Menu, User as UserIcon, Settings, Search, HelpCircle, ChevronRight, Sun, Moon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { useTheme } from '@/lib/themeContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -60,6 +61,7 @@ function iniciales(nombre: string) {
 
 export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
   const { usuario, logout } = useAuth();
+  const { tema, alternarTema } = useTheme();
   const pathname = usePathname();
   const router = useRouter();
   const titulo = TITULOS[pathname] || 'Camino al Deporte';
@@ -117,6 +119,20 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
       <GlobalSearchDialog open={buscadorAbierto} onOpenChange={setBuscadorAbierto} />
 
       <BranchSelector />
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={tema === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            onClick={alternarTema}
+          >
+            {tema === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{tema === 'dark' ? 'Modo claro' : 'Modo oscuro'}</TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger asChild>

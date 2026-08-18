@@ -352,6 +352,7 @@ export default function ApartadosPage() {
           }
         />
       ) : (
+        <div className="overflow-x-auto">
         <table>
           <thead>
             <tr>
@@ -380,6 +381,7 @@ export default function ApartadosPage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -884,7 +886,7 @@ function NuevoApartadoForm({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cliente</p>
               {clienteSeleccionado ? (

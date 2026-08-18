@@ -135,6 +135,7 @@ export default function HistorialVentasPage() {
           <MetricCard title="Total del periodo" value={`$${historial.resumen.totalGeneral.toFixed(2)}`} icon={DollarSign} />
 
           {Object.keys(historial.resumen.porSucursal).length > 0 && (
+            <div className="overflow-x-auto">
             <table>
               <thead>
                 <tr>
@@ -153,11 +154,13 @@ export default function HistorialVentasPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           {historial.ventas.length === 0 ? (
             <EmptyState icon={History} title="Sin ventas en el periodo" description="Ajusta los filtros de fecha o sucursal para ver resultados." />
           ) : (
+            <div className="overflow-x-auto">
             <table>
               <thead>
                 <tr>
@@ -205,6 +208,7 @@ export default function HistorialVentasPage() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </>
       ) : null}

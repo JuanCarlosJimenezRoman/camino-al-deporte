@@ -490,6 +490,7 @@ export default function ProductosPage() {
         />
       ) : (
         <>
+          <div className="overflow-x-auto">
           <table>
             <thead>
               <tr>
@@ -576,6 +577,7 @@ export default function ProductosPage() {
               })}
             </tbody>
           </table>
+          </div>
 
           <Pagination
             page={pagina}
@@ -600,7 +602,7 @@ export default function ProductosPage() {
                 <label>Nombre</label>
                 <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Tenis Runner Pro" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label>Marca</label>
                   <Select value={marcaId} onChange={(e) => setMarcaId(e.target.value)}>
@@ -624,7 +626,7 @@ export default function ProductosPage() {
                   </Select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label>Precio de compra</label>
                   <Input type="number" min={0} value={precioCompra} onChange={(e) => setPrecioCompra(e.target.value)} />

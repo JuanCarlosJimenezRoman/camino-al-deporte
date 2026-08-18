@@ -446,16 +446,22 @@ export default function DashboardHome() {
                 <LineChart data={serieGrafica} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 11, fill: 'rgb(107 114 128)' }}
+                    tick={{ fontSize: 11, fill: 'rgb(var(--muted-foreground))' }}
                     axisLine={false}
                     tickLine={false}
                     interval={periodo === '30d' ? 3 : 0}
                   />
                   <ChartTooltip
                     formatter={(value: number) => [`$${value.toLocaleString('es-MX')}`, 'Ventas']}
-                    contentStyle={{ borderRadius: 10, border: '1px solid rgb(236 237 240)', fontSize: 12 }}
+                    contentStyle={{
+                      borderRadius: 10,
+                      border: '1px solid rgb(var(--border))',
+                      fontSize: 12,
+                      background: 'rgb(var(--popover))',
+                      color: 'rgb(var(--popover-foreground))',
+                    }}
                   />
-                  <Line type="monotone" dataKey="total" stroke="rgb(255 78 0)" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="total" stroke="rgb(var(--primary))" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             )}

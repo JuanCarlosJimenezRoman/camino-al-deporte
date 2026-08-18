@@ -50,6 +50,14 @@
   --chart-3: 245 158 11;
   --chart-4: 139 92 246;
   --chart-5: 239 68 68;
+  /* Gris para ejes/gridlines de recharts (Reportes) — un poco más claro
+     que --muted-foreground a propósito, para que las líneas de apoyo del
+     gráfico queden discretas y no compitan con el texto real. */
+  --chart-axis: 156 163 175;
+  /* Tinte claro del primario, para la línea de estimación/proyección en
+     Reportes (se distingue de la línea real sin ser otro color de la
+     paleta categórica). */
+  --chart-projection: 255 176 136; /* #FFB088 */
 
   --radius: 0.625rem; /* 10px — botones, inputs, dropdowns */
   --radius-card: 0.875rem; /* 14px — cards, dialogs, drawers */
@@ -71,6 +79,65 @@
   --color-primary: rgb(var(--primary));
   --color-primary-dark: #cc3e00;
   --color-danger: rgb(var(--destructive));
+}
+
+/* -----------------------------------------------------------------------
+   Modo oscuro — solo para el panel administrativo (/dashboard). La clase
+   "dark" se agrega a <html> mientras el panel está montado (ver
+   lib/themeContext.tsx) y se quita al salir de /dashboard, así que /tienda
+   y /login nunca se ven afectados. Como el resto del código ya lee todos
+   sus colores de estas variables (o de los alias --color-* que a su vez
+   las referencian), no hace falta tocar componente por componente: basta
+   con redeclarar los tokens acá.
+   ----------------------------------------------------------------------- */
+.dark {
+  color-scheme: dark;
+
+  --background: 9 9 11;
+  --foreground: 250 250 250;
+  --card: 20 20 23;
+  --card-foreground: 250 250 250;
+  --popover: 20 20 23;
+  --popover-foreground: 250 250 250;
+
+  --primary: 255 78 0; /* la marca no cambia entre temas */
+  --primary-foreground: 255 255 255;
+  --secondary: 39 39 42;
+  --secondary-foreground: 250 250 250;
+  --muted: 39 39 42;
+  --muted-foreground: 161 161 170;
+  --accent: 51 31 18; /* tinte naranja MUY oscuro, equivalente al orange-50 del claro */
+  --accent-foreground: 250 250 250;
+  /* destructive/success/warning NO se redeclaran acá a propósito: validados
+     con el skill de dataviz, los tonos de modo claro ya cumplen >=3:1 de
+     contraste contra una superficie oscura, así que se heredan sin cambio
+     (evita además que un mismo estado "se vea" de dos colores distintos
+     según el tema). */
+
+  --border: 46 46 52;
+  --input-background: 39 39 42;
+  --ring: 255 78 0;
+
+  /* chart-1/4/5 se heredan sin cambio (ya validados para superficie oscura).
+     chart-2 y chart-3 SÍ se redeclaran: al validarlos como color de marca
+     (relleno de barra/línea, no texto) contra la superficie oscura con el
+     validador del skill de dataviz, los tonos de modo claro (#10B981,
+     #F59E0B) quedan fuera de la banda de luminosidad para modo oscuro
+     (L 0.48–0.67) — se usan estos pasos más oscuros de la misma familia,
+     que sí pasan las 5 verificaciones (banda, chroma, CVD, contraste). */
+  --chart-2: 5 150 105; /* #059669 */
+  --chart-3: 217 119 6; /* #D97706 */
+  --chart-axis: 161 161 170;
+  --chart-projection: 204 122 69; /* #CC7A45 — mismo criterio: paso más oscuro
+     de la familia del primario, validado en banda para superficie oscura. */
+
+  --sidebar: 20 20 23;
+  --sidebar-foreground: 250 250 250;
+  --sidebar-primary: 255 78 0;
+  --sidebar-primary-foreground: 255 255 255;
+  --sidebar-accent: 51 31 18;
+  --sidebar-accent-foreground: 250 250 250;
+  --sidebar-border: 46 46 52;
 }
 
 * {

@@ -410,6 +410,7 @@ export default function InventarioPage() {
           }
         />
       ) : (
+        <div className="overflow-x-auto">
         <table>
           <thead>
             <tr>
@@ -564,6 +565,7 @@ export default function InventarioPage() {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

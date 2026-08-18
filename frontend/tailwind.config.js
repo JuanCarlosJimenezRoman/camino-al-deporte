@@ -71,6 +71,7 @@ module.exports = {
           3: 'rgb(var(--chart-3) / <alpha-value>)',
           4: 'rgb(var(--chart-4) / <alpha-value>)',
           5: 'rgb(var(--chart-5) / <alpha-value>)',
+          axis: 'rgb(var(--chart-axis) / <alpha-value>)',
         },
       },
       borderRadius: {

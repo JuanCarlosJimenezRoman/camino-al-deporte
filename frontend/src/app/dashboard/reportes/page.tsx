@@ -56,14 +56,19 @@ import {
 // quedar junto a cualquier otra—, con la advertencia de contraste esperable
 // en verde/ámbar — por eso aquí siempre hay leyenda + valores directos,
 // nunca solo color).
-const COLOR_PRIMARIO = '#FF4E00'; // --chart-1 / --primary
-const COLOR_PRIMARIO_SUAVE = 'rgba(255, 78, 0, 0.14)';
-const COLOR_PROYECCION = '#FFB088'; // tinte claro del mismo hue, para la línea de estimación
+// Los cinco quedan como var() de globals.css (no hex fijo) para que se vean
+// bien tanto en modo claro como oscuro sin duplicar lógica acá: chart-2 y
+// chart-3 en particular usan un paso más oscuro de su mismo tono en modo
+// oscuro (revalidado con el skill de dataviz contra la superficie oscura),
+// mientras que chart-1/4/5 y los grises se heredan sin cambio.
+const COLOR_PRIMARIO = 'rgb(var(--chart-1))'; // --chart-1 / --primary
+const COLOR_PRIMARIO_SUAVE = 'rgb(var(--chart-1) / 0.14)';
+const COLOR_PROYECCION = 'rgb(var(--chart-projection))'; // tinte claro del mismo hue, para la línea de estimación
 // Efectivo, Tarjeta, Transferencia (mostrador), Pedidos en línea
-const COLORES_METODO_PAGO = ['#FF4E00', '#10B981', '#8B5CF6', '#F59E0B'];
-const COLOR_GRID = '#e5e7eb'; // --border
-const COLOR_EJE = '#9ca3af';
-const COLOR_TEXTO_SECUNDARIO = '#6b7280'; // --muted-foreground
+const COLORES_METODO_PAGO = ['rgb(var(--chart-1))', 'rgb(var(--chart-2))', 'rgb(var(--chart-4))', 'rgb(var(--chart-3))'];
+const COLOR_GRID = 'rgb(var(--border))';
+const COLOR_EJE = 'rgb(var(--chart-axis))';
+const COLOR_TEXTO_SECUNDARIO = 'rgb(var(--muted-foreground))';
 
 interface Sucursal {
   id: number;
@@ -696,8 +701,9 @@ export default function ReportesVentasPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold mb-2">Por marca</h3>
+              <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -723,10 +729,12 @@ export default function ReportesVentasPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold mb-2">Por categoría</h3>
+              <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -752,10 +760,12 @@ export default function ReportesVentasPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <h3 className="text-sm font-semibold mb-2">Por talla</h3>
+              <div className="overflow-x-auto">
               <table>
                 <thead>
                   <tr>
@@ -781,6 +791,7 @@ export default function ReportesVentasPage() {
                   )}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         </CardContent>

@@ -968,6 +968,7 @@ export default function VentasPage() {
       ) : ventas.length === 0 ? (
         <EmptyState icon={ShoppingBag} title="Sin ventas todavía" description="Las ventas que registres aparecerán aquí." />
       ) : (
+        <div className="overflow-x-auto">
         <table>
           <thead>
             <tr>
@@ -1050,6 +1051,7 @@ export default function VentasPage() {
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
