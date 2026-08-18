@@ -172,6 +172,30 @@ function construirLinkTicket(venta: Venta): string | null {
   return `https://wa.me/${numero}?text=${encodeURIComponent(construirTicketTexto(venta))}`;
 }
 
+// Fuerza la descarga del PDF (en vez de solo abrirlo en una pestaña) para
+// cuando el envío automático por WhatsApp Cloud API no esté configurado o
+// falle (ej. falta el método de pago en Meta Business, sucursal sin Phone
+// Number ID, etc.): el vendedor descarga el PDF aquí y lo adjunta a mano en
+// el chat de WhatsApp del cliente.
+//
+// El link normal de Cloudinary (ticketPdfUrl) solo lo ABRE en una pestaña
+// nueva — el atributo HTML "download" de <a> no funciona con URLs de otro
+// dominio (cross-origin), así que en vez de eso se usa el flag "fl_attachment"
+// de Cloudinary, que agrega el header Content-Disposition: attachment desde
+// el propio servidor de Cloudinary y sí obliga la descarga en cualquier
+// navegador. Ver https://cloudinary.com/documentation/image_transformations#attribute_fl_attachment
+function construirLinkDescargaTicket(ticketPdfUrl: string, folio?: string | null): string {
+  const nombreArchivo = folio ? `ticket-${folio}` : 'ticket';
+  const flag = `fl_attachment:${encodeURIComponent(nombreArchivo)}`;
+  if (ticketPdfUrl.includes('/upload/')) {
+    return ticketPdfUrl.replace('/upload/', `/upload/${flag}/`);
+  }
+  // Por si algún día cambia el formato de URL de Cloudinary y no trae
+  // "/upload/": mejor regresar el link normal (se abre, no se descarga
+  // forzado) que romper el botón.
+  return ticketPdfUrl;
+}
+
 export default function VentasPage() {
   const { usuario } = useAuth();
   // El vendedor (VENTAS) solo puede vender desde su propia sucursal
@@ -231,6 +255,9 @@ export default function VentasPage() {
   // WhatsApp de arriba: sirve incluso si el envío automático falló, o si
   // el cajero solo quiere verlo/imprimirlo.
   const [ticketPdfUrl, setTicketPdfUrl] = useState<string | null>(null);
+  // Folio de esa misma venta, solo para nombrar el archivo al descargar el
+  // PDF (ver botón "Descargar PDF" / construirLinkDescargaTicket).
+  const [ticketFolio, setTicketFolio] = useState<string | null>(null);
 
   // Apartado (producto solo disponible en otra sucursal): no se vende
   // directamente, se aparta para el cliente y el stock se reserva en la
@@ -428,6 +455,7 @@ export default function VentasPage() {
     setGuardando(true);
     setTicketLink(null);
     setTicketPdfUrl(null);
+    setTicketFolio(null);
     try {
       const datos = {
         sucursalId: Number(sucursalId),
@@ -464,6 +492,7 @@ export default function VentasPage() {
           : 'Venta registrada.';
 
       setTicketPdfUrl(creada.ticketPdfUrl || null);
+      setTicketFolio(creada.folio || null);
 
       if (creada.ticketDigital?.enviado) {
         // Ya se mandó solo por la API de WhatsApp (con el PDF adjunto) — no
@@ -510,6 +539,7 @@ export default function VentasPage() {
     setMensaje(null);
     setTicketLink(null);
     setTicketPdfUrl(null);
+    setTicketFolio(null);
     try {
       await api('/apartados', {
         method: 'POST',
@@ -939,6 +969,15 @@ export default function VentasPage() {
                     Ver ticket (PDF)
                   </a>
                 )}
+                {ticketPdfUrl && (
+                  <a
+                    href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}
+                    className="btn-secondary btn"
+                    title="Descarga el PDF a tu dispositivo para adjuntarlo a mano en WhatsApp si el envío automático no llegó"
+                  >
+                    Descargar PDF
+                  </a>
+                )}
               </div>
             )}
 
@@ -1070,9 +1109,18 @@ export default function VentasPage() {
                 </td>
                 <td>
                   {v.ticketPdfUrl ? (
-                    <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer">
-                      Ver
-                    </a>
+                    <>
+                      <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer">
+                        Ver
+                      </a>
+                      {' · '}
+                      <a
+                        href={construirLinkDescargaTicket(v.ticketPdfUrl, v.folio)}
+                        title="Descargar para adjuntar a mano en WhatsApp"
+                      >
+                        Descargar
+                      </a>
+                    </>
                   ) : (
                     '—'
                   )}
