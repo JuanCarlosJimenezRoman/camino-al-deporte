@@ -1,9 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Send, FileText, Plus, X, CalendarClock } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { StatusBadge, EstadoTono } from '@/components/ui/status-badge';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter } from '@/components/ui/drawer';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { toast } from '@/components/ui/use-toast';
 
 interface Sucursal {
   id: number;
@@ -119,6 +130,16 @@ const METODOS_PAGO = [
   { valor: 'TRANSFERENCIA', etiqueta: 'Transferencia' },
 ] as const;
 
+const ESTADO_TONO: Record<Apartado['estado'], EstadoTono> = {
+  ACTIVO: 'warning',
+  LIQUIDADO: 'success',
+  CANCELADO: 'neutral',
+};
+
+function etiquetaMetodoPago(v: Pago['metodoPago']) {
+  return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
+}
+
 // Comprobante digital del apartado: mismo mecanismo de click-to-chat que ya
 // se usa para el ticket de venta (ver app/dashboard/ventas/page.tsx) — el
 // envío automático por la API de WhatsApp es el "camino feliz" (ver
@@ -176,6 +197,7 @@ export default function ApartadosPage() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [cuentas, setCuentas] = useState<CuentaTransferencia[]>([]);
   const [apartados, setApartados] = useState<Apartado[]>([]);
+  const [cargando, setCargando] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('');
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -191,10 +213,15 @@ export default function ApartadosPage() {
   }, []);
 
   async function cargar() {
-    const qs = new URLSearchParams();
-    if (filtroEstado) qs.set('estado', filtroEstado);
-    const data = await api<Apartado[]>(`/apartados?${qs.toString()}`);
-    setApartados(data);
+    setCargando(true);
+    try {
+      const qs = new URLSearchParams();
+      if (filtroEstado) qs.set('estado', filtroEstado);
+      const data = await api<Apartado[]>(`/apartados?${qs.toString()}`);
+      setApartados(data);
+    } finally {
+      setCargando(false);
+    }
   }
 
   useEffect(() => {
@@ -215,58 +242,65 @@ export default function ApartadosPage() {
   }, [apartados]);
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Apartados</h1>
-        <button className="btn" onClick={() => setMostrarForm((v) => !v)}>
-          {mostrarForm ? 'Cerrar formulario' : '+ Nuevo apartado'}
-        </button>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Apartados"
+        subtitle={`${apartados.length} apartado${apartados.length === 1 ? '' : 's'}`}
+        breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Apartados' }]}
+        actions={
+          <Button size="sm" onClick={() => setMostrarForm(true)}>
+            <Plus className="w-4 h-4" />
+            Nuevo apartado
+          </Button>
+        }
+      />
 
-      {mostrarForm && (
-        <NuevoApartadoForm
-          sucursales={sucursales}
-          cuentas={cuentas}
-          usuario={usuario}
-          esAdmin={esAdmin}
-          onCreado={(creado) => {
-            setMostrarForm(false);
-            const autoEnviado = creado.ticketDigital?.enviado;
-            const motivo =
-              !autoEnviado && creado.ticketDigital?.error ? ` (${creado.ticketDigital.error})` : '';
-            setMensaje(
-              autoEnviado
-                ? 'Apartado registrado. Comprobante (PDF) enviado automáticamente por WhatsApp.'
-                : `Apartado registrado.${motivo}`
-            );
-            setTicketPdfUrl(creado.ticketPdfUrl || null);
-            const montoEvento = creado.pagos?.[0] ? Number(creado.pagos[0].monto) : null;
-            setTicketLink(autoEnviado ? null : construirLinkComprobante(creado, montoEvento));
-            cargar();
-          }}
-        />
-      )}
+      <NuevoApartadoForm
+        open={mostrarForm}
+        onOpenChange={setMostrarForm}
+        sucursales={sucursales}
+        cuentas={cuentas}
+        usuario={usuario}
+        esAdmin={esAdmin}
+        onCreado={(creado) => {
+          setMostrarForm(false);
+          const autoEnviado = creado.ticketDigital?.enviado;
+          const motivo = !autoEnviado && creado.ticketDigital?.error ? ` (${creado.ticketDigital.error})` : '';
+          toast({ title: 'Apartado registrado', description: autoEnviado ? 'Comprobante (PDF) enviado automáticamente por WhatsApp.' : motivo || undefined, variant: 'success' });
+          setMensaje(null);
+          setTicketPdfUrl(creado.ticketPdfUrl || null);
+          const montoEvento = creado.pagos?.[0] ? Number(creado.pagos[0].monto) : null;
+          setTicketLink(autoEnviado ? null : construirLinkComprobante(creado, montoEvento));
+          cargar();
+        }}
+      />
 
-      {mensaje && <p style={{ fontSize: 13, margin: '12px 0' }}>{mensaje}</p>}
+      {mensaje && <p className="rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm">{mensaje}</p>}
 
       {(ticketLink || ticketPdfUrl) && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div className="flex flex-wrap gap-2">
           {ticketLink && (
-            <a className="btn-secondary btn" href={ticketLink} target="_blank" rel="noreferrer">
-              Enviar comprobante por WhatsApp
-            </a>
+            <Button variant="outline" size="sm" asChild>
+              <a href={ticketLink} target="_blank" rel="noreferrer">
+                <Send className="w-3.5 h-3.5" />
+                Enviar comprobante por WhatsApp
+              </a>
+            </Button>
           )}
           {ticketPdfUrl && (
-            <a className="btn-secondary btn" href={ticketPdfUrl} target="_blank" rel="noreferrer">
-              Ver comprobante (PDF)
-            </a>
+            <Button variant="outline" size="sm" asChild>
+              <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                <FileText className="w-3.5 h-3.5" />
+                Ver comprobante (PDF)
+              </a>
+            </Button>
           )}
         </div>
       )}
 
       {adeudosPorCliente.length > 0 && (
-        <div className="card" style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: 15, marginBottom: 8 }}>Clientes con adeudo</h2>
+        <div className="card">
+          <h2 className="text-base font-semibold mb-3">Clientes con adeudo</h2>
           <table>
             <thead>
               <tr>
@@ -279,10 +313,10 @@ export default function ApartadosPage() {
             <tbody>
               {adeudosPorCliente.map(({ cliente, saldo, cantidad }) => (
                 <tr key={cliente.id}>
-                  <td>{cliente.nombre}</td>
+                  <td className="font-medium">{cliente.nombre}</td>
                   <td>{cliente.telefono}</td>
-                  <td>{cantidad}</td>
-                  <td>${saldo.toFixed(2)}</td>
+                  <td className="tabular-nums">{cantidad}</td>
+                  <td className="tabular-nums font-medium">${saldo.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -290,51 +324,63 @@ export default function ApartadosPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-        <label style={{ fontSize: 13 }}>Estado:</label>
-        <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} style={{ maxWidth: 160 }}>
-          <option value="">Todos</option>
+      <div className="w-48">
+        <Select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
+          <option value="">Todos los estados</option>
           <option value="ACTIVO">Activos</option>
           <option value="LIQUIDADO">Liquidados</option>
           <option value="CANCELADO">Cancelados</option>
-        </select>
+        </Select>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Folio</th>
-            <th>Cliente</th>
-            <th>Sucursal</th>
-            <th>Total</th>
-            <th>Pagado</th>
-            <th>Saldo</th>
-            <th>Estado</th>
-            <th>Fecha límite</th>
-            <th>Comprobante</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {apartados.map((a) => (
-            <ApartadoFila
-              key={a.id}
-              apartado={a}
-              expandido={expandidoId === a.id}
-              onToggle={() => setExpandidoId(expandidoId === a.id ? null : a.id)}
-              cuentas={cuentas}
-              onCambio={cargar}
-            />
+      {cargando ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full" />
           ))}
-          {apartados.length === 0 && (
+        </div>
+      ) : apartados.length === 0 ? (
+        <EmptyState
+          icon={CalendarClock}
+          title="Sin apartados registrados"
+          description="Los apartados que registres aparecerán aquí."
+          action={
+            <Button size="sm" onClick={() => setMostrarForm(true)}>
+              <Plus className="w-4 h-4" />
+              Nuevo apartado
+            </Button>
+          }
+        />
+      ) : (
+        <table>
+          <thead>
             <tr>
-              <td colSpan={10} style={{ color: 'var(--color-muted)' }}>
-                Sin apartados registrados.
-              </td>
+              <th>Folio</th>
+              <th>Cliente</th>
+              <th>Sucursal</th>
+              <th>Total</th>
+              <th>Pagado</th>
+              <th>Saldo</th>
+              <th>Estado</th>
+              <th>Fecha límite</th>
+              <th>Comprobante</th>
+              <th></th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {apartados.map((a) => (
+              <ApartadoFila
+                key={a.id}
+                apartado={a}
+                expandido={expandidoId === a.id}
+                onToggle={() => setExpandidoId(expandidoId === a.id ? null : a.id)}
+                cuentas={cuentas}
+                onCambio={cargar}
+              />
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -362,6 +408,8 @@ function ApartadoFila({
   const [comprobante, setComprobante] = useState<File | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [confirmarCancelar, setConfirmarCancelar] = useState(false);
+  const [cancelando, setCancelando] = useState(false);
   // Comprobante actualizado (con el nuevo saldo) del abono que se acaba de
   // registrar.
   const [ticketLink, setTicketLink] = useState<string | null>(null);
@@ -416,188 +464,194 @@ function ApartadoFila({
   }
 
   async function cancelar() {
-    if (!window.confirm(`¿Cancelar el apartado ${apartado.folio}? El stock reservado se devolverá.`)) return;
+    setCancelando(true);
     try {
       await api(`/apartados/${apartado.id}/cancelar`, { method: 'POST' });
+      toast({ title: 'Apartado cancelado', description: 'El stock reservado se devolvió.', variant: 'success' });
       onCambio();
     } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'Error al cancelar.');
+      toast({ title: 'No se pudo cancelar', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
+    } finally {
+      setCancelando(false);
+      setConfirmarCancelar(false);
     }
   }
 
   return (
     <>
-      <tr>
-        <td>{apartado.folio}</td>
+      <tr className="cursor-pointer" onClick={onToggle}>
+        <td className="font-medium">{apartado.folio}</td>
         <td>
           {apartado.cliente.nombre}
-          <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>{apartado.cliente.telefono}</div>
+          <div className="text-xs text-muted-foreground">{apartado.cliente.telefono}</div>
         </td>
         <td>{apartado.sucursalVenta?.nombre}</td>
-        <td>${apartado.total}</td>
-        <td>${apartado.pagado.toFixed(2)}</td>
-        <td>${apartado.saldoPendiente.toFixed(2)}</td>
-        <td>{apartado.estado}</td>
-        <td>{apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : '—'}</td>
+        <td className="tabular-nums">${apartado.total}</td>
+        <td className="tabular-nums">${apartado.pagado.toFixed(2)}</td>
+        <td className="tabular-nums font-medium">${apartado.saldoPendiente.toFixed(2)}</td>
         <td>
+          <StatusBadge tono={ESTADO_TONO[apartado.estado]}>{apartado.estado}</StatusBadge>
+        </td>
+        <td>{apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : '—'}</td>
+        <td onClick={(e) => e.stopPropagation()}>
           {apartado.ticketPdfUrl ? (
-            <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer">
+            <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
               ver PDF
             </a>
           ) : (
             '—'
           )}
         </td>
-        <td>
-          <button className="btn-secondary btn" onClick={onToggle}>
+        <td onClick={(e) => e.stopPropagation()}>
+          <Button variant="ghost" size="sm" onClick={onToggle}>
+            {expandido ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             {expandido ? 'Ocultar' : 'Ver'}
-          </button>
+          </Button>
         </td>
       </tr>
       {expandido && (
         <tr>
-          <td colSpan={10}>
-            <div style={{ padding: 12, background: 'var(--color-panel)', borderRadius: 8 }}>
-              <h3 style={{ fontSize: 13, marginBottom: 6 }}>Artículos</h3>
-              <table style={{ marginBottom: 12 }}>
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>SKU</th>
-                    <th>Producto</th>
-                    <th>Talla</th>
-                    <th>Sucursal stock</th>
-                    <th>Cant.</th>
-                    <th>Precio</th>
-                    <th>Subtotal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {apartado.items.map((it) => (
-                    <tr key={it.id}>
-                      <td>
-                        <ProductoThumb
-                          url={imagenPrincipal(it.variante.producto, it.variante.color)}
-                          alt={it.variante.producto.nombre}
-                        />
-                      </td>
-                      <td>{it.variante.sku}</td>
-                      <td>{it.variante.producto.nombre}</td>
-                      <td>{it.variante.talla?.valor ?? '—'}</td>
-                      <td>{it.sucursalStock?.nombre ?? '—'}</td>
-                      <td>{it.cantidad}</td>
-                      <td>${it.precioUnitario}</td>
-                      <td>${it.subtotal}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <h3 style={{ fontSize: 13, marginBottom: 6 }}>Pagos / abonos</h3>
-              {apartado.pagos.length === 0 ? (
-                <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 12 }}>Sin abonos todavía.</p>
-              ) : (
-                <table style={{ marginBottom: 12 }}>
+          <td colSpan={10} className="bg-secondary/40">
+            <div className="p-4 space-y-4">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Artículos</h3>
+                <table>
                   <thead>
                     <tr>
-                      <th>Monto</th>
-                      <th>Método</th>
-                      <th>Registrado por</th>
-                      <th>Fecha</th>
-                      <th>Comprobante</th>
+                      <th></th>
+                      <th>SKU</th>
+                      <th>Producto</th>
+                      <th>Talla</th>
+                      <th>Sucursal stock</th>
+                      <th>Cant.</th>
+                      <th>Precio</th>
+                      <th>Subtotal</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {apartado.pagos.map((p) => (
-                      <tr key={p.id}>
-                        <td>${p.monto}</td>
+                    {apartado.items.map((it) => (
+                      <tr key={it.id}>
                         <td>
-                          {p.metodoPago === 'EFECTIVO' ? 'Efectivo' : p.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
-                          {p.cuentaTransferencia ? ` (${p.cuentaTransferencia.nombre})` : ''}
+                          <ProductoThumb url={imagenPrincipal(it.variante.producto, it.variante.color)} alt={it.variante.producto.nombre} />
                         </td>
-                        <td>{p.registradoPor?.nombre}</td>
-                        <td>{new Date(p.createdAt).toLocaleString('es-MX')}</td>
-                        <td>
-                          {p.comprobanteUrl ? (
-                            <a href={p.comprobanteUrl} target="_blank" rel="noreferrer">
-                              ver
-                            </a>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
+                        <td className="text-xs text-muted-foreground">{it.variante.sku}</td>
+                        <td>{it.variante.producto.nombre}</td>
+                        <td>{it.variante.talla?.valor ?? '—'}</td>
+                        <td>{it.sucursalStock?.nombre ?? '—'}</td>
+                        <td className="tabular-nums">{it.cantidad}</td>
+                        <td className="tabular-nums">${it.precioUnitario}</td>
+                        <td className="tabular-nums font-medium">${it.subtotal}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-              )}
+              </div>
+
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Pagos / abonos</h3>
+                {apartado.pagos.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sin abonos todavía.</p>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Monto</th>
+                        <th>Método</th>
+                        <th>Registrado por</th>
+                        <th>Fecha</th>
+                        <th>Comprobante</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {apartado.pagos.map((p) => (
+                        <tr key={p.id}>
+                          <td className="tabular-nums font-medium">${p.monto}</td>
+                          <td className="text-xs">
+                            {etiquetaMetodoPago(p.metodoPago)}
+                            {p.cuentaTransferencia ? ` (${p.cuentaTransferencia.nombre})` : ''}
+                          </td>
+                          <td>{p.registradoPor?.nombre}</td>
+                          <td className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleString('es-MX')}</td>
+                          <td>
+                            {p.comprobanteUrl ? (
+                              <a href={p.comprobanteUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
+                                ver
+                              </a>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
 
               {apartado.estado === 'ACTIVO' && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="flex flex-wrap items-end gap-2">
                   <div>
-                    <label style={{ fontSize: 12, display: 'block' }}>Monto del abono</label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={monto}
-                      onChange={(e) => setMonto(e.target.value)}
-                      style={{ maxWidth: 120 }}
-                    />
+                    <label className="text-xs">Monto del abono</label>
+                    <Input type="number" min={0} step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className="w-32" />
                   </div>
-                  <div>
-                    <label style={{ fontSize: 12, display: 'block' }}>Método</label>
-                    <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
+                  <div className="w-36">
+                    <label className="text-xs">Método</label>
+                    <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
                       {METODOS_PAGO.map((m) => (
-                        <option key={m.valor} value={m.valor}>
-                          {m.etiqueta}
-                        </option>
+                        <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
                       ))}
-                    </select>
+                    </Select>
                   </div>
                   {metodoPago === 'TRANSFERENCIA' && (
                     <>
-                      <div>
-                        <label style={{ fontSize: 12, display: 'block' }}>Cuenta</label>
-                        <select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
+                      <div className="w-44">
+                        <label className="text-xs">Cuenta</label>
+                        <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
                           <option value="">Selecciona...</option>
                           {cuentas.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.nombre}
-                            </option>
+                            <option key={c.id} value={c.id}>{c.nombre}</option>
                           ))}
-                        </select>
+                        </Select>
                       </div>
                       <div>
-                        <label style={{ fontSize: 12, display: 'block' }}>Comprobante</label>
-                        <input type="file" accept="image/*" onChange={(e) => setComprobante(e.target.files?.[0] || null)} />
+                        <label className="text-xs block mb-1">Comprobante</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+                          className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:font-medium hover:file:bg-secondary/70"
+                        />
                       </div>
                     </>
                   )}
-                  <button className="btn" onClick={registrarAbono} disabled={guardando}>
-                    {guardando ? 'Guardando...' : 'Registrar abono'}
-                  </button>
-                  <button className="btn-secondary btn" onClick={cancelar}>
+                  <Button size="sm" onClick={registrarAbono} disabled={guardando}>
+                    {guardando ? 'Guardando…' : 'Registrar abono'}
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmarCancelar(true)}>
                     Cancelar apartado
-                  </button>
+                  </Button>
                 </div>
               )}
 
-              {apartado.notas && (
-                <p style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 10 }}>Notas: {apartado.notas}</p>
-              )}
-              {mensaje && <p style={{ fontSize: 13, marginTop: 10 }}>{mensaje}</p>}
+              {apartado.notas && <p className="text-xs text-muted-foreground">Notas: {apartado.notas}</p>}
+              {mensaje && <p className="text-sm">{mensaje}</p>}
               {(ticketLink || ticketPdfUrl) && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                <div className="flex flex-wrap gap-2">
                   {ticketLink && (
-                    <a className="btn-secondary btn" href={ticketLink} target="_blank" rel="noreferrer">
-                      Enviar comprobante por WhatsApp
-                    </a>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={ticketLink} target="_blank" rel="noreferrer">
+                        <Send className="w-3.5 h-3.5" />
+                        Enviar comprobante por WhatsApp
+                      </a>
+                    </Button>
                   )}
                   {ticketPdfUrl && (
-                    <a className="btn-secondary btn" href={ticketPdfUrl} target="_blank" rel="noreferrer">
-                      Ver comprobante (PDF)
-                    </a>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                        <FileText className="w-3.5 h-3.5" />
+                        Ver comprobante (PDF)
+                      </a>
+                    </Button>
                   )}
                 </div>
               )}
@@ -605,6 +659,16 @@ function ApartadoFila({
           </td>
         </tr>
       )}
+
+      <ConfirmDialog
+        open={confirmarCancelar}
+        onOpenChange={setConfirmarCancelar}
+        title={`¿Cancelar el apartado ${apartado.folio}?`}
+        description="El stock reservado se devolverá a la sucursal de origen."
+        confirmLabel="Cancelar apartado"
+        onConfirm={cancelar}
+        loading={cancelando}
+      />
     </>
   );
 }
@@ -614,12 +678,16 @@ function ApartadoFila({
 // ---------------------------------------------------------------------------
 
 function NuevoApartadoForm({
+  open,
+  onOpenChange,
   sucursales,
   cuentas,
   usuario,
   esAdmin,
   onCreado,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   sucursales: Sucursal[];
   cuentas: CuentaTransferencia[];
   usuario: { sucursalId?: number | null } | null;
@@ -710,6 +778,30 @@ function NuevoApartadoForm({
     setCarrito((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  function limpiarFormulario() {
+    setSucursalVentaId(usuario?.sucursalId ? String(usuario.sucursalId) : '');
+    setBusquedaCliente('');
+    setResultadosCliente([]);
+    setClienteSeleccionado(null);
+    setNombreNuevo('');
+    setTelefonoNuevo('');
+    setEmailNuevo('');
+    setSucursalStockId('');
+    setBusquedaProducto('');
+    setExistencias([]);
+    setExistenciaKey('');
+    setCantidad(1);
+    setCarrito([]);
+    setFechaLimite('');
+    setNotas('');
+    setConAnticipo(false);
+    setMontoAnticipo('');
+    setMetodoAnticipo('EFECTIVO');
+    setCuentaAnticipoId('');
+    setComprobanteAnticipo(null);
+    setMensaje(null);
+  }
+
   async function crearApartado() {
     if (carrito.length === 0) {
       setMensaje('Agrega al menos un artículo.');
@@ -763,6 +855,7 @@ function NuevoApartadoForm({
       if (conAnticipo && comprobanteAnticipo) formData.append('comprobante', comprobanteAnticipo);
 
       const creado = await apiUpload<Apartado>('/apartados', formData);
+      limpiarFormulario();
       onCreado(creado);
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar el apartado.');
@@ -772,242 +865,200 @@ function NuevoApartadoForm({
   }
 
   return (
-    <div className="card" style={{ marginBottom: 20 }}>
-      <h2 style={{ fontSize: 15, marginBottom: 12 }}>Nuevo apartado</h2>
-
-      {esAdmin && (
-        <>
-          <label style={{ fontSize: 13 }}>Sucursal que atiende</label>
-          <select
-            value={sucursalVentaId}
-            onChange={(e) => setSucursalVentaId(e.target.value)}
-            style={{ marginBottom: 12, maxWidth: 240 }}
-          >
-            <option value="">Selecciona...</option>
-            {sucursales.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
-        <div>
-          <h3 style={{ fontSize: 13, marginBottom: 6 }}>Cliente</h3>
-          {clienteSeleccionado ? (
-            <div style={{ fontSize: 14, marginBottom: 6 }}>
-              {clienteSeleccionado.nombre} — {clienteSeleccionado.telefono}{' '}
-              <button className="btn-secondary btn" onClick={() => setClienteSeleccionado(null)}>
-                Cambiar
-              </button>
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerContent widthClassName="max-w-2xl">
+        <DrawerHeader>
+          <DrawerTitle>Nuevo apartado</DrawerTitle>
+          <DrawerDescription>Reserva artículos para un cliente, con o sin anticipo.</DrawerDescription>
+        </DrawerHeader>
+        <DrawerBody className="space-y-6">
+          {esAdmin && (
+            <div className="max-w-xs">
+              <label>Sucursal que atiende</label>
+              <Select value={sucursalVentaId} onChange={(e) => setSucursalVentaId(e.target.value)}>
+                <option value="">Selecciona...</option>
+                {sucursales.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </Select>
             </div>
-          ) : (
-            <>
-              <input
-                placeholder="Buscar por nombre o teléfono..."
-                value={busquedaCliente}
-                onChange={(e) => setBusquedaCliente(e.target.value)}
-                style={{ marginBottom: 6 }}
-              />
-              {resultadosCliente.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  {resultadosCliente.map((c) => (
-                    <div
-                      key={c.id}
-                      style={{ fontSize: 13, padding: '4px 0', cursor: 'pointer' }}
-                      onClick={() => {
-                        setClienteSeleccionado(c);
-                        setResultadosCliente([]);
-                        setBusquedaCliente('');
-                      }}
-                    >
-                      {c.nombre} — {c.telefono}
-                    </div>
-                  ))}
+          )}
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cliente</p>
+              {clienteSeleccionado ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <span>{clienteSeleccionado.nombre} — {clienteSeleccionado.telefono}</span>
+                  <Button variant="ghost" size="sm" onClick={() => setClienteSeleccionado(null)}>Cambiar</Button>
                 </div>
+              ) : (
+                <>
+                  <Input placeholder="Buscar por nombre o teléfono..." value={busquedaCliente} onChange={(e) => setBusquedaCliente(e.target.value)} />
+                  {resultadosCliente.length > 0 && (
+                    <div className="rounded-lg border border-border divide-y divide-border">
+                      {resultadosCliente.map((c) => (
+                        <button
+                          key={c.id}
+                          className="block w-full text-left px-2.5 py-1.5 text-sm hover:bg-secondary transition-colors"
+                          onClick={() => {
+                            setClienteSeleccionado(c);
+                            setResultadosCliente([]);
+                            setBusquedaCliente('');
+                          }}
+                        >
+                          {c.nombre} — {c.telefono}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">O captura un cliente nuevo:</p>
+                  <Input placeholder="Nombre" value={nombreNuevo} onChange={(e) => setNombreNuevo(e.target.value)} />
+                  <Input placeholder="Teléfono" value={telefonoNuevo} onChange={(e) => setTelefonoNuevo(e.target.value)} />
+                  <Input placeholder="Email (opcional)" value={emailNuevo} onChange={(e) => setEmailNuevo(e.target.value)} />
+                </>
               )}
-              <div style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 6 }}>
-                O captura un cliente nuevo:
-              </div>
-              <input
-                placeholder="Nombre"
-                value={nombreNuevo}
-                onChange={(e) => setNombreNuevo(e.target.value)}
-                style={{ marginBottom: 6 }}
-              />
-              <input
-                placeholder="Teléfono"
-                value={telefonoNuevo}
-                onChange={(e) => setTelefonoNuevo(e.target.value)}
-                style={{ marginBottom: 6 }}
-              />
-              <input
-                placeholder="Email (opcional)"
-                value={emailNuevo}
-                onChange={(e) => setEmailNuevo(e.target.value)}
-              />
-            </>
-          )}
-        </div>
+            </div>
 
-        <div>
-          <h3 style={{ fontSize: 13, marginBottom: 6 }}>Detalles</h3>
-          <label style={{ fontSize: 12 }}>Fecha límite (opcional)</label>
-          <input
-            type="date"
-            value={fechaLimite}
-            onChange={(e) => setFechaLimite(e.target.value)}
-            style={{ marginBottom: 8, display: 'block' }}
-          />
-          <label style={{ fontSize: 12 }}>Notas (opcional)</label>
-          <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={3} style={{ width: '100%' }} />
-        </div>
-      </div>
-
-      <h3 style={{ fontSize: 13, marginBottom: 6 }}>Artículos (pueden venir de cualquier sucursal)</h3>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div>
-          <label style={{ fontSize: 12, display: 'block' }}>Sucursal de stock</label>
-          <select value={sucursalStockId} onChange={(e) => setSucursalStockId(e.target.value)} style={{ maxWidth: 180 }}>
-            <option value="">Selecciona...</option>
-            {sucursales.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={{ fontSize: 12, display: 'block' }}>Buscar SKU / producto</label>
-          <input value={busquedaProducto} onChange={(e) => setBusquedaProducto(e.target.value)} style={{ maxWidth: 200 }} />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, display: 'block' }}>Producto</label>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {existenciaKey && (
-              <ProductoThumb
-                url={imagenPrincipal(
-                  existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto,
-                  existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.color
-                )}
-                alt=""
-                size={32}
-              />
-            )}
-            <select value={existenciaKey} onChange={(e) => setExistenciaKey(e.target.value)} style={{ maxWidth: 260 }}>
-              <option value="">Selecciona...</option>
-              {existencias.map((e) => (
-                <option key={claveExistencia(e)} value={claveExistencia(e)}>
-                  {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} —{' '}
-                  {e.proveedor?.nombre ?? 'sin proveedor'} — stock: {e.stockActual}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label style={{ fontSize: 12, display: 'block' }}>Cantidad</label>
-          <input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} style={{ maxWidth: 80 }} />
-        </div>
-        <button className="btn-secondary btn" onClick={agregarAlCarrito} disabled={!existenciaKey}>
-          Agregar
-        </button>
-      </div>
-
-      {carrito.length > 0 && (
-        <table style={{ marginBottom: 12 }}>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Artículo</th>
-              <th>Sucursal</th>
-              <th>Cant.</th>
-              <th>Precio</th>
-              <th>Subtotal</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {carrito.map((it, idx) => (
-              <tr key={idx}>
-                <td>
-                  <ProductoThumb url={it.imagenUrl} alt={it.descripcion} />
-                </td>
-                <td>{it.descripcion}</td>
-                <td>{it.sucursalStockNombre}</td>
-                <td>{it.cantidad}</td>
-                <td>${it.precioUnitario.toFixed(2)}</td>
-                <td>${(it.cantidad * it.precioUnitario).toFixed(2)}</td>
-                <td>
-                  <button className="btn-secondary btn" onClick={() => quitarDelCarrito(idx)}>
-                    Quitar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {carrito.length > 0 && <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Total: ${totalCarrito.toFixed(2)}</p>}
-
-      <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-        <input type="checkbox" checked={conAnticipo} onChange={(e) => setConAnticipo(e.target.checked)} />
-        Registrar un anticipo ahora
-      </label>
-
-      {conAnticipo && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div>
-            <label style={{ fontSize: 12, display: 'block' }}>Monto</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={montoAnticipo}
-              onChange={(e) => setMontoAnticipo(e.target.value)}
-              style={{ maxWidth: 120 }}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, display: 'block' }}>Método</label>
-            <select value={metodoAnticipo} onChange={(e) => setMetodoAnticipo(e.target.value as typeof metodoAnticipo)}>
-              {METODOS_PAGO.map((m) => (
-                <option key={m.valor} value={m.valor}>
-                  {m.etiqueta}
-                </option>
-              ))}
-            </select>
-          </div>
-          {metodoAnticipo === 'TRANSFERENCIA' && (
-            <>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Detalles</p>
               <div>
-                <label style={{ fontSize: 12, display: 'block' }}>Cuenta</label>
-                <select value={cuentaAnticipoId} onChange={(e) => setCuentaAnticipoId(e.target.value)}>
+                <label>Fecha límite (opcional)</label>
+                <Input type="date" value={fechaLimite} onChange={(e) => setFechaLimite(e.target.value)} />
+              </div>
+              <div>
+                <label>Notas (opcional)</label>
+                <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={3} style={{ resize: 'vertical' }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t border-border pt-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Artículos (pueden venir de cualquier sucursal)</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="w-40">
+                <label>Sucursal de stock</label>
+                <Select value={sucursalStockId} onChange={(e) => setSucursalStockId(e.target.value)}>
                   <option value="">Selecciona...</option>
-                  {cuentas.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre}
-                    </option>
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
                   ))}
-                </select>
+                </Select>
               </div>
-              <div>
-                <label style={{ fontSize: 12, display: 'block' }}>Comprobante</label>
-                <input type="file" accept="image/*" onChange={(e) => setComprobanteAnticipo(e.target.files?.[0] || null)} />
+              <div className="w-44">
+                <label>Buscar SKU / producto</label>
+                <Input value={busquedaProducto} onChange={(e) => setBusquedaProducto(e.target.value)} />
               </div>
-            </>
-          )}
-        </div>
-      )}
+              <div className="flex items-end gap-1.5">
+                {existenciaKey && (
+                  <ProductoThumb
+                    url={imagenPrincipal(
+                      existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto,
+                      existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.color
+                    )}
+                    alt=""
+                    size={32}
+                  />
+                )}
+                <div className="w-64">
+                  <label>Producto</label>
+                  <Select value={existenciaKey} onChange={(e) => setExistenciaKey(e.target.value)}>
+                    <option value="">Selecciona...</option>
+                    {existencias.map((e) => (
+                      <option key={claveExistencia(e)} value={claveExistencia(e)}>
+                        {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} —{' '}
+                        {e.proveedor?.nombre ?? 'sin proveedor'} — stock: {e.stockActual}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+              <div className="w-20">
+                <label>Cantidad</label>
+                <Input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
+              </div>
+              <Button variant="outline" size="sm" onClick={agregarAlCarrito} disabled={!existenciaKey}>
+                <Plus className="w-3.5 h-3.5" />
+                Agregar
+              </Button>
+            </div>
 
-      {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
+            {carrito.length > 0 && (
+              <div className="rounded-lg border border-border divide-y divide-border">
+                {carrito.map((it, idx) => (
+                  <div key={idx} className="flex items-center gap-2.5 px-3 py-2">
+                    <ProductoThumb url={it.imagenUrl} alt={it.descripcion} size={32} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">{it.descripcion}</div>
+                      <div className="text-xs text-muted-foreground truncate">{it.sucursalStockNombre} · x{it.cantidad}</div>
+                    </div>
+                    <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">${(it.cantidad * it.precioUnitario).toFixed(2)}</div>
+                    <Button variant="ghost" size="icon" onClick={() => quitarDelCarrito(idx)} aria-label="Quitar" className="shrink-0 text-destructive">
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-      <button className="btn" onClick={crearApartado} disabled={guardando}>
-        {guardando ? 'Guardando...' : 'Registrar apartado'}
-      </button>
-    </div>
+            {carrito.length > 0 && <p className="text-sm font-semibold tabular-nums">Total: ${totalCarrito.toFixed(2)}</p>}
+          </div>
+
+          <div className="space-y-3 border-t border-border pt-5">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={conAnticipo} onChange={(e) => setConAnticipo(e.target.checked)} />
+              Registrar un anticipo ahora
+            </label>
+
+            {conAnticipo && (
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="w-28">
+                  <label>Monto</label>
+                  <Input type="number" min={0} step="0.01" value={montoAnticipo} onChange={(e) => setMontoAnticipo(e.target.value)} />
+                </div>
+                <div className="w-36">
+                  <label>Método</label>
+                  <Select value={metodoAnticipo} onChange={(e) => setMetodoAnticipo(e.target.value as typeof metodoAnticipo)}>
+                    {METODOS_PAGO.map((m) => (
+                      <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
+                    ))}
+                  </Select>
+                </div>
+                {metodoAnticipo === 'TRANSFERENCIA' && (
+                  <>
+                    <div className="w-44">
+                      <label>Cuenta</label>
+                      <Select value={cuentaAnticipoId} onChange={(e) => setCuentaAnticipoId(e.target.value)}>
+                        <option value="">Selecciona...</option>
+                        {cuentas.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nombre}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="block">Comprobante</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setComprobanteAnticipo(e.target.files?.[0] || null)}
+                        className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:font-medium hover:file:bg-secondary/70"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {mensaje && <p className="text-sm text-destructive">{mensaje}</p>}
+        </DrawerBody>
+        <DrawerFooter>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={crearApartado} disabled={guardando}>
+            {guardando ? 'Guardando…' : 'Registrar apartado'}
+          </Button>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   );
 }

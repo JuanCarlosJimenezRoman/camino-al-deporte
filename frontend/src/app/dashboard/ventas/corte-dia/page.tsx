@@ -1,9 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { Receipt, DollarSign, Banknote, CreditCard } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { PageHeader } from '@/components/ui/page-header';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { MetricCard } from '@/components/ui/metric-card';
 
 interface Sucursal {
   id: number;
@@ -35,6 +41,10 @@ interface CorteDia {
 
 function hoyISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function etiquetaMetodoPago(v: VentaResumen['metodoPago']) {
+  return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
 }
 
 export default function CorteDelDiaPage() {
@@ -70,61 +80,56 @@ export default function CorteDelDiaPage() {
   }, [fecha, sucursalId]);
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Corte del día</h1>
-        <Link href="/dashboard/ventas" className="btn-secondary btn">
-          Volver a ventas
-        </Link>
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Corte del día"
+        breadcrumbs={[
+          { label: 'Inicio', href: '/dashboard' },
+          { label: 'Ventas', href: '/dashboard/ventas' },
+          { label: 'Corte del día' },
+        ]}
+      />
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <label style={{ fontSize: 13 }}>Fecha:</label>
-        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{ maxWidth: 160 }} />
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Fecha</span>
+        <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="w-40" />
         {esAdmin && (
-          <>
-            <label style={{ fontSize: 13 }}>Sucursal:</label>
-            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} style={{ maxWidth: 200 }}>
+          <div className="w-48">
+            <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
               <option value="">Todas (global)</option>
               {sucursales.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
-                </option>
+                <option key={s.id} value={s.id}>{s.nombre}</option>
               ))}
-            </select>
-          </>
+            </Select>
+          </div>
         )}
       </div>
 
-      {cargando && <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Cargando...</p>}
-
-      {corte && !cargando && (
+      {cargando ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 w-full" />
+            ))}
+          </div>
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      ) : corte ? (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
-            <div className="card">
-              <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>Ventas del día</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{corte.totalVentas}</div>
-            </div>
-            <div className="card">
-              <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>Total general</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>${corte.totalGeneral.toFixed(2)}</div>
-            </div>
-            <div className="card">
-              <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>Efectivo</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>${(corte.porMetodoPago.EFECTIVO || 0).toFixed(2)}</div>
-            </div>
-            <div className="card">
-              <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>Tarjeta</div>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>${(corte.porMetodoPago.TARJETA || 0).toFixed(2)}</div>
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <MetricCard title="Ventas del día" value={String(corte.totalVentas)} icon={Receipt} />
+            <MetricCard title="Total general" value={`$${corte.totalGeneral.toFixed(2)}`} icon={DollarSign} />
+            <MetricCard title="Efectivo" value={`$${(corte.porMetodoPago.EFECTIVO || 0).toFixed(2)}`} icon={Banknote} />
+            <MetricCard title="Tarjeta" value={`$${(corte.porMetodoPago.TARJETA || 0).toFixed(2)}`} icon={CreditCard} />
           </div>
 
-          <div className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 8 }}>
+          <div className="card">
+            <h2 className="text-base font-semibold mb-3">
               Transferencias — ${(corte.porMetodoPago.TRANSFERENCIA || 0).toFixed(2)}
             </h2>
             {Object.keys(corte.porCuentaTransferencia).length === 0 ? (
-              <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Sin transferencias este día.</p>
+              <p className="text-sm text-muted-foreground">Sin transferencias este día.</p>
             ) : (
               <table>
                 <thead>
@@ -137,7 +142,7 @@ export default function CorteDelDiaPage() {
                   {Object.entries(corte.porCuentaTransferencia).map(([cuenta, monto]) => (
                     <tr key={cuenta}>
                       <td>{cuenta}</td>
-                      <td>${monto.toFixed(2)}</td>
+                      <td className="tabular-nums font-medium">${monto.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -146,50 +151,46 @@ export default function CorteDelDiaPage() {
           </div>
 
           {corte.canceladas.cantidad > 0 && (
-            <p style={{ fontSize: 13, marginBottom: 20, color: 'var(--color-muted)' }}>
-              {corte.canceladas.cantidad} venta(s) cancelada(s) este día por ${corte.canceladas.total.toFixed(2)}{' '}
-              (no se incluyen en los totales de arriba).
+            <p className="text-sm text-muted-foreground">
+              {corte.canceladas.cantidad} venta(s) cancelada(s) este día por ${corte.canceladas.total.toFixed(2)} (no se incluyen en los totales de arriba).
             </p>
           )}
 
-          <table>
-            <thead>
-              <tr>
-                <th>Folio</th>
-                <th>Sucursal</th>
-                <th>Cliente</th>
-                <th>Total</th>
-                <th>Pago</th>
-                <th>Vendedor</th>
-                <th>Hora</th>
-              </tr>
-            </thead>
-            <tbody>
-              {corte.ventas.map((v) => (
-                <tr key={v.id}>
-                  <td>{v.folio}</td>
-                  <td>{v.sucursal?.nombre}</td>
-                  <td>{v.cliente || '—'}</td>
-                  <td>${v.total}</td>
-                  <td>
-                    {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
-                    {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
-                  </td>
-                  <td>{v.usuario?.nombre}</td>
-                  <td>{new Date(v.createdAt).toLocaleTimeString('es-MX')}</td>
-                </tr>
-              ))}
-              {corte.ventas.length === 0 && (
+          {corte.ventas.length === 0 ? (
+            <EmptyState icon={Receipt} title="Sin ventas completadas este día" />
+          ) : (
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={7} style={{ color: 'var(--color-muted)' }}>
-                    Sin ventas completadas este día.
-                  </td>
+                  <th>Folio</th>
+                  <th>Sucursal</th>
+                  <th>Cliente</th>
+                  <th>Total</th>
+                  <th>Pago</th>
+                  <th>Vendedor</th>
+                  <th>Hora</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {corte.ventas.map((v) => (
+                  <tr key={v.id}>
+                    <td className="font-medium">{v.folio}</td>
+                    <td>{v.sucursal?.nombre}</td>
+                    <td>{v.cliente || '—'}</td>
+                    <td className="tabular-nums font-medium">${v.total}</td>
+                    <td className="text-xs">
+                      {etiquetaMetodoPago(v.metodoPago)}
+                      {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
+                    </td>
+                    <td>{v.usuario?.nombre}</td>
+                    <td className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString('es-MX')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

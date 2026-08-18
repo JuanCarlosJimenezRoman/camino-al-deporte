@@ -2,9 +2,27 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import {
+  Search,
+  X,
+  Send,
+  FileText,
+  Download,
+  CalendarClock,
+  Receipt,
+  History,
+  ShoppingBag,
+} from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 interface Sucursal {
   id: number;
@@ -115,6 +133,15 @@ const METODOS_PAGO = [
   { valor: 'TRANSFERENCIA', etiqueta: 'Transferencia' },
 ] as const;
 
+const ESTADO_TONO: Record<string, 'success' | 'destructive' | 'neutral'> = {
+  COMPLETADA: 'success',
+  CANCELADA: 'destructive',
+};
+
+function etiquetaMetodoPago(v: Venta['metodoPago']) {
+  return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
+}
+
 // Ticket digital para ventas de tienda física: se manda por WhatsApp con el
 // mismo mecanismo de click-to-chat que ya se usa para el pago de pedidos en
 // línea (ver app/tienda/pedidos/[id]/page.tsx) — no hay envío automático,
@@ -209,6 +236,7 @@ export default function VentasPage() {
   const [sucursalId, setSucursalId] = useState('');
   const [cuentas, setCuentas] = useState<CuentaTransferencia[]>([]);
   const [ventas, setVentas] = useState<Venta[]>([]);
+  const [cargandoVentas, setCargandoVentas] = useState(true);
 
   // Búsqueda de producto: ya no es un <select> con todo el catálogo, es un
   // campo de texto que busca (con un pequeño debounce) en TODAS las
@@ -279,8 +307,13 @@ export default function VentasPage() {
   }, []);
 
   async function cargar() {
-    const v = await api<Venta[]>('/ventas');
-    setVentas(v);
+    setCargandoVentas(true);
+    try {
+      const v = await api<Venta[]>('/ventas');
+      setVentas(v);
+    } finally {
+      setCargandoVentas(false);
+    }
   }
 
   useEffect(() => {
@@ -576,124 +609,103 @@ export default function VentasPage() {
     : null;
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Ventas</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {puedeVer('apartados', usuario?.rol) && (
-            <Link href="/dashboard/apartados" className="btn-secondary btn">
-              Apartados
-            </Link>
-          )}
-          <Link href="/dashboard/ventas/corte-dia" className="btn-secondary btn">
-            Corte del día
-          </Link>
-          {puedeVer('historialVentas', usuario?.rol) && (
-            <Link href="/dashboard/ventas/historial" className="btn-secondary btn">
-              Historial
-            </Link>
-          )}
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 20, maxWidth: 780 }}>
-        <h2 style={{ fontSize: 15, marginBottom: 12 }}>Registrar venta rápida</h2>
-
-        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 320px', minWidth: 280 }}>
-            <label style={{ fontSize: 13 }}>Sucursal</label>
-            {sucursalBloqueada ? (
-              <div style={{ marginBottom: 10, fontSize: 14 }}>
-                {sucursales.find((s) => String(s.id) === sucursalId)?.nombre || usuario?.sucursal?.nombre || '—'}
-              </div>
-            ) : (
-              <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} style={{ marginBottom: 10 }}>
-                {sucursales.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nombre}
-                  </option>
-                ))}
-              </select>
+    <div className="space-y-5">
+      <PageHeader
+        title="Ventas"
+        subtitle="Punto de venta"
+        breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Ventas' }]}
+        actions={
+          <>
+            {puedeVer('apartados', usuario?.rol) && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/apartados">
+                  <CalendarClock className="w-4 h-4" />
+                  Apartados
+                </Link>
+              </Button>
             )}
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/dashboard/ventas/corte-dia">
+                <Receipt className="w-4 h-4" />
+                Corte del día
+              </Link>
+            </Button>
+            {puedeVer('historialVentas', usuario?.rol) && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/ventas/historial">
+                  <History className="w-4 h-4" />
+                  Historial
+                </Link>
+              </Button>
+            )}
+          </>
+        }
+      />
 
-            <label style={{ fontSize: 13 }}>Buscar producto (nombre o SKU)</label>
-            <div style={{ position: 'relative', marginBottom: 10 }}>
-              <input
-                value={busqueda}
-                onChange={(e) => {
-                  setBusqueda(e.target.value);
-                  setSeleccion(null);
-                }}
-                onFocus={() => resultados.length > 0 && setMostrarResultados(true)}
-                onBlur={() => {
-                  // Retraso corto para que el click en un resultado alcance a
-                  // registrarse antes de que el blur cierre la lista.
-                  setTimeout(() => setMostrarResultados(false), 150);
-                }}
-                placeholder="Ej. Tenis Runner Pro, o el SKU..."
-                style={{ width: '100%' }}
-              />
-              {buscando && <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>Buscando...</span>}
+      <div className="card max-w-3xl">
+        <h2 className="text-base font-semibold mb-4">Registrar venta rápida</h2>
+
+        <div className="flex flex-wrap gap-6">
+          <div className="flex-1 min-w-[280px] space-y-3">
+            <div>
+              <label>Sucursal</label>
+              {sucursalBloqueada ? (
+                <div className="text-sm py-2">{sucursales.find((s) => String(s.id) === sucursalId)?.nombre || usuario?.sucursal?.nombre || '—'}</div>
+              ) : (
+                <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </Select>
+              )}
+            </div>
+
+            <div className="relative">
+              <label>Buscar producto (nombre o SKU)</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={busqueda}
+                  onChange={(e) => {
+                    setBusqueda(e.target.value);
+                    setSeleccion(null);
+                  }}
+                  onFocus={() => resultados.length > 0 && setMostrarResultados(true)}
+                  onBlur={() => {
+                    // Retraso corto para que el click en un resultado alcance a
+                    // registrarse antes de que el blur cierre la lista.
+                    setTimeout(() => setMostrarResultados(false), 150);
+                  }}
+                  placeholder="Ej. Tenis Runner Pro, o el SKU..."
+                  className="pl-9"
+                />
+              </div>
+              {buscando && <p className="text-xs text-muted-foreground mt-1">Buscando…</p>}
 
               {mostrarResultados && resultados.length > 0 && (
-                <div
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 8,
-                    marginTop: 4,
-                    maxHeight: 280,
-                    overflowY: 'auto',
-                    background: 'var(--color-card, #fff)',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  }}
-                >
+                <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-elevated">
                   {resultados.map((r) => {
                     const local = r.sucursalId === Number(sucursalId);
                     return (
                       <button
                         key={claveExistencia(r)}
                         onClick={() => elegirResultado(r)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          width: '100%',
-                          textAlign: 'left',
-                          padding: '8px 10px',
-                          border: 'none',
-                          borderBottom: '1px solid var(--color-border)',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                        }}
+                        className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary transition-colors"
                       >
-                        <ProductoThumb
-                          url={imagenPrincipal(r.variante.producto, r.variante.color)}
-                          alt=""
-                          size={32}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>
+                        <ProductoThumb url={imagenPrincipal(r.variante.producto, r.variante.color)} alt="" size={32} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">
                             {r.variante.producto.nombre}
                             {r.variante.talla ? ` (${r.variante.talla.valor})` : ''}
                             {r.variante.color ? ` — ${r.variante.color}` : ''}
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
+                          <div className="text-xs text-muted-foreground truncate">
                             SKU {r.variante.sku} · stock: {r.stockActual}
                           </div>
                         </div>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            padding: '2px 8px',
-                            borderRadius: 999,
-                            whiteSpace: 'nowrap',
-                            background: local ? '#e6f4ea' : '#fff4e5',
-                            color: local ? '#1e7e34' : '#a15c00',
-                          }}
-                        >
+                        <StatusBadge tono={local ? 'success' : 'warning'} withDot={false} className="shrink-0">
                           {local ? 'Tu sucursal' : r.sucursal?.nombre ?? 'Otra sucursal'}
-                        </span>
+                        </StatusBadge>
                       </button>
                     );
                   })}
@@ -702,10 +714,9 @@ export default function VentasPage() {
             </div>
 
             {seleccion && !esLocal && (
-              <p style={{ fontSize: 12, color: '#a15c00', marginTop: -4, marginBottom: 10 }}>
-                Este producto no está en tu sucursal — hay {seleccion.stockActual} en{' '}
-                {seleccion.sucursal?.nombre ?? 'otra sucursal'}. No se puede vender directamente desde aquí; puedes
-                apartarlo para el cliente.
+              <p className="text-xs text-warning">
+                Este producto no está en tu sucursal — hay {seleccion.stockActual} en {seleccion.sucursal?.nombre ?? 'otra sucursal'}.
+                No se puede vender directamente desde aquí; puedes apartarlo para el cliente.
               </p>
             )}
 
@@ -716,9 +727,9 @@ export default function VentasPage() {
                     selección anterior — así se pueden vender varios
                     productos distintos en una sola venta. */}
                 {carrito.length > 0 ? (
-                  <div style={{ marginBottom: 12 }}>
-                    <label style={{ fontSize: 13 }}>Artículos de la venta ({carrito.length})</label>
-                    <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, marginTop: 4 }}>
+                  <div>
+                    <label>Artículos de la venta ({carrito.length})</label>
+                    <div className="rounded-lg border border-border divide-y divide-border">
                       {carrito.map((it) => {
                         const p = it.existencia.variante.producto;
                         const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
@@ -726,65 +737,42 @@ export default function VentasPage() {
                           .join(' / ');
                         const precio = Number(p.precioVenta);
                         return (
-                          <div
-                            key={it.key}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              padding: '8px 10px',
-                              borderBottom: '1px solid var(--color-border)',
-                            }}
-                          >
+                          <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
                             <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={32} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium truncate">
                                 {p.nombre}
                                 {detalle ? ` (${detalle})` : ''}
                               </div>
-                              <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
+                              <div className="text-xs text-muted-foreground truncate">
                                 ${precio.toFixed(2)} c/u · SKU {it.existencia.variante.sku}
                               </div>
                             </div>
-                            <input
+                            <Input
                               type="number"
                               min={1}
                               max={it.existencia.stockActual}
                               value={it.cantidad}
                               onChange={(e) => cambiarCantidadCarrito(it.key, Number(e.target.value))}
-                              style={{ width: 56 }}
+                              className="w-16 shrink-0"
                             />
-                            <div style={{ fontSize: 13, fontWeight: 600, width: 70, textAlign: 'right' }}>
+                            <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
                               ${(precio * it.cantidad).toFixed(2)}
                             </div>
-                            <button
-                              onClick={() => quitarDelCarrito(it.key)}
-                              title="Quitar de la venta"
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#c0392b',
-                                cursor: 'pointer',
-                                fontSize: 16,
-                                lineHeight: 1,
-                                padding: 4,
-                              }}
-                            >
-                              ×
-                            </button>
+                            <Button variant="ghost" size="icon" onClick={() => quitarDelCarrito(it.key)} aria-label="Quitar de la venta" className="shrink-0 text-destructive">
+                              <X className="w-4 h-4" />
+                            </Button>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 ) : (
-                  <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 12 }}>
-                    Busca y agrega uno o más productos arriba para armar la venta.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Busca y agrega uno o más productos arriba para armar la venta.</p>
                 )}
 
                 {carrito.length > 0 && (
-                  <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 4 }}>
+                  <p className="text-sm font-semibold tabular-nums">
                     {descuentoMontoPreview > 0 ? (
                       <>
                         Subtotal: ${subtotalVenta.toFixed(2)} — Descuento: -${descuentoMontoPreview.toFixed(2)}
@@ -798,27 +786,21 @@ export default function VentasPage() {
                 )}
 
                 {carrito.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <input
-                        type="checkbox"
-                        checked={aplicarDescuento}
-                        onChange={(e) => setAplicarDescuento(e.target.checked)}
-                      />
+                  <div>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
                       Aplicar descuento
                     </label>
                     {aplicarDescuento && (
-                      <div style={{ marginTop: 6, paddingLeft: 4 }}>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                          <select
-                            value={descuentoTipo}
-                            onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}
-                            style={{ maxWidth: 80 }}
-                          >
-                            <option value="PORCENTAJE">%</option>
-                            <option value="MONTO">$</option>
-                          </select>
-                          <input
+                      <div className="mt-2 space-y-2 pl-1">
+                        <div className="flex gap-2">
+                          <div className="w-20">
+                            <Select value={descuentoTipo} onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}>
+                              <option value="PORCENTAJE">%</option>
+                              <option value="MONTO">$</option>
+                            </Select>
+                          </div>
+                          <Input
                             type="number"
                             min={0}
                             step="0.01"
@@ -827,95 +809,61 @@ export default function VentasPage() {
                             placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
                           />
                         </div>
-                        <input
-                          value={descuentoMotivo}
-                          onChange={(e) => setDescuentoMotivo(e.target.value)}
-                          placeholder="Motivo del descuento (opcional)"
-                        />
+                        <Input value={descuentoMotivo} onChange={(e) => setDescuentoMotivo(e.target.value)} placeholder="Motivo del descuento (opcional)" />
                       </div>
                     )}
                   </div>
                 )}
 
-                <label style={{ fontSize: 13 }}>Cliente (opcional)</label>
-                <div style={{ marginBottom: 10 }}>
-                  <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
+                <div>
+                  <label>Cliente (opcional)</label>
+                  <Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
                 </div>
 
-                <label style={{ fontSize: 13 }}>Teléfono del cliente (opcional)</label>
-                <div style={{ marginBottom: 10 }}>
-                  <input
-                    value={clienteTelefono}
-                    onChange={(e) => setClienteTelefono(e.target.value)}
-                    placeholder="10 dígitos, para mandarle el ticket por WhatsApp"
-                  />
+                <div>
+                  <label>Teléfono del cliente (opcional)</label>
+                  <Input value={clienteTelefono} onChange={(e) => setClienteTelefono(e.target.value)} placeholder="10 dígitos, para mandarle el ticket por WhatsApp" />
                 </div>
 
-                <label style={{ fontSize: 13 }}>Método de pago</label>
-                <select
-                  value={metodoPago}
-                  onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}
-                  style={{ marginBottom: 10 }}
-                >
-                  {METODOS_PAGO.map((m) => (
-                    <option key={m.valor} value={m.valor}>
-                      {m.etiqueta}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label>Método de pago</label>
+                  <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
+                    {METODOS_PAGO.map((m) => (
+                      <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
+                    ))}
+                  </Select>
+                </div>
 
                 {metodoPago === 'EFECTIVO' && (
-                  <>
-                    <label style={{ fontSize: 13 }}>Efectivo recibido</label>
-                    <div style={{ marginBottom: 4 }}>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={efectivoRecibido}
-                        onChange={(e) => setEfectivoRecibido(e.target.value)}
-                        placeholder="$0.00"
-                      />
-                    </div>
+                  <div>
+                    <label>Efectivo recibido</label>
+                    <Input type="number" min={0} step="0.01" value={efectivoRecibido} onChange={(e) => setEfectivoRecibido(e.target.value)} placeholder="$0.00" />
                     {efectivoRecibido.trim() && cambio !== null && (
-                      <p
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          marginBottom: 10,
-                          color: cambio < 0 ? '#c0392b' : '#1e7e34',
-                        }}
-                      >
-                        {cambio < 0
-                          ? `Falta efectivo: $${Math.abs(cambio).toFixed(2)}`
-                          : `Cambio a dar: $${cambio.toFixed(2)}`}
+                      <p className={`text-sm font-semibold mt-1.5 ${cambio < 0 ? 'text-destructive' : 'text-success'}`}>
+                        {cambio < 0 ? `Falta efectivo: $${Math.abs(cambio).toFixed(2)}` : `Cambio a dar: $${cambio.toFixed(2)}`}
                       </p>
                     )}
-                  </>
+                  </div>
                 )}
 
                 {metodoPago === 'TRANSFERENCIA' && (
                   <>
-                    <label style={{ fontSize: 13 }}>Cuenta que recibió el pago</label>
-                    <select
-                      value={cuentaTransferenciaId}
-                      onChange={(e) => setCuentaTransferenciaId(e.target.value)}
-                      style={{ marginBottom: 10 }}
-                    >
-                      <option value="">Selecciona...</option>
-                      {cuentas.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.nombre} {c.banco ? `(${c.banco})` : ''}
-                        </option>
-                      ))}
-                    </select>
-
-                    <label style={{ fontSize: 13 }}>Foto del comprobante</label>
-                    <div style={{ marginBottom: 10 }}>
+                    <div>
+                      <label>Cuenta que recibió el pago</label>
+                      <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
+                        <option value="">Selecciona...</option>
+                        {cuentas.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nombre} {c.banco ? `(${c.banco})` : ''}</option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <label>Foto del comprobante</label>
                       <input
                         type="file"
                         accept="image/*"
                         onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+                        className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-secondary/70"
                       />
                     </div>
                   </>
@@ -923,72 +871,67 @@ export default function VentasPage() {
               </>
             ) : (
               <>
-                <label style={{ fontSize: 13 }}>Cantidad</label>
-                <div style={{ marginBottom: 10 }}>
-                  <input
-                    type="number"
-                    min={1}
-                    value={cantidad}
-                    onChange={(e) => setCantidad(Number(e.target.value))}
-                  />
+                <div>
+                  <label>Cantidad</label>
+                  <Input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
                 </div>
-                <p style={{ fontSize: 13, fontWeight: 600, marginTop: -4, marginBottom: 4 }}>
-                  Total: ${subtotalApartado.toFixed(2)}
-                </p>
+                <p className="text-sm font-semibold tabular-nums">Total: ${subtotalApartado.toFixed(2)}</p>
 
-                <label style={{ fontSize: 13 }}>Nombre del cliente</label>
-                <div style={{ marginBottom: 10 }}>
-                  <input
-                    value={clienteNombreApartado}
-                    onChange={(e) => setClienteNombreApartado(e.target.value)}
-                    placeholder="Nombre completo"
-                  />
+                <div>
+                  <label>Nombre del cliente</label>
+                  <Input value={clienteNombreApartado} onChange={(e) => setClienteNombreApartado(e.target.value)} placeholder="Nombre completo" />
                 </div>
-                <label style={{ fontSize: 13 }}>Teléfono del cliente</label>
-                <div style={{ marginBottom: 10 }}>
-                  <input
-                    value={clienteTelefonoApartado}
-                    onChange={(e) => setClienteTelefonoApartado(e.target.value)}
-                    placeholder="10 dígitos"
-                  />
+                <div>
+                  <label>Teléfono del cliente</label>
+                  <Input value={clienteTelefonoApartado} onChange={(e) => setClienteTelefonoApartado(e.target.value)} placeholder="10 dígitos" />
                 </div>
               </>
             )}
 
-            {mensaje && <p style={{ fontSize: 13, marginBottom: 10 }}>{mensaje}</p>}
+            {mensaje && <p className="rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm">{mensaje}</p>}
 
             {(ticketLink || ticketPdfUrl) && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div className="flex flex-wrap gap-2">
                 {ticketLink && (
-                  <a href={ticketLink} target="_blank" rel="noreferrer" className="btn">
-                    Enviar ticket por WhatsApp
-                  </a>
+                  <Button size="sm" asChild>
+                    <a href={ticketLink} target="_blank" rel="noreferrer">
+                      <Send className="w-3.5 h-3.5" />
+                      Enviar ticket por WhatsApp
+                    </a>
+                  </Button>
                 )}
                 {ticketPdfUrl && (
-                  <a href={ticketPdfUrl} target="_blank" rel="noreferrer" className="btn-secondary btn">
-                    Ver ticket (PDF)
-                  </a>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                      <FileText className="w-3.5 h-3.5" />
+                      Ver ticket (PDF)
+                    </a>
+                  </Button>
                 )}
                 {ticketPdfUrl && (
-                  <a
-                    href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}
-                    className="btn-secondary btn"
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
                     title="Descarga el PDF a tu dispositivo para adjuntarlo a mano en WhatsApp si el envío automático no llegó"
                   >
-                    Descargar PDF
-                  </a>
+                    <a href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}>
+                      <Download className="w-3.5 h-3.5" />
+                      Descargar PDF
+                    </a>
+                  </Button>
                 )}
               </div>
             )}
 
             {esLocal ? (
-              <button className="btn" onClick={registrarVenta} disabled={carrito.length === 0 || guardando}>
-                {guardando ? 'Guardando...' : 'Registrar venta'}
-              </button>
+              <Button onClick={registrarVenta} disabled={carrito.length === 0 || guardando}>
+                {guardando ? 'Guardando…' : 'Registrar venta'}
+              </Button>
             ) : (
-              <button className="btn" onClick={crearApartado} disabled={!seleccion || guardando}>
-                {guardando ? 'Guardando...' : 'Apartar para el cliente'}
-              </button>
+              <Button onClick={crearApartado} disabled={!seleccion || guardando}>
+                {guardando ? 'Guardando…' : 'Apartar para el cliente'}
+              </Button>
             )}
           </div>
 
@@ -999,144 +942,115 @@ export default function VentasPage() {
               object-fit: contain (vía fit="contain") para que se vea la foto
               completa sin recortarla, aunque no sea cuadrada. */}
           {seleccion && (
-          <div
-            style={{
-              flex: '0 0 220px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              textAlign: 'center',
-              gap: 8,
-            }}
-          >
-            <div
-              style={{
-                width: 220,
-                height: 220,
-                borderRadius: 12,
-                background: '#fafafa',
-                border: '1px solid var(--color-border)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 12,
-              }}
-            >
-              <ProductoThumb
-                url={previewUrl}
-                alt={seleccion?.variante.producto.nombre || ''}
-                size={196}
-                fit="contain"
-              />
-            </div>
-            {seleccion && (
+            <div className="flex flex-col items-center gap-2 text-center shrink-0 w-[220px]">
+              <div className="flex h-[220px] w-[220px] items-center justify-center rounded-card border border-border bg-secondary/40 p-3">
+                <ProductoThumb url={previewUrl} alt={seleccion?.variante.producto.nombre || ''} size={196} fit="contain" />
+              </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{seleccion.variante.producto.nombre}</div>
-                <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>
+                <div className="text-sm font-semibold">{seleccion.variante.producto.nombre}</div>
+                <div className="text-xs text-muted-foreground">
                   {seleccion.variante.talla ? `Talla ${seleccion.variante.talla.valor}` : ''}
                   {seleccion.variante.color ? ` · ${seleccion.variante.color}` : ''}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>SKU {seleccion.variante.sku}</div>
+                <div className="text-xs text-muted-foreground">SKU {seleccion.variante.sku}</div>
               </div>
-            )}
-          </div>
+            </div>
           )}
         </div>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th></th>
-            <th>Folio</th>
-            <th>Producto</th>
-            <th>Sucursal</th>
-            <th>Cliente</th>
-            <th>Total</th>
-            <th>Pago</th>
-            <th>Estado</th>
-            <th>Vendedor</th>
-            <th>Fecha</th>
-            <th>Ticket</th>
-            <th>PDF</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ventas.map((v) => {
-            const primerItem = v.items?.[0];
-            const linkTicket = construirLinkTicket(v);
-            return (
-              <tr key={v.id}>
-                <td>
-                  <ProductoThumb
-                    url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)}
-                    alt={primerItem?.variante.producto.nombre || ''}
-                  />
-                </td>
-                <td>{v.folio}</td>
-                <td>
-                  {primerItem
-                    ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
-                    : '—'}
-                  {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
-                </td>
-                <td>{v.sucursal?.nombre}</td>
-                <td>{v.cliente || '—'}</td>
-                <td>${v.total}</td>
-                <td>
-                  {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
-                  {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
-                  {v.comprobanteUrl && (
-                    <>
-                      {' '}
-                      <a href={v.comprobanteUrl} target="_blank" rel="noreferrer">
-                        ver comprobante
-                      </a>
-                    </>
-                  )}
-                </td>
-                <td>{v.estado}</td>
-                <td>{v.usuario?.nombre}</td>
-                <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
-                <td>
-                  {linkTicket ? (
-                    <a href={linkTicket} target="_blank" rel="noreferrer">
-                      Enviar
-                    </a>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td>
-                  {v.ticketPdfUrl ? (
-                    <>
-                      <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer">
-                        Ver
-                      </a>
-                      {' · '}
-                      <a
-                        href={construirLinkDescargaTicket(v.ticketPdfUrl, v.folio)}
-                        title="Descargar para adjuntar a mano en WhatsApp"
-                      >
-                        Descargar
-                      </a>
-                    </>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-          {ventas.length === 0 && (
+      {cargandoVentas ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-14 w-full" />
+          ))}
+        </div>
+      ) : ventas.length === 0 ? (
+        <EmptyState icon={ShoppingBag} title="Sin ventas todavía" description="Las ventas que registres aparecerán aquí." />
+      ) : (
+        <table>
+          <thead>
             <tr>
-              <td colSpan={12} style={{ color: 'var(--color-muted)' }}>
-                Sin ventas registradas.
-              </td>
+              <th></th>
+              <th>Folio</th>
+              <th>Producto</th>
+              <th>Sucursal</th>
+              <th>Cliente</th>
+              <th>Total</th>
+              <th>Pago</th>
+              <th>Estado</th>
+              <th>Vendedor</th>
+              <th>Fecha</th>
+              <th>Ticket</th>
+              <th>PDF</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {ventas.map((v) => {
+              const primerItem = v.items?.[0];
+              const linkTicket = construirLinkTicket(v);
+              return (
+                <tr key={v.id}>
+                  <td>
+                    <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)} alt={primerItem?.variante.producto.nombre || ''} />
+                  </td>
+                  <td className="font-medium">{v.folio}</td>
+                  <td>
+                    {primerItem
+                      ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                      : '—'}
+                    {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
+                  </td>
+                  <td>{v.sucursal?.nombre}</td>
+                  <td>{v.cliente || '—'}</td>
+                  <td className="font-medium tabular-nums">${v.total}</td>
+                  <td className="text-xs">
+                    {etiquetaMetodoPago(v.metodoPago)}
+                    {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
+                    {v.comprobanteUrl && (
+                      <>
+                        {' · '}
+                        <a href={v.comprobanteUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                          ver comprobante
+                        </a>
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    <StatusBadge tono={ESTADO_TONO[v.estado] ?? 'neutral'}>{v.estado}</StatusBadge>
+                  </td>
+                  <td>{v.usuario?.nombre}</td>
+                  <td className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+                  <td>
+                    {linkTicket ? (
+                      <a href={linkTicket} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
+                        Enviar
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="text-xs whitespace-nowrap">
+                    {v.ticketPdfUrl ? (
+                      <>
+                        <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                          Ver
+                        </a>
+                        {' · '}
+                        <a href={construirLinkDescargaTicket(v.ticketPdfUrl, v.folio)} className="text-primary hover:underline" title="Descargar para adjuntar a mano en WhatsApp">
+                          Descargar
+                        </a>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

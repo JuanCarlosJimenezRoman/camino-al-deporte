@@ -22,6 +22,10 @@ import { api, apiDownload, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { PageHeader } from '@/components/ui/page-header';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
   DollarSign,
   ShoppingCart,
@@ -32,6 +36,7 @@ import {
   TrendingDown,
   Minus,
   Loader2,
+  Lock,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -382,25 +387,26 @@ export default function ReportesVentasPage() {
   const datosSerie = useMemo(() => (serie || []).map((p) => ({ ...p, fechaCorta: formatFechaCorta(p.fecha) })), [serie]);
 
   if (!puedeVerReportes) {
-    return <p className="text-sm text-muted-foreground">No tienes permiso para ver esta sección.</p>;
+    return <EmptyState icon={Lock} title="Sin acceso" description="No tienes permiso para ver esta sección." />;
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-semibold">Reportes y estimaciones de ventas</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {esAdmin
-              ? 'Visión global de todas las sucursales, incluyendo la tienda en línea. Filtra por sucursal o periodo para profundizar.'
-              : `Datos de tu sucursal${usuario?.sucursal?.nombre ? ` (${usuario.sucursal.nombre})` : ''} más los pedidos en línea que salieron de ahí.`}
-          </p>
-        </div>
-        <Button onClick={exportar} disabled={exportando || cargando} variant="secondary" size="sm">
-          {exportando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-          Exportar a Excel
-        </Button>
-      </div>
+      <PageHeader
+        title="Reportes y estimaciones de ventas"
+        subtitle={
+          esAdmin
+            ? 'Visión global de todas las sucursales, incluyendo la tienda en línea. Filtra por sucursal o periodo para profundizar.'
+            : `Datos de tu sucursal${usuario?.sucursal?.nombre ? ` (${usuario.sucursal.nombre})` : ''} más los pedidos en línea que salieron de ahí.`
+        }
+        breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Reportes' }]}
+        actions={
+          <Button onClick={exportar} disabled={exportando || cargando} variant="secondary" size="sm">
+            {exportando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            Exportar a Excel
+          </Button>
+        }
+      />
 
       {/* Filtros: una sola fila, arriba de todo — todo lo de abajo se filtra igual */}
       <Card>
@@ -424,37 +430,37 @@ export default function ReportesVentasPage() {
             </Button>
           ))}
           <div className="flex items-center gap-1.5 ml-1">
-            <input
+            <Input
               type="date"
               value={desde}
               onChange={(e) => {
                 setPreset('personalizado');
                 setRango((r) => ({ ...r, desde: e.target.value }));
               }}
-              className="!w-auto"
-              style={{ maxWidth: 150 }}
+              className="w-[150px]"
             />
             <span className="text-xs text-muted-foreground">a</span>
-            <input
+            <Input
               type="date"
               value={hasta}
               onChange={(e) => {
                 setPreset('personalizado');
                 setRango((r) => ({ ...r, hasta: e.target.value }));
               }}
-              className="!w-auto"
-              style={{ maxWidth: 150 }}
+              className="w-[150px]"
             />
           </div>
           {esAdmin && (
-            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} style={{ maxWidth: 200 }}>
-              <option value="">Todas las sucursales</option>
-              {sucursales.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
-                </option>
-              ))}
-            </select>
+            <div className="w-48">
+              <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+                <option value="">Todas las sucursales</option>
+                {sucursales.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre}
+                  </option>
+                ))}
+              </Select>
+            </div>
           )}
         </CardContent>
       </Card>

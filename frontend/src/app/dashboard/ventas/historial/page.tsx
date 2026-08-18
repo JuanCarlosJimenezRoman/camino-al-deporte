@@ -1,10 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { DollarSign, History } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/ProductoThumb';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { MetricCard } from '@/components/ui/metric-card';
 
 interface Sucursal {
   id: number;
@@ -39,6 +47,15 @@ interface Historial {
     totalGeneral: number;
     porSucursal: Record<string, { cantidad: number; total: number }>;
   };
+}
+
+const ESTADO_TONO: Record<string, 'success' | 'destructive' | 'neutral'> = {
+  COMPLETADA: 'success',
+  CANCELADA: 'destructive',
+};
+
+function etiquetaMetodoPago(v: Venta['metodoPago']) {
+  return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
 }
 
 export default function HistorialVentasPage() {
@@ -76,45 +93,48 @@ export default function HistorialVentasPage() {
   }, [puedeVerHistorial]);
 
   if (!puedeVerHistorial) {
-    return <p style={{ fontSize: 14 }}>No tienes permiso para ver esta sección.</p>;
+    return <EmptyState icon={History} title="Sin acceso" description="No tienes permiso para ver esta sección." />;
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22 }}>Historial de ventas</h1>
-        <Link href="/dashboard/ventas" className="btn-secondary btn">
-          Volver a ventas
-        </Link>
+    <div className="space-y-5">
+      <PageHeader
+        title="Historial de ventas"
+        breadcrumbs={[
+          { label: 'Inicio', href: '/dashboard' },
+          { label: 'Ventas', href: '/dashboard/ventas' },
+          { label: 'Historial' },
+        ]}
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="w-48">
+          <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+            <option value="">Todas (global)</option>
+            {sucursales.map((s) => (
+              <option key={s.id} value={s.id}>{s.nombre}</option>
+            ))}
+          </Select>
+        </div>
+        <span className="text-xs text-muted-foreground">Desde</span>
+        <Input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-40" />
+        <span className="text-xs text-muted-foreground">Hasta</span>
+        <Input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-40" />
+        <Button size="sm" onClick={cargar}>Filtrar</Button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <label style={{ fontSize: 13 }}>Sucursal:</label>
-        <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} style={{ maxWidth: 200 }}>
-          <option value="">Todas (global)</option>
-          {sucursales.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.nombre}
-            </option>
+      {cargando ? (
+        <div className="space-y-2">
+          <Skeleton className="h-24 w-full" />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full" />
           ))}
-        </select>
-        <label style={{ fontSize: 13 }}>Desde:</label>
-        <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} style={{ maxWidth: 160 }} />
-        <label style={{ fontSize: 13 }}>Hasta:</label>
-        <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} style={{ maxWidth: 160 }} />
-        <button className="btn" onClick={cargar}>
-          Filtrar
-        </button>
-      </div>
-
-      {cargando && <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Cargando...</p>}
-
-      {historial && !cargando && (
+        </div>
+      ) : historial ? (
         <>
-          <div className="card" style={{ marginBottom: 20 }}>
-            <h2 style={{ fontSize: 15, marginBottom: 8 }}>
-              Total del periodo: ${historial.resumen.totalGeneral.toFixed(2)}
-            </h2>
+          <MetricCard title="Total del periodo" value={`$${historial.resumen.totalGeneral.toFixed(2)}`} icon={DollarSign} />
+
+          {Object.keys(historial.resumen.porSucursal).length > 0 && (
             <table>
               <thead>
                 <tr>
@@ -126,79 +146,68 @@ export default function HistorialVentasPage() {
               <tbody>
                 {Object.entries(historial.resumen.porSucursal).map(([nombre, r]) => (
                   <tr key={nombre}>
-                    <td>{nombre}</td>
-                    <td>{r.cantidad}</td>
-                    <td>${r.total.toFixed(2)}</td>
+                    <td className="font-medium">{nombre}</td>
+                    <td className="tabular-nums">{r.cantidad}</td>
+                    <td className="tabular-nums font-medium">${r.total.toFixed(2)}</td>
                   </tr>
                 ))}
-                {Object.keys(historial.resumen.porSucursal).length === 0 && (
-                  <tr>
-                    <td colSpan={3} style={{ color: 'var(--color-muted)' }}>
-                      Sin ventas en el periodo.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
-          </div>
+          )}
 
-          <table>
-            <thead>
-              <tr>
-                <th></th>
-                <th>Folio</th>
-                <th>Producto</th>
-                <th>Sucursal</th>
-                <th>Cliente</th>
-                <th>Total</th>
-                <th>Pago</th>
-                <th>Estado</th>
-                <th>Vendedor</th>
-                <th>Fecha</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historial.ventas.map((v) => {
-                const primerItem = v.items?.[0];
-                return (
-                  <tr key={v.id}>
-                    <td>
-                      <ProductoThumb
-                        url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)}
-                        alt={primerItem?.variante.producto.nombre || ''}
-                      />
-                    </td>
-                    <td>{v.folio}</td>
-                    <td>
-                      {primerItem
-                        ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
-                        : '—'}
-                      {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
-                    </td>
-                    <td>{v.sucursal?.nombre}</td>
-                    <td>{v.cliente || '—'}</td>
-                    <td>${v.total}</td>
-                    <td>
-                      {v.metodoPago === 'EFECTIVO' ? 'Efectivo' : v.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
-                      {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
-                    </td>
-                    <td>{v.estado}</td>
-                    <td>{v.usuario?.nombre}</td>
-                    <td>{new Date(v.createdAt).toLocaleString('es-MX')}</td>
-                  </tr>
-                );
-              })}
-              {historial.ventas.length === 0 && (
+          {historial.ventas.length === 0 ? (
+            <EmptyState icon={History} title="Sin ventas en el periodo" description="Ajusta los filtros de fecha o sucursal para ver resultados." />
+          ) : (
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={10} style={{ color: 'var(--color-muted)' }}>
-                    Sin ventas en el periodo.
-                  </td>
+                  <th></th>
+                  <th>Folio</th>
+                  <th>Producto</th>
+                  <th>Sucursal</th>
+                  <th>Cliente</th>
+                  <th>Total</th>
+                  <th>Pago</th>
+                  <th>Estado</th>
+                  <th>Vendedor</th>
+                  <th>Fecha</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {historial.ventas.map((v) => {
+                  const primerItem = v.items?.[0];
+                  return (
+                    <tr key={v.id}>
+                      <td>
+                        <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)} alt={primerItem?.variante.producto.nombre || ''} />
+                      </td>
+                      <td className="font-medium">{v.folio}</td>
+                      <td>
+                        {primerItem
+                          ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                          : '—'}
+                        {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
+                      </td>
+                      <td>{v.sucursal?.nombre}</td>
+                      <td>{v.cliente || '—'}</td>
+                      <td className="font-medium tabular-nums">${v.total}</td>
+                      <td className="text-xs">
+                        {etiquetaMetodoPago(v.metodoPago)}
+                        {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
+                      </td>
+                      <td>
+                        <StatusBadge tono={ESTADO_TONO[v.estado] ?? 'neutral'}>{v.estado}</StatusBadge>
+                      </td>
+                      <td>{v.usuario?.nombre}</td>
+                      <td className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </>
-      )}
+      ) : null}
     </div>
   );
 }
