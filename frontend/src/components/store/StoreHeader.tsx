@@ -142,7 +142,7 @@ export function StoreHeader() {
             {categoriasNav.map((c) => (
               <Link
                 key={c.nombre}
-                href={`/tienda?categoria=${encodeURIComponent(c.nombre)}`}
+                href={`/tienda?categoria=${encodeURIComponent(c.nombre)}#catalogo`}
                 className="text-foreground/80 transition-colors hover:text-foreground"
               >
                 {c.nombre}
@@ -195,7 +195,7 @@ export function StoreHeader() {
             {categoriasNav.map((c) => (
               <Link
                 key={c.nombre}
-                href={`/tienda?categoria=${encodeURIComponent(c.nombre)}`}
+                href={`/tienda?categoria=${encodeURIComponent(c.nombre)}#catalogo`}
                 onClick={cerrar}
                 className="rounded-lg px-3 py-3 hover:bg-secondary"
               >
