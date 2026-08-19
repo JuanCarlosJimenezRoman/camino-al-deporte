@@ -27,19 +27,29 @@ export function HomeHero({ productoDestacado }: { productoDestacado: ProductoCat
       </div>
 
       {imagen && productoDestacado && (
-        <Link
-          href={`/tienda/productos/${productoDestacado.id}`}
-          className="group relative order-first aspect-[4/3] overflow-hidden rounded-3xl bg-secondary lg:order-last lg:aspect-square"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imagenProducto(imagen, 1000)}
-            alt={productoDestacado.nombre}
-            className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
-          />
-          <div className="absolute bottom-4 left-4 rounded-xl bg-background/90 px-4 py-2.5 shadow-elevated backdrop-blur">
+        // La ficha de marca/nombre iba superpuesta sobre la foto en las
+        // cuatro esquinas inferiores (bien en escritorio, donde la imagen es
+        // cuadrada y grande) pero en móvil la imagen es más baja (4:3) y esa
+        // ficha llegaba a tapar buena parte del producto — sobre todo con
+        // nombres largos. Por eso aquí abajo de lg la ficha se saca de la
+        // foto y va debajo, en flujo normal; de lg en adelante vuelve a ser
+        // el overlay de siempre.
+        <Link href={`/tienda/productos/${productoDestacado.id}`} className="group order-first lg:order-last">
+          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl bg-secondary lg:aspect-square">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imagenProducto(imagen, 1000)}
+              alt={productoDestacado.nombre}
+              className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+            />
+            <div className="absolute bottom-4 left-4 hidden max-w-[80%] rounded-xl bg-background/90 px-4 py-2.5 shadow-elevated backdrop-blur lg:block">
+              <p className="text-xs font-semibold text-muted-foreground">{productoDestacado.marca?.nombre}</p>
+              <p className="truncate text-sm font-bold">{productoDestacado.nombre}</p>
+            </div>
+          </div>
+          <div className="mt-3 lg:hidden">
             <p className="text-xs font-semibold text-muted-foreground">{productoDestacado.marca?.nombre}</p>
-            <p className="text-sm font-bold">{productoDestacado.nombre}</p>
+            <p className="line-clamp-2 text-sm font-bold">{productoDestacado.nombre}</p>
           </div>
         </Link>
       )}

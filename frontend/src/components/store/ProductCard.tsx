@@ -78,10 +78,17 @@ export function ProductCard({
             ni "oferta" sin datos que los respalden. Se acomodan en fila (con
             wrap) en vez de apilados en columna, y se dejan `right-11` para
             no toparse con el botón de favoritos — así nunca se desbordan de
-            la tarjeta en pantallas angostas. */}
+            la tarjeta en pantallas angostas.
+            "Nuevo" y la urgencia ("Quedan N") se ocultan en móvil (grid a 2
+            columnas: cada tarjeta es chica y estos dos se sentían pesados)
+            — se siguen viendo en tablet/escritorio. "Agotado" se deja
+            siempre visible: no es un badge de marketing, evita que alguien
+            intente comprar algo sin existencias. */}
         <div className="absolute left-2 right-11 top-2 flex flex-wrap items-start gap-1.5">
-          {nuevo && !agotado && <span className={claseBadgeNuevo}>Nuevo</span>}
-          {estado.tono === 'warning' && <span className={claseBadgeUltimas}>{textoBadgeUrgencia}</span>}
+          {nuevo && !agotado && <span className={cn(claseBadgeNuevo, 'max-sm:hidden')}>Nuevo</span>}
+          {estado.tono === 'warning' && (
+            <span className={cn(claseBadgeUltimas, 'max-sm:hidden')}>{textoBadgeUrgencia}</span>
+          )}
           {agotado && <span className={claseBadgeAgotado}>Agotado</span>}
         </div>
 
