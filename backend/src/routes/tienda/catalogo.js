@@ -33,6 +33,12 @@ function conStockTotal(producto) {
     imagenes: producto.imagenes,
     variantes,
     stockTotal,
+    // Se reenvían los campos personalizados tal cual (mismo formato clave→
+    // string que ya usa el panel admin, ver dashboard/productos/[id]) para
+    // que la tienda pueda leer, por ejemplo, un campo booleano "destacado"
+    // sin necesitar una columna/migración nueva. No cambia nada de lo que
+    // ya se mandaba antes, solo agrega este campo extra a la respuesta.
+    atributosExtra: producto.atributosExtra || {},
   };
 }
 

@@ -18,11 +18,30 @@ const MAX_NUEVOS = 8;
 const MAX_ULTIMAS_UNIDADES = 8;
 const MAX_MARCAS_HOME = 12;
 
-/** Selección "destacados" honesta: sin datos de ventas/curaduría, se arma
- * tomando productos de categorías distintas en turnos (round-robin) en vez
- * de solo los más nuevos — así la sección muestra variedad real del
- * catálogo en lugar de repetir lo mismo que "Recién llegados". */
+// Clave del campo personalizado (panel admin → Catálogo → "Campos
+// personalizados", entidad "producto", tipo Sí/No) que decide qué aparece
+// en "Destacados". Debe crearse ahí con esta clave exacta: "destacado".
+const CLAVE_CAMPO_DESTACADO = 'destacado';
+
+function productoMarcadoDestacado(p: ProductoCatalogo): boolean {
+  return p.atributosExtra?.[CLAVE_CAMPO_DESTACADO] === 'true';
+}
+
+/** Selección "destacados": si el equipo ya marcó productos con el campo
+ * personalizado "destacado" desde el panel, se usan esos (respetando su
+ * elección tal cual, aunque sean menos de `maximo`). Si todavía no han
+ * marcado ninguno, se cae al criterio automático anterior — variedad real
+ * del catálogo tomando productos de categorías distintas en turnos
+ * (round-robin) en vez de solo los más nuevos — para que la home nunca se
+ * quede sin esta sección mientras nadie haya curado nada todavía. */
 function seleccionarDestacados(productos: ProductoCatalogo[], maximo: number): ProductoCatalogo[] {
+  const conFotoBase = productos.filter((p) => p.imagenes?.[0]?.url);
+  const marcados = conFotoBase.filter(productoMarcadoDestacado);
+  if (marcados.length > 0) return marcados.slice(0, maximo);
+  return seleccionarDestacadosAutomatico(productos, maximo);
+}
+
+function seleccionarDestacadosAutomatico(productos: ProductoCatalogo[], maximo: number): ProductoCatalogo[] {
   const conFoto = productos.filter((p) => p.imagenes?.[0]?.url);
   const porCategoria = new Map<string, ProductoCatalogo[]>();
   for (const p of conFoto) {
@@ -60,6 +79,7 @@ function TiendaHomeContenido() {
   }, [categorias, productos]);
 
   const destacados = useMemo(() => seleccionarDestacados(productos || [], MAX_DESTACADOS), [productos]);
+  const destacadosCurados = useMemo(() => (productos || []).some(productoMarcadoDestacado), [productos]);
   const nuevos = useMemo(() => (productos || []).slice(0, MAX_NUEVOS), [productos]);
   const ultimas = useMemo(() => ultimasUnidades.slice(0, MAX_ULTIMAS_UNIDADES), [ultimasUnidades]);
   const marcasHome = useMemo(() => marcas.slice(0, MAX_MARCAS_HOME), [marcas]);
@@ -73,7 +93,11 @@ function TiendaHomeContenido() {
       <ProductSection
         ojo="Selección de la casa"
         titulo="Destacados"
-        subtitulo="Una muestra de lo que tenemos, de distintas categorías del catálogo."
+        subtitulo={
+          destacadosCurados
+            ? 'Lo que elegimos resaltar esta temporada.'
+            : 'Una muestra de lo que tenemos, de distintas categorías del catálogo.'
+        }
         productos={destacados}
         nuevosIds={nuevosIds}
         onQuickView={setQuickView}

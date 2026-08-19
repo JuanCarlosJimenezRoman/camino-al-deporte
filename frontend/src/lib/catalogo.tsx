@@ -37,6 +37,10 @@ export interface ProductoCatalogo {
   imagenes: { url: string }[];
   variantes: VarianteCatalogo[];
   stockTotal: number;
+  // Campos personalizados del producto (definidos en el panel admin, ver
+  // dashboard/campos-personalizados) — mismo formato clave→string que ya usa
+  // el panel. Ej: atributosExtra?.destacado === 'true'.
+  atributosExtra?: Record<string, string> | null;
 }
 
 export interface ConteoNombre {
