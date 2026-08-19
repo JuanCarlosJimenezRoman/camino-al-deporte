@@ -34,8 +34,7 @@ export function Toaster() {
             key={t.id}
             role="status"
             className={cn(
-              'flex items-start gap-3 rounded-card border border-border bg-card p-4 shadow-elevated',
-              'animate-in fade-in slide-in-from-bottom-2'
+              'flex items-start gap-3 rounded-card border border-border bg-card p-4 shadow-elevated animate-toast-in'
             )}
           >
             <Icon className={cn('w-4.5 h-4.5 mt-0.5 shrink-0', TONE_CLASSES[t.variant ?? 'default'])} />

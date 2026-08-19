@@ -5,11 +5,14 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
+        // var(--font-inter) primero: es la fuente Inter real, cargada por
+        // next/font en app/layout.tsx. El resto queda como respaldo mientras
+        // carga o si por lo que sea la variable no está presente.
         sans: [
+          'var(--font-inter)',
           '-apple-system',
           'BlinkMacSystemFont',
           '"Segoe UI"',
-          'Inter',
           'Roboto',
           'sans-serif',
         ],
@@ -90,6 +93,24 @@ module.exports = {
         /* Para elementos flotantes por encima del contenido: dropdowns,
            popovers, dialogs, drawers. */
         elevated: '0 4px 6px -2px rgb(0 0 0 / 0.04), 0 12px 24px -4px rgb(0 0 0 / 0.10)',
+      },
+      /* Microinteracciones cortas (150-250ms, ver brief de rediseño de la
+         tienda): el proyecto no tiene `tailwindcss-animate` instalado (ver
+         componentes/ui/dialog.tsx), así que Toast usaba clases de esa
+         librería que en realidad no hacían nada (sin plugin no hay
+         keyframes). Se agregan aquí directamente, sin depender de un
+         paquete nuevo, y quedan disponibles para cualquier entrada/salida
+         corta en toda la app (toast, quick view, cart drawer, etc). */
+      keyframes: {
+        'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        'toast-in': {
+          from: { opacity: '0', transform: 'translateY(8px) scale(0.98)' },
+          to: { opacity: '1', transform: 'translateY(0) scale(1)' },
+        },
+      },
+      animation: {
+        'fade-in': 'fade-in 180ms ease-out',
+        'toast-in': 'toast-in 200ms cubic-bezier(0.16, 1, 0.3, 1)',
       },
     },
   },

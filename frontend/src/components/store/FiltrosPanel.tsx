@@ -1,6 +1,6 @@
 'use client';
 
-import { claseBotonPrimario, claseBotonSecundario } from './ui';
+import { claseBotonPrimario, claseBotonSecundario, claseChip } from './ui';
 
 export type Orden = 'recientes' | 'precioAsc' | 'precioDesc';
 
@@ -65,9 +65,7 @@ function GrupoChips({
               key={op}
               type="button"
               onClick={() => onCambiar(alternar(seleccion, op))}
-              className={`rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
-                activo ? 'border-foreground bg-foreground text-background' : 'border-border hover:border-foreground'
-              }`}
+              className={claseChip({ seleccionado: activo })}
             >
               {op}
             </button>
@@ -127,7 +125,7 @@ export function FiltrosPanel({
                     name="orden"
                     checked={orden === valor}
                     onChange={() => setOrden(valor)}
-                    className="h-4 w-4 accent-foreground"
+                    className="h-4 w-4 accent-primary"
                   />
                   {etiqueta}
                 </label>

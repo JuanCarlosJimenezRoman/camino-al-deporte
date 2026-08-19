@@ -10,7 +10,7 @@ const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 
 const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 export default function PerfilPage() {
-  const { cliente, cargando, actualizarCliente } = useAuthCliente();
+  const { cliente, cargando, actualizarCliente, logout } = useAuthCliente();
   const router = useRouter();
 
   const [nombre, setNombre] = useState('');
@@ -161,6 +161,16 @@ export default function PerfilPage() {
           {guardandoPassword ? 'Guardando...' : 'Cambiar contraseña'}
         </button>
       </form>
+
+      <div className="mt-10 border-t border-border pt-6">
+        <button
+          type="button"
+          onClick={logout}
+          className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-destructive hover:underline"
+        >
+          Cerrar sesión
+        </button>
+      </div>
     </div>
   );
 }

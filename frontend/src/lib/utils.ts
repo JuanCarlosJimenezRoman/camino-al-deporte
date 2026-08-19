@@ -6,6 +6,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Formato de moneda para toda la tienda en línea (antes cada pantalla hacía
+// `$${precio}` a mano, sin separador de miles — "$2899" en vez de "$2,899").
+// Sin decimales cuando el precio es un entero (el caso normal, precios en
+// pesos completos); si algún día hay centavos, sí se muestran.
+export function formatoMoneda(valor: number | string): string {
+  const numero = typeof valor === 'string' ? Number(valor) : valor;
+  if (!Number.isFinite(numero)) return '$0';
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(numero);
+}
+
 /**
  * Mantiene un elemento montado un poco más después de que `active` pasa a
  * false, para poder animar su salida (fade/slide) antes de quitarlo del DOM
