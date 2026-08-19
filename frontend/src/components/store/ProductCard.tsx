@@ -40,6 +40,13 @@ export function ProductCard({
   const stockTotal = producto.stockTotal ?? 0;
   const estado = estadoStockTienda(stockTotal);
   const agotado = stockTotal <= 0;
+  // En la tarjeta (espacio muy reducido, sobre todo en móvil a 2 columnas)
+  // usamos una versión corta del texto de urgencia — el mismo dato real
+  // (unidades restantes), solo que "Últimas 2 unidades" se vuelve "Quedan 2"
+  // para que el badge no se desborde de la tarjeta. La frase completa se
+  // sigue usando tal cual en el detalle de producto y en la búsqueda.
+  const textoBadgeUrgencia =
+    estado.tono === 'warning' ? (stockTotal === 1 ? 'Última pieza' : `Quedan ${stockTotal}`) : estado.texto;
 
   function alternarFavorito(e: MouseEvent) {
     e.preventDefault();
@@ -68,10 +75,13 @@ export function ProductCard({
 
         {/* Badges reales únicamente: nuevo (por orden real del catálogo) y
             últimas unidades/agotado (por stock real). Nada de "más vendido"
-            ni "oferta" sin datos que los respalden. */}
-        <div className="absolute left-2 top-2 flex flex-col gap-1.5">
+            ni "oferta" sin datos que los respalden. Se acomodan en fila (con
+            wrap) en vez de apilados en columna, y se dejan `right-11` para
+            no toparse con el botón de favoritos — así nunca se desbordan de
+            la tarjeta en pantallas angostas. */}
+        <div className="absolute left-2 right-11 top-2 flex flex-wrap items-start gap-1.5">
           {nuevo && !agotado && <span className={claseBadgeNuevo}>Nuevo</span>}
-          {estado.tono === 'warning' && <span className={claseBadgeUltimas}>{estado.texto}</span>}
+          {estado.tono === 'warning' && <span className={claseBadgeUltimas}>{textoBadgeUrgencia}</span>}
           {agotado && <span className={claseBadgeAgotado}>Agotado</span>}
         </div>
 
@@ -90,37 +100,49 @@ export function ProductCard({
           />
         </button>
 
-        {/* Vista rápida: aparece al pasar el mouse en escritorio, siempre
-            presente en táctil (no hay hover real en móvil). */}
+        {/* Vista rápida. En escritorio (con hover real) es el pill con texto
+            de siempre, oculto hasta pasar el mouse. En móvil, donde no hay
+            hover y antes se mostraba ese mismo pill completo en TODAS las
+            tarjetas a la vez (una franja de texto por tarjeta, sección por
+            sección — la causa principal de que el catálogo se sintiera
+            saturado en pantallas chicas), se reemplaza por un ícono pequeño
+            junto al de favoritos: misma función, mucho menos peso visual. */}
         {onQuickView && !agotado && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onQuickView();
-            }}
-            className={cn(
-              claseBotonFantasma,
-              'absolute inset-x-2 bottom-2 opacity-100 duration-150 sm:opacity-0 sm:group-hover:opacity-100'
-            )}
-          >
-            <Eye className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Vista rápida
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onQuickView();
+              }}
+              aria-label="Vista rápida"
+              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 shadow-sm backdrop-blur transition hover:scale-105 sm:hidden"
+            >
+              <Eye className="h-4 w-4" strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onQuickView();
+              }}
+              className={cn(claseBotonFantasma, 'absolute inset-x-2 bottom-2 hidden opacity-0 duration-150 sm:flex sm:group-hover:opacity-100')}
+            >
+              <Eye className="h-3.5 w-3.5" strokeWidth={1.75} />
+              Vista rápida
+            </button>
+          </>
         )}
       </div>
 
       <p className="truncate text-sm font-semibold leading-tight">{producto.nombre}</p>
       <p className="text-xs text-muted-foreground">{producto.marca?.nombre}</p>
-      <div className="mt-1 flex items-center gap-2">
-        <PriceTag precio={producto.precioVenta} tamano="sm" />
-        {estado.tono !== 'success' && (
-          <span className={`text-[11px] font-semibold ${estado.tono === 'warning' ? 'text-warning' : 'text-destructive'}`}>
-            {estado.texto}
-          </span>
-        )}
-      </div>
+      {/* El estado de stock ya se muestra como badge sobre la foto — repetirlo
+          aquí como texto era la misma información dos veces en una tarjeta
+          muy chica (parte de por qué se sentía saturado en móvil). */}
+      <PriceTag precio={producto.precioVenta} tamano="sm" className="mt-1" />
     </Link>
   );
 }
