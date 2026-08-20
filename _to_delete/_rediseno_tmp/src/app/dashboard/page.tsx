@@ -74,6 +74,12 @@ interface BajoStockResumen {
   variante: { producto: ProductoResumen; talla: { valor: string } | null };
 }
 
+interface ExistenciaResumen {
+  stockActual: number;
+  stockMinimo: number;
+  variante: { id: number };
+}
+
 interface NotificacionResumen {
   id: number;
   titulo: string;
@@ -226,6 +232,7 @@ export default function DashboardHome() {
   const [apartados, setApartados] = useState<ApartadoResumen[] | null>(null);
   const [productosTotal, setProductosTotal] = useState<number | null>(null);
   const [bajoStock, setBajoStock] = useState<BajoStockResumen[] | null>(null);
+  const [existencias, setExistencias] = useState<ExistenciaResumen[] | null>(null);
   const [notificaciones, setNotificaciones] = useState<NotificacionResumen[]>([]);
 
   useEffect(() => {
@@ -268,9 +275,20 @@ export default function DashboardHome() {
     const idsAConsultar = sucursalTopbar !== null ? [sucursalTopbar] : puedeVerTodas ? sucursales.map((s) => s.id) : [];
     if (idsAConsultar.length === 0) return;
 
-    Promise.all(idsAConsultar.map((id) => api<BajoStockResumen[]>(`/inventario/bajo-stock?sucursalId=${id}`)))
-      .then((listas) => activo && setBajoStock(listas.flat()))
-      .catch(() => activo && setBajoStock([]));
+    Promise.all([
+      ...idsAConsultar.map((id) => api<BajoStockResumen[]>(`/inventario/bajo-stock?sucursalId=${id}`)),
+      ...idsAConsultar.map((id) => api<ExistenciaResumen[]>(`/inventario/existencias?sucursalId=${id}`)),
+    ])
+      .then((respuestas) => {
+        if (!activo) return;
+        setBajoStock(respuestas.slice(0, idsAConsultar.length).flat() as BajoStockResumen[]);
+        setExistencias(respuestas.slice(idsAConsultar.length).flat() as ExistenciaResumen[]);
+      })
+      .catch(() => {
+        if (!activo) return;
+        setBajoStock([]);
+        setExistencias([]);
+      });
 
     return () => {
       activo = false;
@@ -307,13 +325,27 @@ export default function DashboardHome() {
   );
 
   const saldoApartados = (apartados ?? []).reduce((acc, a) => acc + (a.saldoPendiente || 0), 0);
-  // Aproximación: /inventario/bajo-stock cuenta VARIANTES (talla/color) por
-  // debajo del mínimo, no productos — no existe un endpoint que devuelva
-  // "productos con salud de stock" ya agregado, y no se agrega uno nuevo en
-  // esta fase. Se usa como indicador visual rápido, no como cifra exacta;
-  // cuando se rediseñe Inventario (fase propia) conviene mostrar esto a
-  // nivel variante en vez de mezclarlo con el conteo de productos.
-  const stockDisponible = productosTotal !== null && bajoStock !== null ? Math.max(productosTotal - bajoStock.length, 0) : 0;
+  const resumenStock = useMemo(() => {
+    if (existencias === null) return null;
+
+    const porVariante = new Map<number, { stockActual: number; stockMinimo: number }>();
+    existencias.forEach((existencia) => {
+      const actual = porVariante.get(existencia.variante.id) ?? { stockActual: 0, stockMinimo: 0 };
+      actual.stockActual += Number(existencia.stockActual);
+      actual.stockMinimo = Math.max(actual.stockMinimo, Number(existencia.stockMinimo));
+      porVariante.set(existencia.variante.id, actual);
+    });
+
+    return Array.from(porVariante.values()).reduce(
+      (resumen, variante) => {
+        if (variante.stockActual <= 0) resumen.agotado += 1;
+        else if (variante.stockActual <= variante.stockMinimo) resumen.bajo += 1;
+        else resumen.disponible += 1;
+        return resumen;
+      },
+      { disponible: 0, bajo: 0, agotado: 0 }
+    );
+  }, [existencias]);
 
   const primerNombre = usuario?.nombre?.split(' ')[0] ?? '';
   const hora = new Date().getHours();
@@ -486,14 +518,14 @@ export default function DashboardHome() {
           {puedeVer('inventario', rol) && (
             <Card className="p-5">
               <h2 className="mb-4 text-base font-semibold">Estado del inventario</h2>
-              {bajoStock === null || productosTotal === null ? (
+              {bajoStock === null || resumenStock === null ? (
                 <Skeleton className="h-40 w-full" />
               ) : (
                 <>
                   <StockIndicator
-                    disponible={stockDisponible}
-                    bajo={bajoStock.filter((b) => b.stockActual > 0).length}
-                    agotado={bajoStock.filter((b) => b.stockActual <= 0).length}
+                    disponible={resumenStock.disponible}
+                    bajo={resumenStock.bajo}
+                    agotado={resumenStock.agotado}
                   />
                   <p className="mt-4 text-sm text-muted-foreground">
                     {bajoStock.length > 0
