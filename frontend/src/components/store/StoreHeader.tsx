@@ -16,11 +16,12 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { Menu, X, ShoppingBag, Heart, User, Search as SearchIcon, LogOut, Package } from 'lucide-react';
+import { Menu, X, ShoppingBag, Heart, User, Search as SearchIcon, LogOut, Package, Sun, Moon } from 'lucide-react';
 import { useAuthCliente } from '@/lib/authCliente';
 import { useCarrito } from '@/lib/carrito';
 import { useFavoritos } from '@/lib/favoritos';
 import { useCatalogo } from '@/lib/catalogo';
+import { useTheme } from '@/lib/themeContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,6 +68,20 @@ function FavoritosIcono() {
       <Heart className="h-5 w-5" strokeWidth={1.75} />
       {ids.size > 0 && <span className={claseContadorIcono}>{ids.size > 9 ? '9+' : ids.size}</span>}
     </Link>
+  );
+}
+
+function TemaIcono() {
+  const { tema, alternarTema } = useTheme();
+  return (
+    <button
+      type="button"
+      onClick={alternarTema}
+      className={claseBotonIcono}
+      aria-label={tema === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+    >
+      {tema === 'dark' ? <Sun className="h-5 w-5" strokeWidth={1.75} /> : <Moon className="h-5 w-5" strokeWidth={1.75} />}
+    </button>
   );
 }
 
@@ -157,6 +172,7 @@ export function StoreHeader() {
             <button onClick={() => setBuscadorAbierto(true)} className={claseBotonIcono} aria-label="Buscar">
               <SearchIcon className="h-5 w-5" strokeWidth={1.75} />
             </button>
+            <TemaIcono />
             <FavoritosIcono />
             <BolsaIcono />
             <div className="hidden lg:block">

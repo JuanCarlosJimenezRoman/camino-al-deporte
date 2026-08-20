@@ -82,13 +82,13 @@
 }
 
 /* -----------------------------------------------------------------------
-   Modo oscuro — solo para el panel administrativo (/dashboard). La clase
-   "dark" se agrega a <html> mientras el panel está montado (ver
-   lib/themeContext.tsx) y se quita al salir de /dashboard, así que /tienda
-   y /login nunca se ven afectados. Como el resto del código ya lee todos
-   sus colores de estas variables (o de los alias --color-* que a su vez
-   las referencian), no hace falta tocar componente por componente: basta
-   con redeclarar los tokens acá.
+   Modo oscuro — para toda la app (panel administrativo y tienda en línea).
+   La clase "dark" se agrega a <html> por <ThemeProvider>, montado una sola
+   vez en el layout raíz (ver lib/themeContext.tsx y app/layout.tsx), así
+   que /dashboard, /tienda y /login comparten la misma preferencia. Como el
+   resto del código ya lee todos sus colores de estas variables (o de los
+   alias --color-* que a su vez las referencian), no hace falta tocar
+   componente por componente: basta con redeclarar los tokens acá.
    ----------------------------------------------------------------------- */
 .dark {
   color-scheme: dark;

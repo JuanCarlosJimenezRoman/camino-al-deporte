@@ -1,18 +1,24 @@
 'use client';
 
 /**
- * Modo oscuro — solo para el panel administrativo (/dashboard). No usa
- * ninguna librería nueva (mismo criterio que el resto de los componentes
- * "hand-built" del rediseño): es un contexto chico que guarda la
- * preferencia en localStorage y la aplica agregando la clase "dark" a
+ * Modo oscuro — para toda la app (panel administrativo y tienda en línea).
+ * No usa ninguna librería nueva (mismo criterio que el resto de los
+ * componentes "hand-built" del rediseño): es un contexto chico que guarda
+ * la preferencia en localStorage y la aplica agregando la clase "dark" a
  * <html> (no a un div interno) porque Dialog/Drawer/Toast/DropdownMenu/
  * Tooltip usan portals a document.body — si la clase solo viviera dentro
- * del árbol del dashboard, esos elementos flotantes se quedarían siempre
+ * de un árbol específico, esos elementos flotantes se quedarían siempre
  * en modo claro.
  *
- * Como <ThemeProvider> solo se monta dentro de DashboardLayout, la clase
- * se agrega cuando el usuario entra a /dashboard y se quita al salir (o al
- * cerrar sesión hacia /login) — /tienda y /login nunca se ven afectados.
+ * <ThemeProvider> se monta una sola vez en el layout raíz (app/layout.tsx),
+ * así que la preferencia es una sola y se comparte entre /dashboard,
+ * /tienda y /login — no hay temas separados por sección. Para evitar el
+ * parpadeo "claro y luego oscuro" en el primer render (la tienda y el
+ * login, a diferencia del dashboard, no tienen un gate async antes de
+ * pintar contenido real), app/layout.tsx además inyecta un script inline
+ * que aplica la clase "dark" a <html> antes de que el navegador pinte —
+ * ver ese archivo. La clave de localStorage (STORAGE_KEY) debe coincidir
+ * con la que usa ese script.
  */
 
 import * as React from 'react';
@@ -45,10 +51,9 @@ function leerTemaInicial(): Tema {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // Lazy initializer: se ejecuta en el primer render (antes del primer
-  // paint visible, ya que DashboardLayout ya retrasa el contenido real
-  // hasta que termina de resolverse la sesión), así que no hay parpadeo
-  // de "claro, luego oscuro" al entrar al panel.
+  // Lazy initializer: mantiene el estado de React en sync con la clase que
+  // ya aplicó el script inline de app/layout.tsx antes del primer paint (o
+  // con la preferencia guardada, si el script no corrió por lo que sea).
   const [tema, setTemaState] = React.useState<Tema>(leerTemaInicial);
 
   React.useEffect(() => {
@@ -58,11 +63,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // ignorar si localStorage no está disponible
     }
-    // Al desmontar el proveedor (el usuario sale de /dashboard) quitamos la
-    // clase para no dejar /login o /tienda en modo oscuro por accidente.
-    return () => {
-      document.documentElement.classList.remove('dark');
-    };
+    // Sin cleanup que quite la clase: <ThemeProvider> ahora vive en el
+    // layout raíz y no se desmonta al navegar entre secciones, así que no
+    // hay "salida de /dashboard" que deba revertir nada.
   }, [tema]);
 
   const setTema = React.useCallback((t: Tema) => setTemaState(t), []);

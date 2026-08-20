@@ -100,10 +100,9 @@ export function ProductCard({
           className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-background/90 shadow-sm backdrop-blur transition hover:scale-105"
         >
           <Heart
-            className="h-4 w-4"
+            className={cn('h-4 w-4', favorito ? 'text-rose-600' : 'text-foreground')}
             strokeWidth={1.75}
-            color={favorito ? '#e11d48' : '#111827'}
-            fill={favorito ? '#e11d48' : 'none'}
+            fill={favorito ? 'currentColor' : 'none'}
           />
         </button>
 
