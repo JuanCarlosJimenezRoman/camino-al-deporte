@@ -13,7 +13,13 @@ export function HomeHero({ productoDestacado }: { productoDestacado: ProductoCat
   const imagen = productoDestacado?.imagenes?.[0]?.url;
 
   return (
-    <section className="grid items-center gap-8 py-6 sm:py-10 lg:grid-cols-2 lg:gap-12 lg:py-14">
+    // En móvil la imagen va primero (order-first) y quedaba con bastante
+    // aire arriba: el padding-top de este section (py-6) se sumaba al del
+    // <main> del layout de la tienda. Con -mt-6 se cancela ese espacio SOLO
+    // en móvil (sm:mt-0 lo deja intacto de tablet para arriba, donde no
+    // había queja) sin tocar el padding de <main>, compartido por el resto
+    // de páginas de la tienda (carrito, producto, favoritos, etc.).
+    <section className="-mt-6 grid items-center gap-8 pb-6 pt-0 sm:mt-0 sm:py-10 lg:grid-cols-2 lg:gap-12 lg:py-14">
       <div>
         <p className={claseOjo}>Camino al Deporte</p>
         <h1 className={`mt-2 ${claseTituloHero}`}>Encuentra tu próximo par.</h1>
