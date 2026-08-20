@@ -253,7 +253,8 @@ export default function PedidoOnlineDetallePage() {
               fontWeight: 500,
               padding: '2px 8px',
               borderRadius: 999,
-              background: pedido.origen === 'TIENDA_ONLINE' ? 'var(--color-panel)' : 'var(--color-accent-muted, #e0f2ea)',
+              background: pedido.origen === 'TIENDA_ONLINE' ? 'var(--color-panel)' : 'rgb(var(--accent))',
+              color: 'rgb(var(--accent-foreground))',
               border: '1px solid var(--color-border)',
             }}
           >

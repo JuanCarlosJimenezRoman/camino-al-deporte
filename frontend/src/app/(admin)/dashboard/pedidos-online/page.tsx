@@ -199,7 +199,8 @@ export default function PedidosOnlinePage() {
                     fontSize: 11,
                     padding: '2px 8px',
                     borderRadius: 999,
-                    background: p.origen === 'TIENDA_ONLINE' ? 'var(--color-panel)' : 'var(--color-accent-muted, #e0f2ea)',
+                    background: p.origen === 'TIENDA_ONLINE' ? 'var(--color-panel)' : 'rgb(var(--accent))',
+                    color: 'rgb(var(--accent-foreground))',
                     border: '1px solid var(--color-border)',
                     whiteSpace: 'nowrap',
                   }}
