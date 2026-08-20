@@ -243,8 +243,8 @@ export default function PedidoOnlineDetallePage() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 24 }}>
-      <div>
+    <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-6 min-w-0">
+      <div className="min-w-0">
         <h1 style={{ fontSize: 22, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
           Pedido {pedido.folio}
           <span
@@ -569,16 +569,16 @@ export default function PedidoOnlineDetallePage() {
         {mensaje && <p style={{ fontSize: 13, marginTop: 12 }}>{mensaje}</p>}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'fit-content' }}>
-      <div className="card" style={{ height: 'fit-content' }}>
+      <div className="min-w-0" style={{ display: 'flex', flexDirection: 'column', gap: 16, height: 'fit-content' }}>
+      <div className="card min-w-0" style={{ height: 'fit-content' }}>
         <h2 style={{ fontSize: 16, marginBottom: 12 }}>Artículos</h2>
         {pedido.items.map((it) => (
-          <div key={it.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+          <div key={it.id} className="min-w-0" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
             <ProductoThumb
               url={imagenPrincipal(it.variante.producto, it.variante.color)}
               alt={it.variante.producto.nombre}
             />
-            <div style={{ flex: 1, fontSize: 13 }}>
+            <div className="min-w-0" style={{ flex: 1, fontSize: 13, overflowWrap: 'break-word' }}>
               <div>{it.variante.producto.nombre}</div>
               <div style={{ color: 'var(--color-muted)' }}>
                 {[it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ')} · {it.variante.sku} · sale de{' '}
