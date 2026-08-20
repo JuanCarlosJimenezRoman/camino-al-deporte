@@ -83,14 +83,17 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
 
   return (
     <header className="flex h-16 items-center gap-2 sm:gap-3 border-b border-border bg-card px-3 sm:px-6 sticky top-0 z-30">
-      <Button variant="ghost" size="icon" onClick={onOpenMobileMenu} className="md:hidden">
+      <Button variant="ghost" size="icon" onClick={onOpenMobileMenu} className="md:hidden shrink-0">
         <Menu className="w-4 h-4" />
       </Button>
 
       {/* Breadcrumb */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 overflow-hidden">
         <nav className="flex items-center gap-1.5 text-sm min-w-0">
-          <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
+          <Link
+            href="/dashboard"
+            className={`text-muted-foreground hover:text-foreground transition-colors truncate ${esInicio ? '' : 'shrink-0'}`}
+          >
             Inicio
           </Link>
           {!esInicio && (
@@ -113,18 +116,21 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
           ⌘K
         </kbd>
       </button>
-      <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setBuscadorAbierto(true)}>
+      <Button variant="ghost" size="icon" className="md:hidden shrink-0" onClick={() => setBuscadorAbierto(true)}>
         <Search className="w-4 h-4" />
       </Button>
       <GlobalSearchDialog open={buscadorAbierto} onOpenChange={setBuscadorAbierto} />
 
-      <BranchSelector />
+      <div className="shrink-0">
+        <BranchSelector />
+      </div>
 
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
             variant="ghost"
             size="icon"
+            className="shrink-0"
             aria-label={tema === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
             onClick={alternarTema}
           >
@@ -136,19 +142,23 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Ayuda">
+          <Button variant="ghost" size="icon" className="hidden sm:inline-flex shrink-0" aria-label="Ayuda">
             <HelpCircle className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>Ayuda</TooltipContent>
       </Tooltip>
 
-      {usuario && <NotificacionesBell />}
+      {usuario && (
+        <div className="shrink-0">
+          <NotificacionesBell />
+        </div>
+      )}
 
       {usuario && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-secondary transition-colors">
+            <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-secondary transition-colors shrink-0">
               <div className="hidden sm:flex flex-col items-end leading-tight">
                 <span className="text-sm font-medium">{usuario.nombre}</span>
                 <span className="text-xs text-muted-foreground">
