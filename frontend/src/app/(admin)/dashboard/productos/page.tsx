@@ -15,6 +15,9 @@ import {
   Archive,
   X,
   Package,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
@@ -164,6 +167,30 @@ export default function ProductosPage() {
   const [totalPaginas, setTotalPaginas] = useState(1);
   const [totalProductos, setTotalProductos] = useState(0);
 
+  // Orden de la tabla: se hace clic en el encabezado de la columna para
+  // ordenar por ella (y volver a hacer clic invierte la dirección), igual
+  // que cualquier tabla de administración. "estado" ordena por el mismo
+  // criterio que "stock" (agotado -> stock bajo -> disponible en ascendente,
+  // ver etiquetaPorStock) porque el estado que se muestra es una función
+  // directa del stock total.
+  type CampoOrden = 'nombre' | 'precio' | 'stock' | 'estado';
+  const [ordenCampo, setOrdenCampo] = useState<CampoOrden>('nombre');
+  const [ordenDireccion, setOrdenDireccion] = useState<'asc' | 'desc'>('asc');
+
+  function alternarOrden(campo: CampoOrden) {
+    if (ordenCampo === campo) {
+      setOrdenDireccion((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setOrdenCampo(campo);
+      setOrdenDireccion('asc');
+    }
+  }
+
+  function IconoOrden({ campo }: { campo: CampoOrden }) {
+    if (ordenCampo !== campo) return <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/50" />;
+    return ordenDireccion === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />;
+  }
+
   // Campos del nuevo producto
   const [nombre, setNombre] = useState('');
   const [marcaId, setMarcaId] = useState('');
@@ -183,6 +210,8 @@ export default function ProductosPage() {
     if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
     if (filtroModeloId) qs.set('modeloId', filtroModeloId);
     if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    qs.set('ordenarPor', ordenCampo);
+    qs.set('orden', ordenDireccion);
     qs.set('page', String(paginaDestino));
     qs.set('limit', String(PRODUCTOS_POR_PAGINA));
     const resultado = await api<ProductosPaginados>(`/productos?${qs.toString()}`);
@@ -212,7 +241,7 @@ export default function ProductosPage() {
   useEffect(() => {
     cargarProductos(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId]);
+  }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId, ordenCampo, ordenDireccion]);
 
   // Los modelos del filtro dependen de la marca elegida ahí (si no hay
   // ninguna, se listan todos). Al cambiar la marca del filtro se limpia el
@@ -495,12 +524,32 @@ export default function ProductosPage() {
             <thead>
               <tr>
                 <th></th>
-                <th>Producto</th>
+                <th className="cursor-pointer select-none hover:text-foreground" onClick={() => alternarOrden('nombre')}>
+                  <span className="inline-flex items-center gap-1">
+                    Producto
+                    <IconoOrden campo="nombre" />
+                  </span>
+                </th>
                 <th>SKU</th>
                 <th>Marca / categoría</th>
-                <th>Precio</th>
-                <th>Stock</th>
-                <th>Estado</th>
+                <th className="cursor-pointer select-none hover:text-foreground" onClick={() => alternarOrden('precio')}>
+                  <span className="inline-flex items-center gap-1">
+                    Precio
+                    <IconoOrden campo="precio" />
+                  </span>
+                </th>
+                <th className="cursor-pointer select-none hover:text-foreground" onClick={() => alternarOrden('stock')}>
+                  <span className="inline-flex items-center gap-1">
+                    Stock
+                    <IconoOrden campo="stock" />
+                  </span>
+                </th>
+                <th className="cursor-pointer select-none hover:text-foreground" onClick={() => alternarOrden('estado')}>
+                  <span className="inline-flex items-center gap-1">
+                    Estado
+                    <IconoOrden campo="estado" />
+                  </span>
+                </th>
                 <th></th>
               </tr>
             </thead>

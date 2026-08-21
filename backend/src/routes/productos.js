@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { z } = require('zod');
+const { Prisma } = require('@prisma/client');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
@@ -27,6 +28,65 @@ const upload = multer({
 
 const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }] } };
 
+// Campos por los que se puede pedir orden en GET /productos (?ordenarPor=).
+// "nombre" y "precio" son columnas directas de Producto, así que se ordenan
+// con el orderBy normal de Prisma. "stock" NO es una columna: es la suma de
+// existencias de todas las variantes activas del producto, dos relaciones de
+// distancia (Producto -> ProductoVariante -> Existencia) — algo que Prisma
+// no puede resolver con un orderBy normal, así que se calcula con SQL aparte
+// (ver ordenarProductosPorStock). "estado" se trata como alias de "stock": en
+// esta tabla el estado (Agotado/Stock bajo/Disponible, ver etiquetaPorStock
+// en el frontend) es una función directa y monótona del stock total con
+// umbrales fijos (0 y 5), así que ordenar por estado asc/desc da exactamente
+// el mismo resultado que ordenar por stock asc/desc.
+const CAMPOS_ORDEN = ['nombre', 'precio', 'stock', 'estado'];
+
+// Ordena y pagina productos por su stock total (suma de existencias de
+// variantes activas) resolviendo primero, en SQL, la lista de ids en el
+// orden correcto para esa página — y luego hidrata esos ids con el include
+// completo de siempre. El total viene de prisma.producto.count(where), igual
+// que en los demás campos de orden, para no duplicar la lógica de filtros.
+async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId, tallaId, q, direccion, pageNum, limitNum, include }) {
+  const condiciones = [Prisma.sql`p.activo = true`];
+  if (marcaId) condiciones.push(Prisma.sql`p.marca_id = ${Number(marcaId)}`);
+  if (categoriaId) condiciones.push(Prisma.sql`p.categoria_id = ${Number(categoriaId)}`);
+  if (modeloId) condiciones.push(Prisma.sql`p.modelo_id = ${Number(modeloId)}`);
+  if (tallaId) {
+    condiciones.push(
+      Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id = ${Number(tallaId)} AND activo = true)`
+    );
+  }
+  if (q) condiciones.push(Prisma.sql`p.nombre ILIKE ${`%${String(q)}%`}`);
+
+  const whereSql = Prisma.join(condiciones, ' AND ');
+  const ordenSql = direccion === 'desc' ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+
+  const [filas, total] = await Promise.all([
+    prisma.$queryRaw`
+      SELECT p.id AS id
+      FROM productos p
+      LEFT JOIN producto_variantes v ON v.producto_id = p.id AND v.activo = true
+      LEFT JOIN existencias e ON e.variante_id = v.id
+      WHERE ${whereSql}
+      GROUP BY p.id
+      ORDER BY COALESCE(SUM(e.stock_actual), 0) ${ordenSql}, p.nombre ASC
+      LIMIT ${limitNum} OFFSET ${(pageNum - 1) * limitNum}
+    `,
+    prisma.producto.count({ where }),
+  ]);
+
+  const ids = filas.map((f) => f.id);
+  if (ids.length === 0) return { productos: [], total };
+
+  const encontrados = await prisma.producto.findMany({ where: { id: { in: ids } }, include });
+  // findMany con "id in [...]" no garantiza el orden de vuelta — se
+  // reacomoda aquí según el orden que ya calculó la consulta SQL de arriba.
+  const porId = new Map(encontrados.map((p) => [p.id, p]));
+  const productos = ids.map((id) => porId.get(id)).filter(Boolean);
+
+  return { productos, total };
+}
+
 // Importante: se monta ANTES de "GET /:id" para que rutas como
 // /productos/plantilla-excel no se confundan con un id de producto.
 router.use('/', require('./productosImportExport'));
@@ -50,10 +110,14 @@ router.use('/', require('./catalogoExterno'));
 // solo el total (ver dashboard de inicio, que antes traía el catálogo
 // completo nada más para contar cuántos productos hay).
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, modeloId, tallaId, q, page, limit } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, q, page, limit, ordenarPor, orden } = req.query;
 
   const pageNum = Math.max(1, Number(page) || 1);
   const limitNum = Math.min(100, Math.max(1, Number(limit) || 30));
+  // ?ordenarPor= nombre|precio|stock|estado (default nombre), ?orden= asc|desc
+  // (default asc) — ver CAMPOS_ORDEN arriba para el porqué de cada caso.
+  const campoOrden = CAMPOS_ORDEN.includes(ordenarPor) ? ordenarPor : 'nombre';
+  const direccion = orden === 'desc' ? 'desc' : 'asc';
 
   const where = {
     activo: true,
@@ -64,29 +128,50 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
-  const [productos, total] = await Promise.all([
-    prisma.producto.findMany({
-      where,
+  const include = {
+    marca: true,
+    modelo: true,
+    categoria: true,
+    variantes: {
+      where: { activo: true },
       include: {
-        marca: true,
-        modelo: true,
-        categoria: true,
-        variantes: {
-          where: { activo: true },
-          include: {
-            talla: true,
-            proveedor: { select: { id: true, nombre: true } },
-            existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
-          },
-        },
-        ...IMAGENES_INCLUDE,
+        talla: true,
+        proveedor: { select: { id: true, nombre: true } },
+        existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
       },
-      orderBy: { nombre: 'asc' },
-      skip: (pageNum - 1) * limitNum,
-      take: limitNum,
-    }),
-    prisma.producto.count({ where }),
-  ]);
+    },
+    ...IMAGENES_INCLUDE,
+  };
+
+  let productos;
+  let total;
+
+  if (campoOrden === 'stock' || campoOrden === 'estado') {
+    ({ productos, total } = await ordenarProductosPorStock({
+      where,
+      marcaId,
+      categoriaId,
+      modeloId,
+      tallaId,
+      q,
+      direccion,
+      pageNum,
+      limitNum,
+      include,
+    }));
+  } else {
+    const orderBy = campoOrden === 'precio' ? { precioVenta: direccion } : { nombre: direccion };
+    [productos, total] = await Promise.all([
+      prisma.producto.findMany({
+        where,
+        include,
+        orderBy,
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+      }),
+      prisma.producto.count({ where }),
+    ]);
+  }
 
   res.json({
     data: productos,
