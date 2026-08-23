@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Star } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { formatearFecha } from '@/lib/utils';
 
 interface Resena {
   id: number;
@@ -130,7 +131,7 @@ export default function ResenasPage() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-                {new Date(r.createdAt).toLocaleDateString('es-MX')}
+                {formatearFecha(r.createdAt)}
               </span>
               <button className="btn-secondary btn" onClick={() => alternarVisibilidad(r)}>
                 {r.visible ? 'Ocultar de la tienda' : 'Publicar en la tienda'}

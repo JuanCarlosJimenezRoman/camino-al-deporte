@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
 type Tipo = 'MARCA' | 'CATEGORIA' | 'MODELO' | 'TALLA' | 'PROVEEDOR';
@@ -153,7 +154,7 @@ export default function SolicitudesPage() {
                 {s.accion === 'DESACTIVAR' ? '—' : formatoCampos(s.datosCambio) || '—'}
               </td>
               {esAdmin && <td>{s.solicitadoPor.nombre}</td>}
-              <td>{new Date(s.solicitadoAt).toLocaleString('es-MX')}</td>
+              <td>{formatearFechaHora(s.solicitadoAt)}</td>
               <td>
                 {ESTADO_LABEL[s.estado]}
                 {s.estado !== 'PENDIENTE' && s.revisadoPor && (

@@ -34,6 +34,7 @@ const {
   dibujarBarcode,
   dibujarPieLegal,
 } = require('./ticketEstilo');
+const { ZONA_NEGOCIO } = require('./fechas');
 
 const ETIQUETA_METODO_PAGO = { EFECTIVO: 'Efectivo', TARJETA: 'Tarjeta', TRANSFERENCIA: 'Transferencia' };
 
@@ -68,7 +69,10 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer }) {
   // Datos de la venta, estilo "campo de formulario" (con línea punteada
   // debajo de cada uno).
   dato('Folio', venta.folio);
-  dato('Fecha', new Date(venta.createdAt).toLocaleString('es-MX'));
+  // timeZone explícito: el servidor corre en UTC (Render), así que sin esto
+  // la hora impresa en el ticket sale adelantada (la hora UTC, no la de
+  // México) — ver ZONA_NEGOCIO en utils/fechas.js.
+  dato('Fecha', new Date(venta.createdAt).toLocaleString('es-MX', { timeZone: ZONA_NEGOCIO }));
   if (venta.sucursal?.nombre) dato('Sucursal', venta.sucursal.nombre);
   if (venta.usuario?.nombre) dato('Vendedor', venta.usuario.nombre);
   if (venta.cliente) dato('Cliente', venta.cliente);

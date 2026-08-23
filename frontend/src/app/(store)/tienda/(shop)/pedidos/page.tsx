@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
+import { formatearFecha } from '@/lib/utils';
 import { claseBotonPrimario, Estrellas } from '@/components/store/ui';
 
 interface Pedido {
@@ -113,7 +114,7 @@ export default function MisPedidosPage() {
                 </span>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(p.createdAt).toLocaleDateString('es-MX')} · {p.items.length} artículo(s)
+                {formatearFecha(p.createdAt)} · {p.items.length} artículo(s)
               </p>
               {p.estado === 'RECIBIDO' && (
                 <div className="mt-1.5">

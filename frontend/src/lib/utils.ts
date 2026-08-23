@@ -21,6 +21,44 @@ export function formatoMoneda(valor: number | string): string {
   }).format(numero);
 }
 
+// Zona horaria del negocio — la misma constante (mismo valor) que
+// ZONA_NEGOCIO en backend/src/utils/fechas.js. El navegador de quien ve la
+// pantalla puede estar en cualquier zona horaria (un admin viendo el
+// historial desde otra ciudad, por ejemplo), así que sin esto una misma
+// fecha se vería distinta según quién la mire. Se fuerza aquí para que
+// fechas y horas se muestren siempre en hora de México, sin importar el
+// navegador.
+export const ZONA_HORARIA_NEGOCIO = 'America/Mexico_City';
+
+/** `new Date(fecha).toLocaleString('es-MX', ...)`, ya con la zona horaria
+ * del negocio aplicada — usar para cualquier fecha+hora que se muestre en
+ * pantalla (p. ej. Venta.createdAt, Pedido.createdAt). */
+export function formatearFechaHora(
+  fecha: string | number | Date,
+  opciones: Intl.DateTimeFormatOptions = {}
+): string {
+  return new Date(fecha).toLocaleString('es-MX', { timeZone: ZONA_HORARIA_NEGOCIO, ...opciones });
+}
+
+/** `new Date(fecha).toLocaleDateString('es-MX', ...)`, con zona horaria del
+ * negocio — usar para fechas sin hora (p. ej. fecha límite de un apartado). */
+export function formatearFecha(
+  fecha: string | number | Date,
+  opciones: Intl.DateTimeFormatOptions = {}
+): string {
+  return new Date(fecha).toLocaleDateString('es-MX', { timeZone: ZONA_HORARIA_NEGOCIO, ...opciones });
+}
+
+/** `new Date(fecha).toLocaleTimeString('es-MX', ...)`, con zona horaria del
+ * negocio — usar cuando solo se muestra la hora (p. ej. lista de ventas del
+ * corte del día). */
+export function formatearHora(
+  fecha: string | number | Date,
+  opciones: Intl.DateTimeFormatOptions = {}
+): string {
+  return new Date(fecha).toLocaleTimeString('es-MX', { timeZone: ZONA_HORARIA_NEGOCIO, ...opciones });
+}
+
 /**
  * Mantiene un elemento montado un poco más después de que `active` pasa a
  * false, para poder animar su salida (fade/slide) antes de quitarlo del DOM

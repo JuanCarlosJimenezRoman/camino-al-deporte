@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, apiUpload, ApiError } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 
 interface Pedido {
@@ -216,7 +217,7 @@ export default function PedidosOnlinePage() {
                 )}
               </td>
               <td>{ESTADO_LABEL[p.estado] || p.estado}</td>
-              <td>{new Date(p.createdAt).toLocaleString('es-MX')}</td>
+              <td>{formatearFechaHora(p.createdAt)}</td>
               <td>
                 <Link href={`/dashboard/pedidos-online/${p.id}`} className="btn-secondary btn">
                   Ver

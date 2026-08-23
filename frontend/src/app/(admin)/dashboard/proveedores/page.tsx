@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, apiUpload, ApiError } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 
 interface Proveedor {
   id: number;
@@ -399,7 +400,7 @@ function ProveedorFila({
                             </td>
                             <td>{pg.concepto || '—'}</td>
                             <td>{pg.registradoPor?.nombre}</td>
-                            <td>{new Date(pg.createdAt).toLocaleString('es-MX')}</td>
+                            <td>{formatearFechaHora(pg.createdAt)}</td>
                             <td>
                               {pg.comprobanteUrl ? (
                                 <a href={pg.comprobanteUrl} target="_blank" rel="noreferrer">

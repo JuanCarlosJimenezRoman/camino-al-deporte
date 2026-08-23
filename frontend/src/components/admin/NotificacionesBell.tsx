@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -119,7 +120,7 @@ export function NotificacionesBell() {
               <span className="text-sm font-medium">{n.titulo}</span>
               <span className="text-xs text-muted-foreground">{n.mensaje}</span>
               <span className="text-[11px] text-muted-foreground/70">
-                {new Date(n.createdAt).toLocaleString('es-MX')}
+                {formatearFechaHora(n.createdAt)}
               </span>
             </DropdownMenuItem>
           ))

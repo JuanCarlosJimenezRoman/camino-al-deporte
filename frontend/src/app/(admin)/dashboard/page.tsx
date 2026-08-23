@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis } from 'recharts';
 import { api } from '@/lib/api';
+import { formatearFecha } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { useBranch } from '@/lib/branchContext';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
@@ -134,7 +135,7 @@ function agruparParaGrafica(ventas: VentaResumen[], periodo: Periodo, desde: Dat
   const dias = periodo === '7d' ? 7 : 30;
   const buckets = Array.from({ length: dias }, (_, i) => {
     const d = new Date(desde.getTime() + i * MS_DIA);
-    return { key: d.toDateString(), label: d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }), total: 0 };
+    return { key: d.toDateString(), label: formatearFecha(d, { day: '2-digit', month: 'short' }), total: 0 };
   });
   ventas.forEach((v) => {
     const clave = new Date(v.createdAt).toDateString();

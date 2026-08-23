@@ -13,6 +13,7 @@ import {
   History,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { formatearFechaHora as formatearFechaHoraMX } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -89,7 +90,7 @@ const TIPO_VISUAL: Record<TipoMovimiento, { icon: ActivityItem['icon']; tone: No
 };
 
 function formatearFechaHora(iso: string) {
-  return new Date(iso).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatearFechaHoraMX(iso, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 export default function HistorialInventarioPage() {

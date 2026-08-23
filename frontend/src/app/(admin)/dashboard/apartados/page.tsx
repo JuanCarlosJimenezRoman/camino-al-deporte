@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Send, FileText, Plus, X, CalendarClock } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
+import { formatearFechaHora, formatearFecha } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
@@ -162,7 +163,7 @@ function construirComprobanteTexto(apartado: Apartado, montoEvento: number | nul
   return [
     'Comprobante de apartado — Camino al Deporte',
     `Folio: ${apartado.folio}`,
-    `Fecha: ${new Date(apartado.createdAt).toLocaleString('es-MX')}`,
+    `Fecha: ${formatearFechaHora(apartado.createdAt)}`,
     apartado.sucursalVenta?.nombre ? `Sucursal: ${apartado.sucursalVenta.nombre}` : '',
     `Cliente: ${apartado.cliente.nombre}`,
     '',
@@ -174,7 +175,7 @@ function construirComprobanteTexto(apartado: Apartado, montoEvento: number | nul
     `Pagado a la fecha: $${apartado.pagado.toFixed(2)}`,
     `Saldo pendiente: $${apartado.saldoPendiente.toFixed(2)}`,
     `Fecha límite para recoger: ${
-      apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : 'Sin fecha límite'
+      apartado.fechaLimite ? formatearFecha(apartado.fechaLimite) : 'Sin fecha límite'
     }`,
     '',
     apartado.saldoPendiente > 0.01 ? '¡Gracias por tu apartado!' : '¡Ya está liquidado, listo para recoger!',
@@ -494,7 +495,7 @@ function ApartadoFila({
         <td>
           <StatusBadge tono={ESTADO_TONO[apartado.estado]}>{apartado.estado}</StatusBadge>
         </td>
-        <td>{apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : '—'}</td>
+        <td>{apartado.fechaLimite ? formatearFecha(apartado.fechaLimite) : '—'}</td>
         <td onClick={(e) => e.stopPropagation()}>
           {apartado.ticketPdfUrl ? (
             <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
@@ -573,7 +574,7 @@ function ApartadoFila({
                             {p.cuentaTransferencia ? ` (${p.cuentaTransferencia.nombre})` : ''}
                           </td>
                           <td>{p.registradoPor?.nombre}</td>
-                          <td className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleString('es-MX')}</td>
+                          <td className="text-xs text-muted-foreground">{formatearFechaHora(p.createdAt)}</td>
                           <td>
                             {p.comprobanteUrl ? (
                               <a href={p.comprobanteUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">

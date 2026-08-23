@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { DollarSign, History } from 'lucide-react';
 import { api } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
@@ -202,7 +203,7 @@ export default function HistorialVentasPage() {
                         <StatusBadge tono={ESTADO_TONO[v.estado] ?? 'neutral'}>{v.estado}</StatusBadge>
                       </td>
                       <td>{v.usuario?.nombre}</td>
-                      <td className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+                      <td className="text-xs text-muted-foreground">{formatearFechaHora(v.createdAt)}</td>
                     </tr>
                   );
                 })}

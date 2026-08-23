@@ -14,6 +14,7 @@ import {
   ShoppingBag,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
@@ -172,7 +173,7 @@ function construirTicketTexto(venta: Venta): string {
   return [
     'Ticket de compra — Camino al Deporte',
     `Folio: ${venta.folio}`,
-    `Fecha: ${new Date(venta.createdAt).toLocaleString('es-MX')}`,
+    `Fecha: ${formatearFechaHora(venta.createdAt)}`,
     venta.sucursal?.nombre ? `Sucursal: ${venta.sucursal.nombre}` : '',
     venta.usuario?.nombre ? `Vendedor: ${venta.usuario.nombre}` : '',
     '',
@@ -1021,7 +1022,7 @@ export default function VentasPage() {
                     <StatusBadge tono={ESTADO_TONO[v.estado] ?? 'neutral'}>{v.estado}</StatusBadge>
                   </td>
                   <td>{v.usuario?.nombre}</td>
-                  <td className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleString('es-MX')}</td>
+                  <td className="text-xs text-muted-foreground">{formatearFechaHora(v.createdAt)}</td>
                   <td>
                     {linkTicket ? (
                       <a href={linkTicket} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">

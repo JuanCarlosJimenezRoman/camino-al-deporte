@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Receipt, DollarSign, Banknote, CreditCard } from 'lucide-react';
 import { api } from '@/lib/api';
+import { formatearHora } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
@@ -184,7 +185,7 @@ export default function CorteDelDiaPage() {
                       {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
                     </td>
                     <td>{v.usuario?.nombre}</td>
-                    <td className="text-xs text-muted-foreground">{new Date(v.createdAt).toLocaleTimeString('es-MX')}</td>
+                    <td className="text-xs text-muted-foreground">{formatearHora(v.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>

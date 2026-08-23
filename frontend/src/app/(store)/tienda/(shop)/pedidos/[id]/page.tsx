@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuthCliente } from '@/lib/authCliente';
 import { apiTienda, apiTiendaUpload, ApiError } from '@/lib/apiTienda';
+import { formatearFechaHora } from '@/lib/utils';
 import { claseBotonPrimario, claseBotonSecundario, Estrellas } from '@/components/store/ui';
 
 interface PedidoResena {
@@ -282,7 +283,7 @@ export default function PedidoDetallePage() {
     <div className="grid gap-8 md:grid-cols-[1.3fr_1fr] md:gap-12">
       <div>
         <h1 className="text-xl font-extrabold uppercase tracking-tight sm:text-2xl">Pedido {pedido.folio}</h1>
-        <p className="mb-5 mt-1 text-xs text-muted-foreground">{new Date(pedido.createdAt).toLocaleString('es-MX')}</p>
+        <p className="mb-5 mt-1 text-xs text-muted-foreground">{formatearFechaHora(pedido.createdAt)}</p>
 
         {/* Estado del pedido */}
         {pedido.estado === 'CANCELADO' ? (

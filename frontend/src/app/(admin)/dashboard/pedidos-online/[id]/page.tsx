@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Star } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
+import { formatearFechaHora } from '@/lib/utils';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 
 function Estrellas({ valor }: { valor: number }) {
@@ -262,7 +263,7 @@ export default function PedidoOnlineDetallePage() {
           </span>
         </h1>
         <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 16 }}>
-          {new Date(pedido.createdAt).toLocaleString('es-MX')} — {ESTADO_LABEL[pedido.estado]} — {METODO_PAGO_LABEL[pedido.metodoPago]}
+          {formatearFechaHora(pedido.createdAt)} — {ESTADO_LABEL[pedido.estado]} — {METODO_PAGO_LABEL[pedido.metodoPago]}
           {pedido.creadoPor ? ` — capturado por ${pedido.creadoPor.nombre}` : ''}
         </p>
 

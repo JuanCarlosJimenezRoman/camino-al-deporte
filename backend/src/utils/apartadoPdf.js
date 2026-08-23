@@ -34,6 +34,7 @@ const {
   dibujarBarcode,
   dibujarPieLegal,
 } = require('./ticketEstilo');
+const { ZONA_NEGOCIO } = require('./fechas');
 
 const COL_CANT = 32;
 const COL_IMPORTE = 90;
@@ -63,7 +64,9 @@ function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whats
 
   // Datos del apartado
   dato('Folio', apartado.folio);
-  dato('Fecha', new Date(apartado.createdAt).toLocaleString('es-MX'));
+  // timeZone explícito: el servidor corre en UTC (Render), así que sin esto
+  // la hora sale adelantada — ver ZONA_NEGOCIO en utils/fechas.js.
+  dato('Fecha', new Date(apartado.createdAt).toLocaleString('es-MX', { timeZone: ZONA_NEGOCIO }));
   if (apartado.sucursalVenta?.nombre) dato('Sucursal', apartado.sucursalVenta.nombre);
   if (apartado.creadoPor?.nombre) dato('Vendedor', apartado.creadoPor.nombre);
   if (apartado.cliente?.nombre) dato('Cliente', apartado.cliente.nombre);
@@ -135,7 +138,9 @@ function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whats
 
   filaMonto(
     'Fecha límite para recoger',
-    apartado.fechaLimite ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX') : 'Sin fecha límite'
+    apartado.fechaLimite
+      ? new Date(apartado.fechaLimite).toLocaleDateString('es-MX', { timeZone: ZONA_NEGOCIO })
+      : 'Sin fecha límite'
   );
 
   dibujarSeparador(doc, { left, right });
