@@ -47,32 +47,70 @@ router.get(
   requireAuth,
   requireRole(...ROLES_EDICION),
   asyncHandler(async (req, res) => {
-    const buffer = generarPlantilla();
+    const buffer = await generarPlantilla();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="plantilla-productos.xlsx"');
     res.send(buffer);
   })
 );
 
-// GET /productos/exportar-excel - exporta el catálogo actual completo
+const exportarQuery = z.object({ sucursalId: z.coerce.number().int().optional() });
+
+// GET /productos/exportar-excel?sucursalId= - exporta el catálogo actual.
+//
+// sucursalId es opcional y cambia el significado del archivo (ver
+// generarExportacion en utils/excel.js):
+//   - Con sucursalId: usa EXACTAMENTE las mismas columnas que pide el
+//     importador (proveedor, stock_inicial, stock_minimo = el stock real de
+//     esa sucursal), así que el archivo se puede volver a subir tal cual a
+//     esa misma sucursal sin duplicar nada.
+//   - Sin sucursalId: exporta un resumen de referencia con el stock TOTAL de
+//     todas las sucursales (más una columna extra de solo lectura con el
+//     desglose) — útil para respaldo/lectura, no pensado para reimportarse
+//     tal cual.
 router.get(
   '/exportar-excel',
   requireAuth,
   asyncHandler(async (req, res) => {
+    const parsedQuery = exportarQuery.safeParse(req.query);
+    if (!parsedQuery.success) return res.status(400).json({ error: 'sucursalId inválido.' });
+    const { sucursalId } = parsedQuery.data;
+
+    if (sucursalId != null) {
+      const sucursal = await prisma.sucursal.findUnique({ where: { id: sucursalId } });
+      if (!sucursal) return res.status(400).json({ error: 'La sucursal indicada no existe.' });
+    }
+
     const productos = await prisma.producto.findMany({
       where: { activo: true },
       include: {
         marca: true,
         modelo: true,
         categoria: true,
-        variantes: { include: { talla: true, existencias: { include: { sucursal: true } } } },
+        variantes: {
+          include: {
+            talla: true,
+            // Proveedor "por defecto" de la variante: se usa cuando todavía
+            // no tiene ningún bucket de existencia en la sucursal exportada
+            // (ver generarExportacion), para no perder esa referencia.
+            proveedor: true,
+            existencias: {
+              // Filtrado en la propia consulta cuando se exporta una
+              // sucursal específica: así generarExportacion solo ve las
+              // existencias de esa sucursal, igual que ve el importador.
+              where: sucursalId != null ? { sucursalId } : undefined,
+              include: { proveedor: true, sucursal: true },
+            },
+          },
+        },
       },
       orderBy: { nombre: 'asc' },
     });
 
-    const buffer = generarExportacion(productos);
+    const buffer = await generarExportacion(productos, { sucursalId });
+    const sufijoSucursal = sucursalId != null ? `-sucursal${sucursalId}` : '';
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="catalogo-${Date.now()}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="catalogo${sufijoSucursal}-${Date.now()}.xlsx"`);
     res.send(buffer);
   })
 );

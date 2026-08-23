@@ -58,6 +58,12 @@ export default function ImportarProductosPage() {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [sucursalId, setSucursalId] = useState('');
+  // Sucursal para la que se exporta el catálogo. '' = "Todas" (resumen de
+  // referencia con el total, no pensado para reimportarse tal cual). Al
+  // elegir una sucursal, el Excel exportado trae exactamente las mismas
+  // columnas que pide el importador y se puede volver a subir tal cual a
+  // esa misma sucursal sin duplicar nada.
+  const [sucursalExportId, setSucursalExportId] = useState('');
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [resultado, setResultado] = useState<ResultadoImportacion | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -67,6 +73,9 @@ export default function ImportarProductosPage() {
     api<Sucursal[]>('/sucursales').then((data) => {
       setSucursales(data);
       if (data[0]) setSucursalId(String(data[0].id));
+      // La exportación arranca en "Todas" (resumen) para no sorprender a
+      // quien solo quiera un respaldo de lectura; si quiere un archivo
+      // reimportable, elige la sucursal en el selector de abajo.
     });
   }, []);
 
@@ -154,14 +163,33 @@ export default function ImportarProductosPage() {
         <div className="card" style={{ flex: 1, minWidth: 260 }}>
           <h2 style={{ fontSize: 15, marginBottom: 8 }}>Exportar catálogo actual</h2>
           <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 10 }}>
-            Un Excel con todos tus productos y su stock por sucursal, para respaldo o revisión.
+            {sucursalExportId
+              ? 'Trae el stock real de esa sucursal: puedes editarlo y volver a subirlo tal cual a esa misma sucursal, sin duplicar nada.'
+              : '"Todas" exporta un resumen con el stock total de referencia — cómodo para revisar o respaldar, pero si lo vuelves a subir, ese total se cargaría completo a la sucursal que elijas al importar.'}
           </p>
-          <button
-            className="btn-secondary btn"
-            onClick={() => apiDownload('/productos/exportar-excel', `catalogo-${Date.now()}.xlsx`)}
-          >
-            Exportar catálogo
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <select
+              value={sucursalExportId}
+              onChange={(e) => setSucursalExportId(e.target.value)}
+              style={{ maxWidth: 180 }}
+            >
+              <option value="">Todas (solo referencia)</option>
+              {sucursales.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-secondary btn"
+              onClick={() => {
+                const query = sucursalExportId ? `?sucursalId=${sucursalExportId}` : '';
+                apiDownload(`/productos/exportar-excel${query}`, `catalogo-${Date.now()}.xlsx`);
+              }}
+            >
+              Exportar catálogo
+            </button>
+          </div>
         </div>
       </div>
 

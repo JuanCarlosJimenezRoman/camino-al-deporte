@@ -1,7 +1,19 @@
 const XLSX = require('xlsx');
+const {
+  columnaAtributo,
+  obtenerCamposExtraActivos,
+  descripcionTipo,
+  formatearValorAtributo,
+} = require('./camposPersonalizados');
 
-// Columnas que reconoce el importador. El orden aquí es el orden en que
-// aparecen en la plantilla descargable.
+// Columnas fijas que reconoce el importador. El orden aquí es el orden en
+// que aparecen en la plantilla descargable y en la exportación. IMPORTANTE:
+// estas columnas deben ser exactamente las mismas (mismo nombre, mismo
+// significado) que lee normalizarFilas en utils/importarProductos.js — es
+// justo lo que hace que un Excel exportado se pueda volver a subir tal cual
+// sin tener que reacomodar nada a mano. Las columnas de atributos extra
+// (campos personalizados) se agregan aparte, después de estas — ver
+// columnaAtributo en utils/camposPersonalizados.js.
 const COLUMNAS = [
   'nombre',
   'marca',
@@ -19,6 +31,12 @@ const COLUMNAS = [
   'stock_minimo',
 ];
 
+// Solo aparece cuando se exporta "todas las sucursales" (ver
+// generarExportacion): es una columna de solo lectura, de referencia — el
+// importador la ignora porque no está en COLUMNAS ni tiene el prefijo de
+// atributo.
+const COLUMNA_REFERENCIA_SUCURSALES = 'stock_por_sucursal';
+
 /**
  * Lee la primera hoja de un archivo .xlsx (buffer) y devuelve un array de
  * objetos usando la primera fila como encabezados.
@@ -34,9 +52,21 @@ function leerFilasExcel(buffer) {
  * Genera la plantilla .xlsx que el usuario descarga para llenar y luego
  * volver a subir. Incluye una hoja de instrucciones y una hoja con dos
  * filas de ejemplo (mismo producto, dos tallas) para que quede claro el
- * patrón de "una fila = una variante".
+ * patrón de "una fila = una variante". Si en ese momento hay campos
+ * personalizados activos (atributos extra de producto), se agregan como
+ * columnas adicionales al final, con datos de ejemplo también.
  */
-function generarPlantilla() {
+async function generarPlantilla() {
+  const camposExtra = await obtenerCamposExtraActivos();
+  const columnas = [...COLUMNAS, ...camposExtra.map((c) => columnaAtributo(c.clave))];
+
+  const ejemplosAtributos = {};
+  for (const c of camposExtra) {
+    if (c.tipo === 'BOOLEANO') ejemplosAtributos[columnaAtributo(c.clave)] = 'No';
+    else if (c.tipo === 'SELECT') ejemplosAtributos[columnaAtributo(c.clave)] = (c.opciones || [])[0] || '';
+    else ejemplosAtributos[columnaAtributo(c.clave)] = '';
+  }
+
   const ejemploA = {
     nombre: 'Tenis Runner Pro',
     marca: 'Nike',
@@ -52,6 +82,7 @@ function generarPlantilla() {
     proveedor: 'Distribuidora Deportiva SA',
     stock_inicial: 10,
     stock_minimo: 2,
+    ...ejemplosAtributos,
   };
   const ejemploB = {
     ...ejemploA,
@@ -60,7 +91,25 @@ function generarPlantilla() {
     stock_inicial: 8,
   };
 
-  const hojaProductos = XLSX.utils.json_to_sheet([ejemploA, ejemploB], { header: COLUMNAS });
+  const hojaProductos = XLSX.utils.json_to_sheet([ejemploA, ejemploB], { header: columnas });
+
+  const lineasAtributos =
+    camposExtra.length === 0
+      ? []
+      : [
+          [''],
+          ['Atributos extra (columnas al final, definidas en Productos → Campos personalizados):'],
+          ...camposExtra.map((c) => [
+            `  ${columnaAtributo(c.clave)}  →  ${c.etiqueta}: ${descripcionTipo(c)}` +
+              (c.requerido ? ' (obligatorio al dar de alta un producto nuevo)' : ' (opcional)'),
+          ]),
+          [''],
+          ['Estas columnas solo se usan al crear un producto NUEVO por Excel. Si la fila extiende un'],
+          ['producto que ya existe en el catálogo (mismo nombre+marca), estas columnas se ignoran: los'],
+          ['atributos de un producto existente se editan desde la pantalla de Productos, no por Excel.'],
+          ['Si dejas una columna de atributo en blanco, ese atributo simplemente no se guarda (o se'],
+          ['puede llenar después desde Productos), salvo que esté marcada como obligatoria arriba.'],
+        ];
 
   const hojaInstrucciones = XLSX.utils.aoa_to_sheet([
     ['Cómo llenar esta plantilla'],
@@ -102,6 +151,7 @@ function generarPlantilla() {
     ['El stock inicial se carga en la sucursal que elijas en la pantalla de importación,'],
     ['no se especifica aquí en el Excel. Si dejas stock_inicial en blanco, se carga en 0'],
     ['y puedes ajustarlo después desde Inventario.'],
+    ...lineasAtributos,
   ]);
   hojaInstrucciones['!cols'] = [{ wch: 90 }];
 
@@ -113,38 +163,137 @@ function generarPlantilla() {
 }
 
 /**
- * Genera un .xlsx con el catálogo actual (un renglón por variante), para
- * respaldo o edición offline.
+ * Genera un .xlsx con el catálogo actual (un renglón por variante+proveedor),
+ * usando EXACTAMENTE las mismas columnas que espera el importador (más las
+ * de atributos extra) — así el archivo se puede editar y volver a subir tal
+ * cual.
+ *
+ * sucursalId es opcional y cambia el significado del archivo:
+ *
+ * - Con sucursalId: "stock_inicial"/"stock_minimo" son el stock real de esa
+ *   sucursal para cada variante+proveedor. Reimportar este archivo a esa
+ *   misma sucursal no duplica nada (las filas que ya coinciden con un bucket
+ *   existente se omiten, ver analizarImportacion) y sirve para agregar
+ *   variantes o proveedores nuevos a mano en el Excel.
+ * - Sin sucursalId: es un resumen de referencia con el stock TOTAL sumado en
+ *   todas las sucursales (más una columna extra "stock_por_sucursal" con el
+ *   desglose, que el importador ignora por no ser una columna reconocida).
+ *   No representa el stock de ninguna sucursal en particular, así que
+ *   reimportarlo cargaría ese total completo a la sucursal que se elija en
+ *   pantalla — útil como respaldo/lectura, no pensado para reimportarse tal
+ *   cual.
+ *
+ * `productos` debe venir con variantes.talla, variantes.proveedor (el
+ * proveedor "por defecto" de la variante) y variantes.existencias (filtradas
+ * a la sucursal pedida cuando aplica), cada existencia con su proveedor y
+ * sucursal — ver GET /productos/exportar-excel.
  */
-function generarExportacion(productos) {
+async function generarExportacion(productos, { sucursalId } = {}) {
+  const camposExtra = await obtenerCamposExtraActivos();
+  const columnasAtributos = camposExtra.map((c) => columnaAtributo(c.clave));
+
   const filas = [];
 
   for (const p of productos) {
-    for (const v of p.variantes) {
-      const porSucursal = (v.existencias || [])
-        .map((ex) => `${ex.sucursal.nombre}: ${ex.stockActual}`)
-        .join(', ');
-      const stockTotal = (v.existencias || []).reduce((acc, ex) => acc + ex.stockActual, 0);
+    const datosBase = {
+      nombre: p.nombre,
+      marca: p.marca?.nombre || '',
+      categoria: p.categoria?.nombre || '',
+      modelo: p.modelo?.nombre || '',
+      descripcion: p.descripcion || '',
+      precio_compra: Number(p.precioCompra),
+      precio_venta: Number(p.precioVenta),
+    };
+    const datosAtributos = {};
+    for (const campo of camposExtra) {
+      const valor = (p.atributosExtra || {})[campo.clave];
+      datosAtributos[columnaAtributo(campo.clave)] = formatearValorAtributo(valor, campo);
+    }
 
-      filas.push({
-        nombre: p.nombre,
-        marca: p.marca?.nombre || '',
-        categoria: p.categoria?.nombre || '',
-        modelo: p.modelo?.nombre || '',
-        descripcion: p.descripcion || '',
-        precio_compra: Number(p.precioCompra),
-        precio_venta: Number(p.precioVenta),
+    for (const v of p.variantes) {
+      const datosVariante = {
         talla: v.talla?.valor || '',
         tipo_talla: v.talla?.tipo || '',
         color: v.color || '',
         sku: v.sku,
-        stock_total: stockTotal,
-        stock_por_sucursal: porSucursal,
-      });
+      };
+      const existencias = v.existencias || [];
+
+      if (sucursalId != null) {
+        if (existencias.length === 0) {
+          // Todavía sin stock en esta sucursal: se exporta la variante de
+          // todos modos (para no perder talla/color/sku/atributos del
+          // catálogo al reimportar), con el proveedor por defecto de la
+          // variante y stock en 0.
+          filas.push({
+            ...datosBase,
+            ...datosVariante,
+            proveedor: v.proveedor?.nombre || '',
+            stock_inicial: 0,
+            stock_minimo: 0,
+            ...datosAtributos,
+          });
+        } else {
+          for (const ex of existencias) {
+            filas.push({
+              ...datosBase,
+              ...datosVariante,
+              proveedor: ex.proveedor?.nombre || '',
+              stock_inicial: ex.stockActual,
+              stock_minimo: ex.stockMinimo,
+              ...datosAtributos,
+            });
+          }
+        }
+      } else {
+        // "Todas las sucursales": un renglón por proveedor con el total
+        // sumado, más el desglose por sucursal como texto de referencia.
+        const porProveedor = new Map(); // proveedorId|'sin-proveedor' -> { nombre, total, detalle[] }
+        for (const ex of existencias) {
+          const key = ex.proveedorId ?? 'sin-proveedor';
+          const entry = porProveedor.get(key) || { nombre: ex.proveedor?.nombre || '', total: 0, detalle: [] };
+          entry.total += ex.stockActual;
+          entry.detalle.push(`${ex.sucursal?.nombre || '?'}: ${ex.stockActual}`);
+          porProveedor.set(key, entry);
+        }
+
+        if (porProveedor.size === 0) {
+          filas.push({
+            ...datosBase,
+            ...datosVariante,
+            proveedor: v.proveedor?.nombre || '',
+            stock_inicial: 0,
+            stock_minimo: '',
+            [COLUMNA_REFERENCIA_SUCURSALES]: '',
+            ...datosAtributos,
+          });
+        } else {
+          for (const entry of porProveedor.values()) {
+            filas.push({
+              ...datosBase,
+              ...datosVariante,
+              proveedor: entry.nombre,
+              stock_inicial: entry.total,
+              // El mínimo se configura por sucursal, no tiene un total con
+              // sentido cuando se suman varias — se deja en blanco a
+              // propósito en vez de sumarlo también.
+              stock_minimo: '',
+              [COLUMNA_REFERENCIA_SUCURSALES]: entry.detalle.join(', '),
+              ...datosAtributos,
+            });
+          }
+        }
+      }
     }
   }
 
-  const hoja = XLSX.utils.json_to_sheet(filas);
+  const columnas = [
+    ...COLUMNAS,
+    ...(sucursalId == null ? [COLUMNA_REFERENCIA_SUCURSALES] : []),
+    ...columnasAtributos,
+  ];
+
+  const hoja = XLSX.utils.json_to_sheet(filas, { header: columnas });
   const libro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(libro, hoja, 'Productos');
   return XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' });
