@@ -18,8 +18,11 @@ import {
   RefreshCw,
   ExternalLink,
   Sparkles,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { guardarListaNavegacion, leerListaNavegacion, ListaNavegacionProductos } from '@/lib/navegacionProductos';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { GaleriaFotos, Imagen } from '@/components/admin/GaleriaFotos';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
@@ -242,6 +245,17 @@ function ProductoDetalleContenido() {
   const [noEncontrado, setNoEncontrado] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
 
+  // Anterior/siguiente: se apoya en la lista que quedó guardada al entrar
+  // aquí desde /dashboard/productos (mismos filtros/orden que se estaban
+  // usando ahí) — ver lib/navegacionProductos.ts. Si no hay nada guardado
+  // (se entró por un link directo, o se recargó la página), simplemente no
+  // se muestran los botones.
+  const [navLista, setNavLista] = useState<ListaNavegacionProductos | null>(null);
+  const [cambiandoProducto, setCambiandoProducto] = useState(false);
+  useEffect(() => {
+    setNavLista(leerListaNavegacion());
+  }, []);
+
   // Catálogos (marca/modelo/categoría/talla/sucursal/proveedor/campos)
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -393,6 +407,57 @@ function ProductoDetalleContenido() {
   }, [varianteMovimientosId, cargarMovimientos]);
 
   // -- Información básica ----------------------------------------------------
+
+  async function irAVecino(direccion: -1 | 1) {
+    if (!producto || !navLista) return;
+    const indiceActual = navLista.ids.indexOf(producto.id);
+    if (indiceActual === -1) return;
+    const indiceDestino = indiceActual + direccion;
+
+    // Dentro de la misma página del listado ya la tenemos completa: solo
+    // hay que navegar, sin pedir nada al backend.
+    if (indiceDestino >= 0 && indiceDestino < navLista.ids.length) {
+      router.push(`/dashboard/productos/${navLista.ids[indiceDestino]}`);
+      return;
+    }
+
+    // En el borde de la página (primero o último producto de ella): hay
+    // que traer la página anterior/siguiente con el mismo criterio de
+    // filtros/orden que se estaba usando en el listado.
+    const paginaVecina = navLista.pagina + direccion;
+    if (paginaVecina < 1 || paginaVecina > navLista.totalPaginas) return;
+
+    setCambiandoProducto(true);
+    try {
+      const qs = new URLSearchParams(navLista.qsBase);
+      qs.set('page', String(paginaVecina));
+      qs.set('limit', String(navLista.limit));
+      const resultado = await api<{ data: { id: number }[]; total: number; page: number; totalPages: number }>(
+        `/productos?${qs.toString()}`
+      );
+      if (!resultado.data.length) return;
+      const nuevoId = direccion === 1 ? resultado.data[0].id : resultado.data[resultado.data.length - 1].id;
+      const nuevaLista: ListaNavegacionProductos = {
+        ids: resultado.data.map((p) => p.id),
+        pagina: resultado.page,
+        totalPaginas: resultado.totalPages,
+        total: resultado.total,
+        qsBase: navLista.qsBase,
+        limit: navLista.limit,
+      };
+      guardarListaNavegacion(nuevaLista);
+      setNavLista(nuevaLista);
+      router.push(`/dashboard/productos/${nuevoId}`);
+    } catch (err) {
+      toast({
+        title: 'No se pudo cambiar de producto',
+        description: err instanceof ApiError ? err.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setCambiandoProducto(false);
+    }
+  }
 
   async function cambiarMarcaEditProducto(marcaId: string) {
     setEditProductoForm((f) => ({ ...f, marcaId, modeloId: '' }));
@@ -685,12 +750,47 @@ function ProductoDetalleContenido() {
           { label: producto.nombre },
         ]}
         actions={
-          puedeArchivar && (
-            <Button variant="outline" size="sm" onClick={() => setConfirmarArchivar(true)} className="text-destructive hover:bg-destructive/10">
-              <Archive className="w-4 h-4" />
-              Archivar
-            </Button>
-          )
+          <>
+            {navLista && navLista.ids.indexOf(producto.id) !== -1 && (() => {
+              const indiceActual = navLista.ids.indexOf(producto.id);
+              const posicionGlobal = (navLista.pagina - 1) * navLista.limit + indiceActual + 1;
+              const hayAnterior = indiceActual > 0 || navLista.pagina > 1;
+              const haySiguiente = indiceActual < navLista.ids.length - 1 || navLista.pagina < navLista.totalPaginas;
+              return (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => irAVecino(-1)}
+                    disabled={cambiandoProducto || !hayAnterior}
+                    aria-label="Producto anterior"
+                    title="Producto anterior"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <span className="px-1 text-xs text-muted-foreground whitespace-nowrap">
+                    {posicionGlobal} de {navLista.total}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => irAVecino(1)}
+                    disabled={cambiandoProducto || !haySiguiente}
+                    aria-label="Producto siguiente"
+                    title="Producto siguiente"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              );
+            })()}
+            {puedeArchivar && (
+              <Button variant="outline" size="sm" onClick={() => setConfirmarArchivar(true)} className="text-destructive hover:bg-destructive/10">
+                <Archive className="w-4 h-4" />
+                Archivar
+              </Button>
+            )}
+          </>
         }
       />
 

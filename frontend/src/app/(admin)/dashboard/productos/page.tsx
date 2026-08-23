@@ -20,6 +20,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { guardarListaNavegacion } from '@/lib/navegacionProductos';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { Imagen } from '@/components/admin/GaleriaFotos';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
@@ -212,6 +213,10 @@ export default function ProductosPage() {
     if (filtroTallaId) qs.set('tallaId', filtroTallaId);
     qs.set('ordenarPor', ordenCampo);
     qs.set('orden', ordenDireccion);
+    // Se guarda ANTES de agregar "page"/"limit": es el criterio que se
+    // reutiliza para pedir páginas vecinas desde la vista de un producto
+    // (ver anterior/siguiente en dashboard/productos/[id]/page.tsx).
+    const qsBase = qs.toString();
     qs.set('page', String(paginaDestino));
     qs.set('limit', String(PRODUCTOS_POR_PAGINA));
     const resultado = await api<ProductosPaginados>(`/productos?${qs.toString()}`);
@@ -220,6 +225,18 @@ export default function ProductosPage() {
     setTotalProductos(resultado.total);
     setPagina(resultado.page);
     setCargando(false);
+
+    // Recuerda esta página del listado (con sus filtros/orden) para que al
+    // entrar a un producto se pueda ir al anterior/siguiente sin volver
+    // aquí primero.
+    guardarListaNavegacion({
+      ids: resultado.data.map((p) => p.id),
+      pagina: resultado.page,
+      totalPaginas: resultado.totalPages,
+      total: resultado.total,
+      qsBase,
+      limit: PRODUCTOS_POR_PAGINA,
+    });
   }
 
   useEffect(() => {
