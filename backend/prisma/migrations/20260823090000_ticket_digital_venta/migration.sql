@@ -3,4 +3,9 @@
 -- WhatsApp (link click-to-chat, mismo mecanismo que ya se usa en pedidos en
 -- línea — no hay envío automático por servidor). Opcional: sigue siendo
 -- válido registrar una venta de mostrador sin captar el teléfono.
-ALTER TABLE "ventas" ADD COLUMN "cliente_telefono" TEXT;
+--
+-- IF NOT EXISTS porque la migración 20260817090000_descuento_y_columnas_pendientes
+-- ya agrega esta misma columna (ver su comentario); sin esto, un reset desde
+-- cero (`prisma migrate reset`) truena con "column already exists" al llegar
+-- aquí.
+ALTER TABLE "ventas" ADD COLUMN IF NOT EXISTS "cliente_telefono" TEXT;
