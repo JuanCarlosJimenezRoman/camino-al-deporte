@@ -111,13 +111,29 @@ export function ProductoDetalleClient({ id }: { id: string }) {
       .catch((err) => setError(err instanceof ApiError ? err.message : 'No se pudo cargar el producto.'));
   }, [id]);
 
+  // Mismo modelo: otras variantes (color, talla) del modelo exacto — ej. "Ja
+  // 3" muestra los demás colores de "Ja 3", no cualquier tenis de la misma
+  // categoría. Usa modelo.id, el campo real del catálogo (panel admin →
+  // Catálogo → Modelos, ya se asigna por producto — ver dashboard/productos).
+  // Si el producto no tiene modelo asignado, esta sección simplemente no
+  // aparece; no se inventa un agrupamiento.
+  const mismoModelo = useMemo(() => {
+    if (!producto || !catalogo || !producto.modelo) return [];
+    return catalogo
+      .filter((p) => p.id !== producto.id)
+      .filter((p) => p.modelo?.id === producto.modelo!.id)
+      .slice(0, 8);
+  }, [producto, catalogo]);
+
   // Relacionados: misma categoría (o marca si no tiene) tomados del catálogo
   // que ya está cargado en memoria (CatalogoProvider) — sin pedirle nada
-  // nuevo al backend.
+  // nuevo al backend. Excluye lo que ya se muestra arriba en "Otras opciones
+  // de este modelo" para no repetir las mismas tarjetas dos veces.
   const relacionados = useMemo(() => {
     if (!producto || !catalogo) return [];
     return catalogo
       .filter((p) => p.id !== producto.id)
+      .filter((p) => !producto.modelo || p.modelo?.id !== producto.modelo.id)
       .filter((p) => (producto.categoria ? p.categoria?.nombre === producto.categoria.nombre : p.marca?.nombre === producto.marca?.nombre))
       .slice(0, 8);
   }, [producto, catalogo]);
@@ -387,6 +403,17 @@ export function ProductoDetalleClient({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {producto.modelo && (
+        <ProductSection
+          ojo="Mismo modelo"
+          titulo={`Otras opciones de ${producto.modelo.nombre}`}
+          productos={mismoModelo}
+          nuevosIds={nuevosIds}
+          onQuickView={setQuickView}
+          variante="scroll"
+        />
+      )}
 
       <Testimonios productoId={producto.id} titulo="Opiniones de clientes" />
 
