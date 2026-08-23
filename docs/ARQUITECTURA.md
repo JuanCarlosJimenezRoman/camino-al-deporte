@@ -95,6 +95,24 @@ categoría del producto. Lo que un producto ya tenía guardado en
 una entidad distinta) se sigue pudiendo editar como par clave/valor libre, sin
 tipo ni validación, debajo de los campos definidos.
 
+**Campos personalizados ya creados para la tienda en línea** (para no
+volver a adivinar la clave): ambos son campos del panel Catálogo → "Campos
+personalizados", entidad `producto`, tipo Sí/No.
+
+- **Productos destacados** (sección "Destacados" del home de la tienda):
+  clave exacta **`destacado`**. Se marca "Sí" en el producto que debe
+  aparecer ahí; si ningún producto lo tiene marcado, la tienda cae sola a un
+  criterio automático (variedad por categoría) — ver
+  `frontend/src/app/(store)/tienda/(shop)/page.tsx`.
+- **Foto de portada / hero de la tienda**: clave exacta **`hero_tienda`**.
+  Decide qué producto (y su primera foto) se usa como imagen grande del
+  hero en el home de la tienda, independiente de "Destacados" — mismo
+  archivo que arriba.
+
+(Aparte, y sin relación con lo anterior, cada **categoría** tiene su propia
+portada como campo nativo de base de datos —no campo personalizado—, columna
+`imagenPortada`, que se sube desde Catálogo → Categorías.)
+
 Inventario muestra una sola fila por **producto** (no por variante): foto,
 marca, un resumen de las tallas/colores disponibles y el stock total sumado.
 El botón "Ver tallas" despliega el detalle por variante (SKU, talla, color,

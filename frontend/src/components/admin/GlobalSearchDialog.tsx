@@ -105,7 +105,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: { open: boolean; onOp
               key={p.id}
               onClick={() => {
                 onOpenChange(false);
-                router.push('/dashboard/productos');
+                router.push(`/dashboard/productos/${p.id}`);
               }}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-secondary transition-colors"
             >
