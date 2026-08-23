@@ -154,10 +154,13 @@ export function StoreHeader() {
             <Link href="/tienda" className="text-foreground/80 transition-colors hover:text-foreground">
               Tienda
             </Link>
+            <Link href="/tienda/productos" className="text-foreground/80 transition-colors hover:text-foreground">
+              Catálogo
+            </Link>
             {categoriasNav.map((c) => (
               <Link
                 key={c.nombre}
-                href={`/tienda?categoria=${encodeURIComponent(c.nombre)}#catalogo`}
+                href={`/tienda/productos?categoria=${encodeURIComponent(c.nombre)}`}
                 className="text-foreground/80 transition-colors hover:text-foreground"
               >
                 {c.nombre}
@@ -208,10 +211,13 @@ export function StoreHeader() {
             <Link href="/tienda" onClick={cerrar} className="rounded-lg px-3 py-3 hover:bg-secondary">
               Tienda
             </Link>
+            <Link href="/tienda/productos" onClick={cerrar} className="rounded-lg px-3 py-3 hover:bg-secondary">
+              Catálogo
+            </Link>
             {categoriasNav.map((c) => (
               <Link
                 key={c.nombre}
-                href={`/tienda?categoria=${encodeURIComponent(c.nombre)}#catalogo`}
+                href={`/tienda/productos?categoria=${encodeURIComponent(c.nombre)}`}
                 onClick={cerrar}
                 className="rounded-lg px-3 py-3 hover:bg-secondary"
               >

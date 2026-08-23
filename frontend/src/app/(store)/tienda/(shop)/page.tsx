@@ -1,16 +1,36 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 import { useCatalogo, ProductoCatalogo } from '@/lib/catalogo';
 import { HomeHero } from '@/components/store/HomeHero';
 import { CategoryGrid, CategoriaConImagen } from '@/components/store/CategoryGrid';
 import { ProductSection } from '@/components/store/ProductSection';
-import { CatalogSection } from '@/components/store/CatalogSection';
 import { BrandsSection } from '@/components/store/BrandsSection';
 import { BenefitsSection } from '@/components/store/StoreFooter';
 import { Testimonios } from '@/components/store/Testimonios';
 import { ProductQuickView } from '@/components/store/ProductQuickView';
+import { claseBotonPrimario, claseOjo, claseTituloSeccion } from '@/components/store/ui';
+
+// CTA hacia el catálogo completo (con buscador, filtros y "ver más"), que
+// ahora vive en su propia página /tienda/productos en vez de embebido aquí
+// — ver esa carpeta y el comentario en CatalogSection.tsx para el porqué.
+function VerCatalogoCompleto() {
+  return (
+    <section className="border-t border-border py-10 text-center sm:py-14">
+      <p className={claseOjo}>¿Buscas algo más?</p>
+      <h2 className={`mt-1 ${claseTituloSeccion}`}>Ve todo el catálogo</h2>
+      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+        Busca, filtra por marca, talla o categoría y explora todo lo que tenemos disponible.
+      </p>
+      <Link href="/tienda/productos" className={`${claseBotonPrimario} mt-6 inline-flex gap-2`}>
+        Ver catálogo completo
+        <ArrowRight className="h-4 w-4" strokeWidth={2} />
+      </Link>
+    </section>
+  );
+}
 
 const MAX_CATEGORIAS_HOME = 8;
 const MAX_DESTACADOS = 8;
@@ -73,8 +93,7 @@ function seleccionarDestacadosAutomatico(productos: ProductoCatalogo[], maximo: 
 }
 
 function TiendaHomeContenido() {
-  const { productos, cargando, error, categorias, marcas, nuevosIds, ultimasUnidades } = useCatalogo();
-  const searchParams = useSearchParams();
+  const { productos, categorias, marcas, nuevosIds, ultimasUnidades } = useCatalogo();
   const [quickView, setQuickView] = useState<ProductoCatalogo | null>(null);
 
   // Portada del hero: si hay un producto marcado con el campo personalizado
@@ -126,16 +145,7 @@ function TiendaHomeContenido() {
         variante="grid"
       />
 
-      <CatalogSection
-        productos={productos}
-        cargando={cargando}
-        error={error}
-        nuevosIds={nuevosIds}
-        onQuickView={setQuickView}
-        initialQ={searchParams.get('q') || undefined}
-        initialCategoria={searchParams.get('categoria') || undefined}
-        initialMarca={searchParams.get('marca') || undefined}
-      />
+      <VerCatalogoCompleto />
 
       <ProductSection
         ojo="Lo último"
@@ -168,9 +178,5 @@ function TiendaHomeContenido() {
 }
 
 export default function TiendaHomePage() {
-  return (
-    <Suspense fallback={null}>
-      <TiendaHomeContenido />
-    </Suspense>
-  );
+  return <TiendaHomeContenido />;
 }

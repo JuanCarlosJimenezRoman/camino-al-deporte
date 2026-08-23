@@ -26,7 +26,7 @@ export function HomeHero({ productoDestacado }: { productoDestacado: ProductoCat
         <p className="mt-4 max-w-md text-base text-muted-foreground sm:text-lg">
           Tenis y equipo deportivo para correr, entrenar, competir y disfrutar.
         </p>
-        <Link href="#catalogo" className={`${claseBotonPrimario} mt-7 gap-2`}>
+        <Link href="/tienda/productos" className={`${claseBotonPrimario} mt-7 gap-2`}>
           Explorar colección
           <ArrowRight className="h-4 w-4" strokeWidth={2} />
         </Link>

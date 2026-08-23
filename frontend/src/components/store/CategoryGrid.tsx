@@ -36,7 +36,7 @@ export function CategoryGrid({ categorias }: { categorias: CategoriaConImagen[] 
         {categorias.map((c) => (
           <Link
             key={c.nombre}
-            href={`/tienda?categoria=${encodeURIComponent(c.nombre)}#catalogo`}
+            href={`/tienda/productos?categoria=${encodeURIComponent(c.nombre)}`}
             className="group relative aspect-[4/5] overflow-hidden rounded-2xl bg-secondary"
           >
             {c.imagenPortada ? (

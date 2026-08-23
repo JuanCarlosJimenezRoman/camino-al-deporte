@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal } from 'lucide-react';
 import { EstadoFiltros, FiltrosPanel, Orden, contarFiltrosActivos, filtrosVacios } from './FiltrosPanel';
 import { ProductCard } from './ProductCard';
@@ -24,9 +25,12 @@ function claveOrdenTalla(valor: string): number {
 const PAGINA = 12;
 
 // Catálogo completo con búsqueda, filtros, orden y carga progresiva —
-// sección "Grid de productos" del brief (sección 70), montada dentro de
-// /tienda. Ya no hace su propio fetch: recibe el catálogo ya cargado por
-// <CatalogoProvider/> (un solo fetch para toda la tienda, ver
+// sección "Grid de productos" del brief (sección 70). Vive en su propia
+// página, /tienda/productos (ver esa carpeta), separada del home: era la
+// única sección con paginación/filtros dentro del home gigante, y la que
+// rompía la navegación al volver desde un producto (ver comentario de
+// `visibles` más abajo). Ya no hace su propio fetch: recibe el catálogo ya
+// cargado por <CatalogoProvider/> (un solo fetch para toda la tienda, ver
 // lib/catalogo.tsx) — así el header, la home y este grid nunca piden el
 // catálogo dos veces.
 export function CatalogSection({
@@ -38,6 +42,7 @@ export function CatalogSection({
   initialQ,
   initialCategoria,
   initialMarca,
+  initialVisibles,
 }: {
   productos: ProductoCatalogo[] | null;
   cargando: boolean;
@@ -47,7 +52,11 @@ export function CatalogSection({
   initialQ?: string;
   initialCategoria?: string;
   initialMarca?: string;
+  initialVisibles?: number;
 }) {
+  const router = useRouter();
+  const pathname = usePathname();
+
   const [q, setQ] = useState(initialQ || '');
   const [panelAbierto, setPanelAbierto] = useState(false);
   const [filtros, setFiltros] = useState<EstadoFiltros>(() => {
@@ -57,7 +66,18 @@ export function CatalogSection({
     return base;
   });
   const [orden, setOrden] = useState<Orden>('recientes');
-  const [visibles, setVisibles] = useState(PAGINA);
+  // Cuántos productos se muestran ("ver más" los va sumando de PAGINA en
+  // PAGINA). Antes vivía solo en memoria: al entrar a un producto y volver,
+  // si React remontaba esta sección, este número se olvidaba y volvía a 12
+  // — el catálogo se "encogía", todo lo de abajo se recorría hacia arriba, y
+  // el scroll que el navegador intentaba restaurar ya no apuntaba al mismo
+  // lugar (esto es lo que se reportó como "vuelvo y me deja en otro
+  // apartado"). Ahora arranca del valor que traiga la URL (?visibles=) y un
+  // efecto más abajo lo mantiene sincronizado ahí, así que un "atrás" del
+  // navegador siempre reproduce el mismo listado, del mismo alto.
+  const [visibles, setVisibles] = useState(
+    initialVisibles && initialVisibles > PAGINA ? initialVisibles : PAGINA
+  );
 
   const facetas = useMemo(() => {
     const marcas = new Set<string>();
@@ -132,16 +152,36 @@ export function CatalogSection({
   // Cada vez que cambian filtros/búsqueda/orden, se reinicia cuántos
   // productos se muestran — evita mandar de golpe cientos de tarjetas al DOM
   // (sección 24 del brief) y que "ver más" arrastre resultados de un filtro
-  // ya abandonado.
+  // ya abandonado. El guard de "primer render" evita que esto pise el
+  // `visibles` que se acaba de restaurar desde la URL al montar.
+  const primerRenderVisibles = useRef(true);
   useEffect(() => {
+    if (primerRenderVisibles.current) {
+      primerRenderVisibles.current = false;
+      return;
+    }
     setVisibles(PAGINA);
   }, [q, filtros, orden]);
+
+  // Refleja `visibles` en la URL (reemplazando la entrada actual del
+  // historial, sin apilar una nueva por cada "ver más") para que, al volver
+  // desde el detalle de un producto, la cantidad de tarjetas mostradas sea
+  // exactamente la misma de antes — y por lo tanto también el alto de la
+  // página y el punto donde el navegador restaura el scroll.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (visibles > PAGINA) params.set('visibles', String(visibles));
+    else params.delete('visibles');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibles]);
 
   const filtrosActivos = contarFiltrosActivos(filtros);
   const mostrados = filtrados?.slice(0, visibles) ?? [];
 
   return (
-    <section id="catalogo" className="scroll-mt-20 border-t border-border py-8 sm:py-10">
+    <section className="py-6 sm:py-8">
       <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className={claseOjo}>Catálogo completo</p>

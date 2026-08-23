@@ -176,7 +176,7 @@ export function SearchOverlay({ open, onClose }: { open: boolean; onClose: () =>
 
         {texto && totalCoincidencias > resultados.length && (
           <Link
-            href={`/tienda?q=${encodeURIComponent(texto)}#catalogo`}
+            href={`/tienda/productos?q=${encodeURIComponent(texto)}`}
             onClick={onClose}
             className="block border-t border-border p-4 text-center text-sm font-semibold uppercase tracking-wide hover:bg-secondary"
           >
