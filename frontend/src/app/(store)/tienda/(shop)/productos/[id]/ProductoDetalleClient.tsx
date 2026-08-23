@@ -20,6 +20,17 @@ import { ProductQuickView } from '@/components/store/ProductQuickView';
 // quick view) puede tratar este producto exactamente igual.
 type ProductoDetalle = ProductoCatalogo;
 
+// Hash simple y determinista (mismo par de IDs → mismo número siempre) —
+// se usa para variar "también te puede interesar" entre productos distintos
+// de una misma categoría/marca sin depender de nada aleatorio de verdad
+// (evita que la lista "salte" en cada render) ni de un endpoint nuevo.
+function hashPar(a: number, b: number): number {
+  let h = 0;
+  const s = `${a}-${b}`;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+
 const TABS = ['descripcion', 'envios', 'cambios'] as const;
 type TabId = (typeof TABS)[number];
 const TAB_LABEL: Record<TabId, string> = {
@@ -135,6 +146,13 @@ export function ProductoDetalleClient({ id }: { id: string }) {
       .filter((p) => p.id !== producto.id)
       .filter((p) => !producto.modelo || p.modelo?.id !== producto.modelo.id)
       .filter((p) => (producto.categoria ? p.categoria?.nombre === producto.categoria.nombre : p.marca?.nombre === producto.marca?.nombre))
+      // Antes se tomaban siempre los primeros 8 del catálogo (orden fijo,
+      // más reciente primero) — así que dos productos de la misma categoría
+      // mostraban exactamente los mismos "también te puede interesar". Este
+      // orden depende del producto que se está viendo, así que varía entre
+      // productos aunque compartan categoría, y se mantiene igual si vuelves
+      // a entrar al mismo producto (no es aleatorio en cada render).
+      .sort((a, b) => hashPar(producto.id, a.id) - hashPar(producto.id, b.id))
       .slice(0, 8);
   }, [producto, catalogo]);
 
