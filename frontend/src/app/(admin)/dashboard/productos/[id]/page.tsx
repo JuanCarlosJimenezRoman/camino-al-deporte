@@ -17,6 +17,7 @@ import {
   TrendingDown,
   RefreshCw,
   ExternalLink,
+  Sparkles,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
@@ -253,6 +254,12 @@ function ProductoDetalleContenido() {
   // Información básica (edición)
   const [editProductoForm, setEditProductoForm] = useState<EditProductoForm>(formVacioProducto());
   const [guardandoProducto, setGuardandoProducto] = useState(false);
+  // Sugerir descripción: reutiliza el mismo catálogo externo (KicksDB) que
+  // ya usa el alta de productos (ver buscar-externo/page.tsx) — busca por el
+  // SKU de fábrica ("estilo") de este producto y trae la descripción que
+  // KicksDB ya trae limpia y traducida al español. Nunca guarda sola: solo
+  // rellena el campo del formulario para que se revise antes de "Guardar".
+  const [buscandoDescripcion, setBuscandoDescripcion] = useState(false);
 
   // Variantes: edición / alta / eliminación
   const [editandoVarianteId, setEditandoVarianteId] = useState<number | null>(null);
@@ -395,6 +402,69 @@ function ProductoDetalleContenido() {
     }
     const m = await api<Modelo[]>(`/catalogos/modelos?marcaId=${marcaId}`);
     setModelosEdit(m);
+  }
+
+  async function sugerirDescripcion() {
+    // SKU de fábrica ("estilo") de este producto: se toma de la primera
+    // variante que tenga uno capturado. Si hay varios colores distintos
+    // dentro del mismo producto con SKUs distintos, esto usa el primero —
+    // suficiente para la mayoría de los casos (un producto = un colorway);
+    // si el resultado no es el correcto, la descripción sigue siendo
+    // editable a mano como siempre.
+    const sku = producto?.variantes.find((v) => v.sku.trim())?.sku.trim();
+    if (!sku) {
+      toast({
+        title: 'No hay SKU capturado',
+        description: 'Agrega el SKU de alguna variante antes de buscar la descripción.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setBuscandoDescripcion(true);
+    try {
+      const busqueda = await api<{ data: { idExterno: string; sku: string | null }[] }>(
+        `/productos/buscar-externo?q=${encodeURIComponent(sku)}`
+      );
+      const coincidencia =
+        busqueda.data.find((r) => (r.sku || '').toLowerCase() === sku.toLowerCase()) || busqueda.data[0];
+      if (!coincidencia) {
+        toast({
+          title: 'Sin resultados',
+          description: `No se encontró "${sku}" en KicksDB. Puedes escribir la descripción a mano.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const detalle = await api<{ descripcion: string | null } | null>(
+        `/productos/buscar-externo/${encodeURIComponent(coincidencia.idExterno)}`
+      );
+      if (!detalle?.descripcion) {
+        toast({
+          title: 'Sin descripción disponible',
+          description: 'KicksDB encontró el modelo, pero no trae texto de descripción para él.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setEditProductoForm((f) => ({ ...f, descripcion: detalle.descripcion || '' }));
+      toast({ title: '✓ Descripción sugerida', description: 'Revísala antes de guardar — se puede editar libremente.', variant: 'success' });
+    } catch (err) {
+      toast({
+        title: 'No se pudo buscar la descripción',
+        description:
+          err instanceof ApiError
+            ? err.status === 503
+              ? 'La integración con KicksDB no está configurada (falta la API key en el servidor).'
+              : err.message
+            : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setBuscandoDescripcion(false);
+    }
   }
 
   function actualizarValorDefinido(clave: string, valor: string) {
@@ -711,7 +781,20 @@ function ProductoDetalleContenido() {
               </div>
             </div>
             <div>
-              <label>Descripción (opcional)</label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <label>Descripción (opcional)</label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={sugerirDescripcion}
+                  disabled={!puedeEditar || buscandoDescripcion}
+                  title="Busca este SKU en KicksDB y sugiere una descripción (se puede editar antes de guardar)"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {buscandoDescripcion ? 'Buscando…' : 'Sugerir descripción'}
+                </Button>
+              </div>
               <textarea
                 value={editProductoForm.descripcion}
                 onChange={(e) => setEditProductoForm((f) => ({ ...f, descripcion: e.target.value }))}
