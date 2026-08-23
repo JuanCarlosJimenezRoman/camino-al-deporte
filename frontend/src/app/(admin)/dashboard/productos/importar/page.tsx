@@ -21,6 +21,10 @@ interface FilaAnalizada {
   stockInicial: number;
   estado: 'ok' | 'omitida' | 'error';
   motivo?: string;
+  // true si esta talla/color ya existía (en el catálogo o antes en este
+  // mismo archivo) y esta fila solo agrega un proveedor/stock nuevo, en vez
+  // de crear una variante nueva.
+  varianteExistente?: boolean;
 }
 
 interface Analisis {
@@ -38,6 +42,7 @@ interface ResultadoImportacion {
   productosCreados: number;
   productosExtendidos: number;
   variantesCreadas: number;
+  existenciasAgregadas: number;
   filasOmitidas: number;
   filasConError: number;
 }
@@ -79,7 +84,12 @@ export default function ImportarProductosPage() {
     try {
       const formData = new FormData();
       formData.append('archivo', archivo);
-      const data = await apiUpload<Analisis>('/productos/importar-excel/vista-previa', formData);
+      // Se manda la sucursal ya seleccionada (aunque todavía no se haya
+      // confirmado nada) para que la vista previa sepa exactamente qué
+      // proveedores ya tienen stock ahí, en vez de aproximarlo mirando
+      // todas las sucursales.
+      const query = sucursalId ? `?sucursalId=${sucursalId}` : '';
+      const data = await apiUpload<Analisis>(`/productos/importar-excel/vista-previa${query}`, formData);
       setAnalisis(data);
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al leer el archivo.');
@@ -216,7 +226,9 @@ export default function ImportarProductosPage() {
                     <td>{f.proveedor || '—'}</td>
                     <td>{f.stockInicial}</td>
                     <td style={{ color: ESTADO_STYLE[f.estado].color, fontSize: 12 }}>
-                      {ESTADO_STYLE[f.estado].label}
+                      {f.estado === 'ok' && f.varianteExistente
+                        ? 'Se agrega proveedor a variante existente'
+                        : ESTADO_STYLE[f.estado].label}
                       {f.motivo ? ` — ${f.motivo}` : ''}
                     </td>
                   </tr>
@@ -257,6 +269,11 @@ export default function ImportarProductosPage() {
             Productos existentes a los que se agregaron variantes: {resultado.productosExtendidos}
           </p>
           <p style={{ fontSize: 14, marginBottom: 4 }}>Variantes/SKU creados: {resultado.variantesCreadas}</p>
+          {resultado.existenciasAgregadas > 0 && (
+            <p style={{ fontSize: 14, marginBottom: 4 }}>
+              Tandas de stock agregadas a variantes ya existentes (otro proveedor): {resultado.existenciasAgregadas}
+            </p>
+          )}
           {resultado.filasOmitidas > 0 && (
             <p style={{ fontSize: 14, marginBottom: 4, color: '#a06a00' }}>Filas omitidas: {resultado.filasOmitidas}</p>
           )}

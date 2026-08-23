@@ -77,7 +77,14 @@ router.get(
   })
 );
 
-// POST /productos/importar-excel/vista-previa - valida sin escribir nada en la BD
+const vistaPreviaQuery = z.object({ sucursalId: z.coerce.number().int().optional() });
+
+// POST /productos/importar-excel/vista-previa?sucursalId= - valida sin
+// escribir nada en la BD. sucursalId es opcional: el frontend ya la manda
+// (usa la que esté seleccionada en ese momento) para que la vista previa sea
+// exacta sobre qué proveedores ya tienen stock ahí; si no se manda, la
+// validación de "proveedor repetido" se aproxima mirando todas las
+// sucursales (ver analizarImportacion).
 router.post(
   '/importar-excel/vista-previa',
   requireAuth,
@@ -96,7 +103,10 @@ router.post(
       return res.status(400).json({ error: 'El archivo no tiene filas de datos.' });
     }
 
-    const analisis = await analizarImportacion(filasCrudas);
+    const parsedQuery = vistaPreviaQuery.safeParse(req.query);
+    const sucursalId = parsedQuery.success ? parsedQuery.data.sucursalId : undefined;
+
+    const analisis = await analizarImportacion(filasCrudas, { sucursalId });
     res.json(analisis);
   })
 );
