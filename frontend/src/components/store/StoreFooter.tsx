@@ -7,7 +7,7 @@ import { Truck, ShieldCheck, CalendarClock, MapPin } from 'lucide-react';
 const BENEFICIOS = [
   { icon: Truck, titulo: 'Envíos a todo México', texto: 'Recibe tu pedido donde estés.' },
   { icon: ShieldCheck, titulo: 'Compra segura', texto: 'Tu pago se confirma directo con nosotros.' },
-  { icon: CalendarClock, titulo: 'Apartados disponibles', texto: 'Aparta en sucursal y paga después.' },
+  //{ icon: CalendarClock, titulo: 'Apartados disponibles', texto: 'Aparta en sucursal y paga después.' },
   { icon: MapPin, titulo: 'Sucursales físicas', texto: 'Visítanos y conoce el producto en persona.' },
 ];
 
@@ -93,7 +93,7 @@ export function StoreFooter() {
 
         <div className="mt-10 flex flex-col gap-3 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>© {new Date().getFullYear()} Camino al Deporte.</p>
-          <p>Envíos a todo México · Compra segura · Apartados disponibles</p>
+          <p>Envíos a todo México · Compra segura</p>
         </div>
       </div>
     </footer>

@@ -36,7 +36,7 @@ import { SearchOverlay } from './SearchOverlay';
 const MAX_CATEGORIAS_NAV = 4;
 
 function TrustBar() {
-  const items = ['Envíos a todo México', 'Compra segura', 'Apartados disponibles', 'Recoge en sucursal'];
+  const items = ['Envíos a todo México', 'Compra segura', 'Recoge en sucursal'];
   return (
     <div className="hidden border-b border-border bg-secondary/60 sm:block">
       <div className="mx-auto flex h-9 max-w-7xl items-center justify-center gap-2 px-4 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:px-6 lg:px-8">
