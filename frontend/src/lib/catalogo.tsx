@@ -32,7 +32,11 @@ export interface ProductoCatalogo {
   descripcion: string | null;
   marca: { id: number; nombre: string } | null;
   modelo: { id: number; nombre: string } | null;
-  categoria: { id: number; nombre: string } | null;
+  // imagenPortada: portada elegida a mano para la categoría desde el panel
+  // (Catálogo → Categorías). null/undefined = todavía no se subió ninguna —
+  // ver categoriasConImagen en app/(store)/tienda/(shop)/page.tsx para el
+  // criterio de respaldo.
+  categoria: { id: number; nombre: string; imagenPortada?: string | null } | null;
   precioVenta: string;
   imagenes: { url: string }[];
   variantes: VarianteCatalogo[];

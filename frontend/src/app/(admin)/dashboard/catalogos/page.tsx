@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '@/lib/api';
+import { api, apiUpload, ApiError } from '@/lib/api';
 
 interface Marca {
   id: number;
@@ -12,6 +12,10 @@ interface Categoria {
   id: number;
   nombre: string;
   activo: boolean;
+  // Portada para la tarjeta de categoría de la tienda en línea. null/undefined
+  // = todavía no se subió ninguna (la tienda cae a la foto de un producto de
+  // esa categoría, ver CategoryGrid en el frontend de la tienda).
+  imagenPortada?: string | null;
 }
 interface Modelo {
   id: number;
@@ -194,6 +198,9 @@ function CategoriasCard() {
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [editandoNombre, setEditandoNombre] = useState('');
   const [mensaje, setMensaje] = useState<string | null>(null);
+  // Id de la categoría cuya portada se está subiendo ahora mismo (para
+  // deshabilitar solo ese input mientras sube, no todos).
+  const [subiendoId, setSubiendoId] = useState<number | null>(null);
 
   async function cargar() {
     setCategorias(await api<Categoria[]>('/catalogos/categorias?todas=1'));
@@ -211,6 +218,42 @@ function CategoriasCard() {
       cargar();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al crear la categoría.');
+    }
+  }
+
+  async function subirPortada(id: number, file: File, inputEl: HTMLInputElement) {
+    if (!file.type.startsWith('image/')) {
+      setMensaje('Solo se pueden subir imágenes.');
+      inputEl.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setMensaje('La imagen no puede pesar más de 5 MB.');
+      inputEl.value = '';
+      return;
+    }
+    setSubiendoId(id);
+    setMensaje(null);
+    try {
+      const formData = new FormData();
+      formData.append('imagen', file);
+      await apiUpload(`/catalogos/categorias/${id}/imagen`, formData);
+      cargar();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al subir la portada.');
+    } finally {
+      setSubiendoId(null);
+      inputEl.value = '';
+    }
+  }
+
+  async function quitarPortada(id: number) {
+    if (!window.confirm('¿Quitar la portada? La tienda volverá a usar la foto de un producto de esta categoría.')) return;
+    try {
+      await api(`/catalogos/categorias/${id}/imagen`, { method: 'DELETE' });
+      cargar();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al quitar la portada.');
     }
   }
 
@@ -245,7 +288,11 @@ function CategoriasCard() {
 
   return (
     <div className="card">
-      <h2 style={{ fontSize: 15, marginBottom: 12 }}>Categorías</h2>
+      <h2 style={{ fontSize: 15, marginBottom: 4 }}>Categorías</h2>
+      <p style={{ color: 'var(--color-muted)', fontSize: 12, marginBottom: 12 }}>
+        La portada se usa en "Explora por categoría" de la tienda en línea. Si una categoría no tiene
+        portada propia, la tienda usa de respaldo la foto de un producto de esa categoría.
+      </p>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         <input
@@ -267,44 +314,102 @@ function CategoriasCard() {
             key={c.id}
             style={{
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: 'column',
               gap: 8,
-              padding: '6px 0',
+              padding: '8px 0',
               borderBottom: '1px solid var(--color-border)',
               opacity: c.activo ? 1 : 0.5,
             }}
           >
-            {editandoId === c.id ? (
-              <>
-                <input
-                  value={editandoNombre}
-                  onChange={(e) => setEditandoNombre(e.target.value)}
-                  style={{ flex: 1 }}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {editandoId === c.id ? (
+                <>
+                  <input
+                    value={editandoNombre}
+                    onChange={(e) => setEditandoNombre(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button className="btn" onClick={() => guardarEdicion(c.id)}>
+                    Guardar
+                  </button>
+                  <button className="btn-secondary btn" onClick={() => setEditandoId(null)}>
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span style={{ flex: 1, fontSize: 14 }}>{c.nombre}</span>
+                  <button
+                    className="btn-secondary btn"
+                    onClick={() => {
+                      setEditandoId(c.id);
+                      setEditandoNombre(c.nombre);
+                    }}
+                  >
+                    Editar
+                  </button>
+                  <button className="btn-secondary btn" onClick={() => toggleActivo(c)}>
+                    {c.activo ? 'Desactivar' : 'Activar'}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {c.imagenPortada ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={c.imagenPortada}
+                  alt=""
+                  style={{
+                    width: 40,
+                    height: 50,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    border: '1px solid var(--color-border)',
+                  }}
                 />
-                <button className="btn" onClick={() => guardarEdicion(c.id)}>
-                  Guardar
-                </button>
-                <button className="btn-secondary btn" onClick={() => setEditandoId(null)}>
-                  Cancelar
-                </button>
-              </>
-            ) : (
-              <>
-                <span style={{ flex: 1, fontSize: 14 }}>{c.nombre}</span>
-                <button
-                  className="btn-secondary btn"
-                  onClick={() => {
-                    setEditandoId(c.id);
-                    setEditandoNombre(c.nombre);
+              ) : (
+                <div
+                  style={{
+                    width: 40,
+                    height: 50,
+                    borderRadius: 6,
+                    border: '1px dashed var(--color-border)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    fontSize: 9,
+                    lineHeight: 1.2,
+                    color: 'var(--color-muted)',
+                    flexShrink: 0,
                   }}
                 >
-                  Editar
+                  Sin portada
+                </div>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                disabled={subiendoId === c.id}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) subirPortada(c.id, file, e.target);
+                }}
+                style={{ fontSize: 11, maxWidth: 200 }}
+              />
+              {subiendoId === c.id && <span style={{ fontSize: 12 }}>Subiendo...</span>}
+              {c.imagenPortada && (
+                <button
+                  className="btn-secondary btn"
+                  style={{ fontSize: 11, padding: '4px 8px' }}
+                  onClick={() => quitarPortada(c.id)}
+                >
+                  Quitar portada
                 </button>
-                <button className="btn-secondary btn" onClick={() => toggleActivo(c)}>
-                  {c.activo ? 'Desactivar' : 'Activar'}
-                </button>
-              </>
-            )}
+              )}
+            </div>
           </div>
         ))}
         {categorias.length === 0 && (

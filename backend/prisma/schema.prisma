@@ -159,9 +159,18 @@ model Modelo {
 }
 
 model Categoria {
-  id        Int        @id @default(autoincrement())
-  nombre    String     @unique
-  activo    Boolean    @default(true)
+  id     Int     @id @default(autoincrement())
+  nombre String  @unique
+  activo Boolean @default(true)
+
+  // Portada para la tarjeta de categoría de la tienda en línea (opcional):
+  // si no se sube ninguna, el frontend cae a una foto de un producto real de
+  // esa categoría (ver app/(store)/tienda/(shop)/page.tsx). Se guarda en
+  // Cloudinary igual que las fotos de producto; publicId es lo que permite
+  // borrarla de allá al reemplazarla o quitarla (ver routes/catalogos.js).
+  imagenPortada         String? @map("imagen_portada")
+  imagenPortadaPublicId String? @map("imagen_portada_public_id")
+
   productos Producto[]
 
   @@map("categorias")

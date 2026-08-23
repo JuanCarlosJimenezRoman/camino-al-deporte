@@ -92,7 +92,11 @@ function TiendaHomeContenido() {
     return categorias.slice(0, MAX_CATEGORIAS_HOME).map((c) => ({
       nombre: c.nombre,
       cantidad: c.cantidad,
-      imagenUrl: productos.find((p) => p.categoria?.nombre === c.nombre && p.imagenes?.[0]?.url)?.imagenes[0]?.url,
+      // La portada es una propiedad de la categoría, no del producto — basta
+      // con encontrar cualquier producto de esa categoría para leerla (todos
+      // comparten la misma).
+      imagenPortada: productos.find((p) => p.categoria?.nombre === c.nombre)?.categoria?.imagenPortada,
+      imagenProductoRespaldo: productos.find((p) => p.categoria?.nombre === c.nombre && p.imagenes?.[0]?.url)?.imagenes[0]?.url,
     }));
   }, [categorias, productos]);
 

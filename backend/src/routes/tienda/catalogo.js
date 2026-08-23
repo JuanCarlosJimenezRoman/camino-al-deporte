@@ -28,7 +28,13 @@ function conStockTotal(producto) {
     descripcion: producto.descripcion,
     marca: producto.marca,
     modelo: producto.modelo,
-    categoria: producto.categoria,
+    // Se recorta a solo lo que la tienda necesita: `imagenPortadaPublicId`
+    // es un detalle interno de Cloudinary (para poder borrarla al
+    // reemplazarla, ver routes/catalogos.js), no algo que el público deba
+    // recibir.
+    categoria: producto.categoria
+      ? { id: producto.categoria.id, nombre: producto.categoria.nombre, imagenPortada: producto.categoria.imagenPortada }
+      : null,
     precioVenta: producto.precioVenta,
     imagenes: producto.imagenes,
     variantes,

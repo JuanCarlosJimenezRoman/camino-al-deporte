@@ -27,3 +27,13 @@ export function imagenProducto(url: string | undefined, ancho = 1200): string | 
 export function imagenMiniatura(url: string | undefined, ancho = 200): string | undefined {
   return conTransformacion(url, `c_pad,b_white,ar_1:1,w_${ancho},q_auto,f_auto`);
 }
+
+// Portada de categoría (panel admin → Catálogo → Categorías, ver
+// CategoryGrid): a diferencia de las fotos de producto de arriba, aquí SÍ se
+// recorta a propósito. Quien la sube ya la eligió pensando en esta tarjeta
+// (aspect-[4/5]) — con c_pad se vería con franjas blancas en vez de llenar
+// el cuadro. c_fill + g_auto deja que Cloudinary elija el recorte (detecta
+// el sujeto) en vez de recortar siempre del centro.
+export function imagenPortadaCategoria(url: string | undefined, ancho = 500): string | undefined {
+  return conTransformacion(url, `c_fill,g_auto,ar_4:5,w_${ancho},q_auto,f_auto`);
+}

@@ -1,12 +1,28 @@
 const express = require('express');
+const multer = require('multer');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { crearSolicitud } = require('../utils/solicitudes');
+const { subirImagen, borrarImagen } = require('../config/cloudinary');
 
 const router = express.Router();
+
+// Multer guarda el archivo en memoria (no en disco: Render no persiste
+// archivos entre despliegues) para subirlo directo a Cloudinary. Mismo
+// criterio que routes/productos.js.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('SOLO_IMAGENES'));
+    }
+    cb(null, true);
+  },
+});
 
 const ROLES_EDICION = ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'];
 
@@ -171,6 +187,75 @@ router.put('/categorias/:id', requireAuth, requireRole(...ROLES_EDICION), asyncH
     throw err;
   }
 }));
+
+// POST /categorias/:id/imagen - sube (o reemplaza) la portada de la
+// categoría para la tienda en línea (multipart/form-data, campo "imagen").
+// Sin esto la tarjeta de categoría cae a una foto de un producto de esa
+// categoría (ver GET /tienda/productos y CategoryGrid en el frontend).
+router.post(
+  '/categorias/:id/imagen',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  (req, res, next) => {
+    upload.single('imagen')(req, res, (err) => {
+      if (err) {
+        if (err.message === 'SOLO_IMAGENES') return res.status(400).json({ error: 'El archivo debe ser una imagen.' });
+        if (err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'La imagen no puede pesar más de 5 MB.' });
+        return res.status(400).json({ error: 'No se pudo procesar el archivo.' });
+      }
+      next();
+    });
+  },
+  asyncHandler(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Falta el archivo de imagen (campo "imagen").' });
+
+    const categoria = await prisma.categoria.findUnique({ where: { id: Number(req.params.id) } });
+    if (!categoria) return res.status(404).json({ error: 'Categoría no encontrada.' });
+
+    const { url, publicId } = await subirImagen(req.file.buffer, 'categorias');
+
+    // Si ya tenía una portada, se borra la anterior de Cloudinary para no
+    // dejarla huérfana (misma lógica que reemplazar la foto principal de un
+    // producto).
+    if (categoria.imagenPortadaPublicId) {
+      await borrarImagen(categoria.imagenPortadaPublicId).catch((err) => {
+        console.error('No se pudo borrar la portada anterior de Cloudinary:', err.message);
+      });
+    }
+
+    const actualizada = await prisma.categoria.update({
+      where: { id: categoria.id },
+      data: { imagenPortada: url, imagenPortadaPublicId: publicId },
+    });
+
+    res.json(actualizada);
+  })
+);
+
+// DELETE /categorias/:id/imagen - quita la portada (vuelve al criterio
+// automático: foto de un producto real de esa categoría).
+router.delete(
+  '/categorias/:id/imagen',
+  requireAuth,
+  requireRole(...ROLES_EDICION),
+  asyncHandler(async (req, res) => {
+    const categoria = await prisma.categoria.findUnique({ where: { id: Number(req.params.id) } });
+    if (!categoria) return res.status(404).json({ error: 'Categoría no encontrada.' });
+
+    if (categoria.imagenPortadaPublicId) {
+      await borrarImagen(categoria.imagenPortadaPublicId).catch((err) => {
+        console.error('No se pudo borrar la portada de Cloudinary:', err.message);
+      });
+    }
+
+    const actualizada = await prisma.categoria.update({
+      where: { id: categoria.id },
+      data: { imagenPortada: null, imagenPortadaPublicId: null },
+    });
+
+    res.json(actualizada);
+  })
+);
 
 // ---- Tallas ----------------------------------------------------------
 

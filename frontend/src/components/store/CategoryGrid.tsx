@@ -1,18 +1,29 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { imagenCatalogo } from '@/lib/imagenCloudinary';
+import { imagenCatalogo, imagenPortadaCategoria } from '@/lib/imagenCloudinary';
 import { claseOjo, claseTituloSeccion } from './ui';
 
 export interface CategoriaConImagen {
   nombre: string;
   cantidad: number;
-  imagenUrl?: string;
+  // Portada elegida a mano para esta categoría (panel admin → Catálogo →
+  // Categorías). Cuando existe, se recorta a propósito para llenar la
+  // tarjeta (ver imagenPortadaCategoria) — quien la subió ya la eligió
+  // pensando en este encuadre.
+  imagenPortada?: string | null;
+  // Respaldo mientras la categoría no tenga portada propia: foto de un
+  // producto real de esa categoría. Nunca se recorta (ver imagenCatalogo,
+  // que además rellena a cuadro con blanco), así que puede verse con
+  // franjas o descentrada dentro de una tarjeta 4:5 — es un respaldo, no el
+  // resultado final esperado.
+  imagenProductoRespaldo?: string;
 }
 
-// "Explora por categoría" (sección 11). Cada tarjeta usa la foto de un
-// producto real de esa categoría (no hay campo de imagen en el catálogo de
-// categorías) — si ninguno tiene foto todavía, la tarjeta cae a un fondo
-// plano con el nombre, nunca a una imagen inventada.
+// "Explora por categoría" (sección 11). Cada tarjeta usa, en orden de
+// preferencia: la portada que el panel admin le haya asignado a la
+// categoría, o si no hay ninguna, la foto de un producto real de esa
+// categoría — si tampoco hay eso, la tarjeta cae a un fondo plano con el
+// nombre, nunca a una imagen inventada.
 export function CategoryGrid({ categorias }: { categorias: CategoriaConImagen[] }) {
   if (categorias.length === 0) return null;
 
@@ -28,10 +39,17 @@ export function CategoryGrid({ categorias }: { categorias: CategoriaConImagen[] 
             href={`/tienda?categoria=${encodeURIComponent(c.nombre)}#catalogo`}
             className="group relative aspect-[4/5] overflow-hidden rounded-2xl bg-secondary"
           >
-            {c.imagenUrl ? (
+            {c.imagenPortada ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={imagenCatalogo(c.imagenUrl, 500)}
+                src={imagenPortadaCategoria(c.imagenPortada, 500)}
+                alt=""
+                className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+              />
+            ) : c.imagenProductoRespaldo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={imagenCatalogo(c.imagenProductoRespaldo, 500)}
                 alt=""
                 className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
               />
