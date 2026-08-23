@@ -17,7 +17,7 @@ export function BrandsSection({ marcas }: { marcas: ConteoNombre[] }) {
         {marcas.map((m) => (
           <Link
             key={m.nombre}
-            href={`/tienda?marca=${encodeURIComponent(m.nombre)}#catalogo`}
+            href={`/tienda/productos?marca=${encodeURIComponent(m.nombre)}`}
             className="group flex flex-col items-start justify-center gap-1 rounded-2xl border border-border px-5 py-6 transition-colors hover:border-foreground"
           >
             <span className="text-lg font-extrabold uppercase tracking-tight transition-colors group-hover:text-primary sm:text-xl">

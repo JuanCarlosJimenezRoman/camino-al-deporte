@@ -187,7 +187,7 @@ export function ProductoDetalleClient({ id }: { id: string }) {
         {producto.categoria && (
           <>
             <ChevronRight className="h-3 w-3" />
-            <Link href={`/tienda?categoria=${encodeURIComponent(producto.categoria.nombre)}#catalogo`} className="hover:text-foreground">
+            <Link href={`/tienda/productos?categoria=${encodeURIComponent(producto.categoria.nombre)}`} className="hover:text-foreground">
               {producto.categoria.nombre}
             </Link>
           </>
@@ -195,7 +195,7 @@ export function ProductoDetalleClient({ id }: { id: string }) {
         {producto.marca && (
           <>
             <ChevronRight className="h-3 w-3" />
-            <Link href={`/tienda?marca=${encodeURIComponent(producto.marca.nombre)}#catalogo`} className="hover:text-foreground">
+            <Link href={`/tienda/productos?marca=${encodeURIComponent(producto.marca.nombre)}`} className="hover:text-foreground">
               {producto.marca.nombre}
             </Link>
           </>
