@@ -1023,9 +1023,10 @@ model PedidoItem {
   // De qué bucket de proveedor se descontó el stock. Aquí no hay un cajero
   // eligiendo (es el cliente comprando solo en la tienda en línea), así que
   // se asigna con una regla automática al crear el pedido (ver
-  // routes/tienda/pedidos.js). También es la fuente real para decidir a qué
-  // proveedor se manda el pedido por WhatsApp (más preciso que el proveedor
-  // "por defecto" de la variante).
+  // routes/tienda/pedidos.js). Ya no decide a qué número se manda el pedido
+  // por WhatsApp: todos los pedidos en línea usan siempre el WhatsApp
+  // principal de la tienda (ver ConfiguracionTienda.whatsappTienda), sin
+  // importar el proveedor de cada renglón.
   proveedorId    Int?             @map("proveedor_id")
   proveedor      Proveedor?       @relation(fields: [proveedorId], references: [id])
 
@@ -1126,9 +1127,9 @@ model CuponUso {
 // ---------------------------------------------------------------------------
 //
 // Fila única (siempre id=1): ajustes globales que no ameritan su propia
-// tabla. Por ahora solo el WhatsApp de contacto para pagos (respaldo cuando
-// un pedido no tiene un proveedor con teléfono asignado, o para negocios que
-// prefieren manejar todos los pagos desde un solo número).
+// tabla. Por ahora solo el WhatsApp de contacto para pagos: TODOS los
+// pedidos en línea usan siempre este número (ya no se reparte por
+// proveedor).
 model ConfiguracionTienda {
   id             Int      @id @default(autoincrement())
   whatsappTienda String?  @map("whatsapp_tienda")

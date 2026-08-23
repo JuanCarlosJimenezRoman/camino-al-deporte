@@ -30,11 +30,6 @@ const PEDIDO_INCLUDE = {
           talla: true,
         },
       },
-      // Proveedor REAL del bucket del que se descontó este renglón (no el
-      // proveedor "por defecto" de la variante) — aquí no hay cajero
-      // eligiendo, se asigna con una regla automática al crear el pedido
-      // (ver POST / más abajo), pero una vez asignado es el dato exacto.
-      proveedor: { select: { id: true, nombre: true, telefono: true } },
       sucursalStock: { select: { nombre: true } },
     },
   },
@@ -44,39 +39,20 @@ const PEDIDO_INCLUDE = {
 
 // El pago ya no se cobra directo en la página (los clientes no se sentían
 // seguros viendo la cuenta a transferir ahí mismo): en vez de eso se manda al
-// cliente por WhatsApp con el proveedor. Si el pedido trae artículos de más
-// de un proveedor, se junta todo en una sola conversación con el proveedor
-// que más $ representa en ese pedido — no se reparte en varios chats.
-function conProveedorPago(pedido) {
-  if (!pedido) return pedido;
-  const totales = new Map();
-  for (const item of pedido.items || []) {
-    const proveedor = item.proveedor;
-    if (!proveedor) continue;
-    const acumulado = totales.get(proveedor.id) || { proveedor, monto: 0 };
-    acumulado.monto += Number(item.subtotal);
-    totales.set(proveedor.id, acumulado);
-  }
-  let mejor = null;
-  for (const t of totales.values()) {
-    if (!mejor || t.monto > mejor.monto) mejor = t;
-  }
-  return { ...pedido, proveedorPago: mejor ? mejor.proveedor : null };
-}
-
-// El botón de WhatsApp del cliente usa el teléfono del proveedor si se pudo
-// resolver uno; si no (proveedor sin teléfono, o el pedido no tiene un
-// proveedor claro), cae al WhatsApp general de la tienda configurado en el
-// dashboard (ver routes/configuracionTienda.js) — así el botón nunca
-// desaparece por falta de un dato en un proveedor puntual.
+// cliente por WhatsApp. Antes se prefería el teléfono del proveedor del
+// pedido y solo se caía al WhatsApp general de la tienda si no había uno
+// capturado; ahora TODOS los pedidos en línea usan siempre el WhatsApp
+// principal de la tienda (configurado en el dashboard, ver
+// routes/configuracionTienda.js), sin importar el proveedor — así el
+// cliente siempre habla con el mismo número.
 async function conWhatsapp(pedido) {
-  const conProveedor = conProveedorPago(pedido);
+  if (!pedido) return pedido;
   const config = await prisma.configuracionTienda.findFirst();
-  return { ...conProveedor, whatsappTienda: config?.whatsappTienda || null };
+  return { ...pedido, whatsappTienda: config?.whatsappTienda || null };
 }
 async function conWhatsappVarios(pedidos) {
   const config = await prisma.configuracionTienda.findFirst();
-  return pedidos.map((p) => ({ ...conProveedorPago(p), whatsappTienda: config?.whatsappTienda || null }));
+  return pedidos.map((p) => ({ ...p, whatsappTienda: config?.whatsappTienda || null }));
 }
 
 // GET /tienda/pedidos - pedidos del cliente autenticado

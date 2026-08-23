@@ -131,9 +131,8 @@ function ProveedoresCuentasCard() {
 
 // ---------------------------------------------------------------------------
 // WhatsApp de la tienda: a dónde llega el mensaje que le manda el cliente al
-// dar "Continuar por WhatsApp" en su pedido, cuando no hay un proveedor con
-// teléfono asignado a ese pedido (o como número único, si así prefiere
-// operar el negocio).
+// dar "Continuar por WhatsApp" en su pedido. TODOS los pedidos en línea usan
+// siempre este número — ya no se reparte por proveedor.
 // ---------------------------------------------------------------------------
 
 function WhatsappTiendaCard() {
@@ -215,8 +214,8 @@ function WhatsappTiendaCard() {
         <>
           <p style={{ color: 'var(--color-muted)', fontSize: 13, marginTop: 12, marginBottom: 8 }}>
             <strong>WhatsApp de la tienda</strong> — a dónde llega el mensaje del cliente al continuar con el pago
-            de su pedido, cuando el pedido no tiene un proveedor con teléfono asignado. Incluye código de país si
-            no es México (ej. 5216441234567).
+            de su pedido. Todos los pedidos en línea usan siempre este número, ya no se reparte por proveedor.
+            Incluye código de país si no es México (ej. 5216441234567).
           </p>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
             <input

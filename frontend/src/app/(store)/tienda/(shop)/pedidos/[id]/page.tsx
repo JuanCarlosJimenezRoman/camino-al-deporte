@@ -42,7 +42,6 @@ interface Pedido {
   estadoMx: string;
   codigoPostal: string;
   cuentaTransferencia: { nombre: string; banco: string | null; titular: string | null; numeroCuenta: string | null } | null;
-  proveedorPago: { id: number; nombre: string; telefono: string | null } | null;
   whatsappTienda: string | null;
   referenciaPago: string;
   // Cupón de código aplicado al armar el pedido.
@@ -81,9 +80,9 @@ const INTERVALO_ACTUALIZACION_MS = 8000;
 
 // El pago ya no se muestra directo en la página (cuenta/CLABE en frío no le
 // daba confianza al cliente). En vez de eso se le manda por WhatsApp al
-// proveedor que corresponde a su pedido, quien le pasa los datos de pago por
-// chat. Si el pedido trae artículos de varios proveedores, ya viene resuelto
-// desde el backend: proveedorPago es el que más $ representa en ese pedido.
+// número principal de la tienda (configurado en el dashboard). Todos los
+// pedidos en línea usan siempre este número — ya no se reparte por
+// proveedor.
 function formatearTelefonoWhatsapp(telefono: string): string {
   let digitos = telefono.replace(/\D/g, '');
   if (digitos.length === 10) digitos = '52' + digitos; // sin código de país -> asumimos México
@@ -119,10 +118,9 @@ function construirMensajeWhatsapp(pedido: Pedido): string {
 }
 
 function construirLinkWhatsapp(pedido: Pedido): string | null {
-  // Preferimos el teléfono del proveedor asignado al pedido; si no hay uno
-  // (o no tiene teléfono capturado), caemos al WhatsApp general de la tienda
-  // configurado en el dashboard, para que el botón nunca desaparezca.
-  const telefono = pedido.proveedorPago?.telefono || pedido.whatsappTienda;
+  // Todos los pedidos en línea usan siempre el WhatsApp principal de la
+  // tienda, configurado en el dashboard — ya no se reparte por proveedor.
+  const telefono = pedido.whatsappTienda;
   if (!telefono) return null;
   const numero = formatearTelefonoWhatsapp(telefono);
   if (!numero) return null;
