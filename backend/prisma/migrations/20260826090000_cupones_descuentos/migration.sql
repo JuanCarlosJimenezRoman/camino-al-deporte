@@ -7,7 +7,15 @@
 -- 1. Enum compartido por los tres tipos de descuento
 -- ============================================================================
 
-CREATE TYPE "TipoDescuento" AS ENUM ('PORCENTAJE', 'MONTO');
+-- DO $$ ... EXCEPTION: la migración 20260817090000_descuento_y_columnas_pendientes
+-- ya crea este mismo tipo (por si acaso, con la misma guardia); sin esto,
+-- un reset desde cero (`prisma migrate reset`) truena con "type already
+-- exists" al llegar aquí.
+DO $$ BEGIN
+  CREATE TYPE "TipoDescuento" AS ENUM ('PORCENTAJE', 'MONTO');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ============================================================================
 -- 2. Cupones de la tienda en línea
@@ -56,10 +64,14 @@ ALTER TABLE "cupon_productos" ADD CONSTRAINT "cupon_productos_producto_id_fkey" 
 --    teclea el vendedor al registrar la venta.
 -- ============================================================================
 
-ALTER TABLE "ventas" ADD COLUMN "descuento_tipo" "TipoDescuento";
-ALTER TABLE "ventas" ADD COLUMN "descuento_valor" DECIMAL(10,2);
-ALTER TABLE "ventas" ADD COLUMN "descuento_monto" DECIMAL(10,2) NOT NULL DEFAULT 0;
-ALTER TABLE "ventas" ADD COLUMN "descuento_motivo" TEXT;
+-- IF NOT EXISTS: la migración 20260817090000_descuento_y_columnas_pendientes
+-- ya agrega estas mismas columnas; sin esto, un reset desde cero
+-- (`prisma migrate reset`) truena con "column already exists" al llegar
+-- aquí.
+ALTER TABLE "ventas" ADD COLUMN IF NOT EXISTS "descuento_tipo" "TipoDescuento";
+ALTER TABLE "ventas" ADD COLUMN IF NOT EXISTS "descuento_valor" DECIMAL(10,2);
+ALTER TABLE "ventas" ADD COLUMN IF NOT EXISTS "descuento_monto" DECIMAL(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE "ventas" ADD COLUMN IF NOT EXISTS "descuento_motivo" TEXT;
 
 -- ============================================================================
 -- 4. Pedidos en línea: cupón aplicado al crear el pedido + descuento manual

@@ -6,5 +6,9 @@
 -- Sucursal.telefono / ConfiguracionTienda.whatsappTienda. Mientras esta
 -- columna esté vacía, el sistema sigue mandando el ticket con el botón
 -- manual.
-ALTER TABLE "sucursales" ADD COLUMN "whatsapp_phone_number_id" TEXT;
-ALTER TABLE "configuracion_tienda" ADD COLUMN "whatsapp_phone_number_id" TEXT;
+-- IF NOT EXISTS: la migración 20260817090000_descuento_y_columnas_pendientes
+-- ya agrega esta misma columna en ambas tablas (ver su comentario); sin
+-- esto, un reset desde cero (`prisma migrate reset`) truena con "column
+-- already exists" al llegar aquí.
+ALTER TABLE "sucursales" ADD COLUMN IF NOT EXISTS "whatsapp_phone_number_id" TEXT;
+ALTER TABLE "configuracion_tienda" ADD COLUMN IF NOT EXISTS "whatsapp_phone_number_id" TEXT;
