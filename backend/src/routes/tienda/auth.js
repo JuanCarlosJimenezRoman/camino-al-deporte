@@ -12,7 +12,7 @@ const { enviarCodigoRecuperacionEmail } = require('../../config/email');
 
 const router = express.Router();
 
-// Límites para el flujo de "olvidé mi contraseña": son las dos únicas rutas
+// Límites para el flujo de "olvidé mi contraseña": son de las únicas rutas
 // públicas (sin sesión) de toda la tienda que, sin freno, se podrían usar
 // para bombardear el correo de alguien a pedidos, o para adivinar por fuerza
 // bruta un código de 6 dígitos dentro de su ventana de 10 minutos. Por IP,
@@ -30,6 +30,16 @@ const limitarRestablecer = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Demasiados intentos. Espera unos minutos e intenta de nuevo.' },
+});
+// Login de clientes: es la otra ruta pública que, sin freno, se presta a
+// fuerza bruta de contraseña por cuenta. Mismo patrón que el login de
+// personal en routes/auth.js.
+const limitarLoginCliente = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de inicio de sesión. Espera unos minutos e intenta de nuevo.' },
 });
 
 function firmar(cliente) {
@@ -96,7 +106,7 @@ const loginSchema = z.object({
 });
 
 // POST /tienda/auth/login
-router.post('/login', asyncHandler(async (req, res) => {
+router.post('/login', limitarLoginCliente, asyncHandler(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Email y password son requeridos.' });
