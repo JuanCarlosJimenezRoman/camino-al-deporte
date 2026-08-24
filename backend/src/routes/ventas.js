@@ -126,6 +126,37 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
 // El "día" se calcula en horario de México (America/Mexico_City, ver
 // utils/fechas.js), no en UTC: así una venta hecha a las 8pm cae en el
 // corte del mismo día, no en el del día siguiente.
+// Agrupa los renglones vendidos del día por producto + proveedor (el mismo
+// producto puede haberse vendido de dos proveedores distintos ese día si su
+// stock está repartido entre ambos) para el desglose "Productos vendidos"
+// del corte del día. Incluye una foto representativa del producto.
+function calcularProductosVendidos(ventas) {
+  const mapa = new Map();
+  for (const venta of ventas) {
+    for (const item of venta.items) {
+      const producto = item.variante?.producto;
+      if (!producto) continue;
+      const proveedorId = item.proveedorId ?? null;
+      const clave = `${producto.id}-${proveedorId ?? 'sin-proveedor'}`;
+      const actual = mapa.get(clave) || {
+        productoId: producto.id,
+        nombre: producto.nombre,
+        imagenUrl: producto.imagenes?.[0]?.url || null,
+        proveedorId,
+        proveedorNombre: item.proveedor?.nombre || 'Sin proveedor',
+        cantidad: 0,
+        total: 0,
+      };
+      actual.cantidad += item.cantidad;
+      actual.total += Number(item.subtotal);
+      mapa.set(clave, actual);
+    }
+  }
+  return [...mapa.values()]
+    .map((r) => ({ ...r, total: Math.round(r.total * 100) / 100 }))
+    .sort((a, b) => b.cantidad - a.cantidad);
+}
+
 router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (req, res) => {
   let sucursalId;
   if (esAdmin(req.usuario.rol)) {
@@ -155,6 +186,36 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
         sucursal: { select: { nombre: true } },
         cuentaTransferencia: { select: { nombre: true } },
         usuario: { select: { nombre: true } },
+        // Se necesita el detalle de artículos para armar el desglose de
+        // "Productos vendidos" de abajo (producto + proveedor + una foto
+        // representativa), no solo el total de la venta.
+        items: {
+          select: {
+            cantidad: true,
+            subtotal: true,
+            proveedorId: true,
+            proveedor: { select: { id: true, nombre: true } },
+            variante: {
+              select: {
+                producto: {
+                  select: {
+                    id: true,
+                    nombre: true,
+                    // Solo la foto principal (o la primera si no hay
+                    // ninguna marcada), no la galería completa: aquí solo se
+                    // muestra una miniatura, no hace falta elegir por color
+                    // como en el punto de venta.
+                    imagenes: {
+                      orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }],
+                      select: { url: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     }),
@@ -193,6 +254,7 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
       cantidad: canceladas.length,
       total: canceladas.reduce((acc, v) => acc + Number(v.total), 0),
     },
+    productosVendidos: calcularProductosVendidos(completadas),
     ventas: completadas,
   });
 }));

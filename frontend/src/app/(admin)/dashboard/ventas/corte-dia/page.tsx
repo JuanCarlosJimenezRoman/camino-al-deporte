@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { MetricCard } from '@/components/ui/metric-card';
+import { ProductoThumb } from '@/components/admin/ProductoThumb';
+import { imagenMiniatura } from '@/lib/imagenCloudinary';
 
 interface Sucursal {
   id: number;
@@ -29,6 +31,16 @@ interface VentaResumen {
   cuentaTransferencia: { nombre: string } | null;
 }
 
+interface ProductoVendido {
+  productoId: number;
+  nombre: string;
+  imagenUrl: string | null;
+  proveedorId: number | null;
+  proveedorNombre: string;
+  cantidad: number;
+  total: number;
+}
+
 interface CorteDia {
   fecha: string;
   sucursalId: number | null;
@@ -37,6 +49,7 @@ interface CorteDia {
   porMetodoPago: Record<string, number>;
   porCuentaTransferencia: Record<string, number>;
   canceladas: { cantidad: number; total: number };
+  productosVendidos: ProductoVendido[];
   ventas: VentaResumen[];
 }
 
@@ -148,6 +161,40 @@ export default function CorteDelDiaPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          <div className="card">
+            <h2 className="text-base font-semibold mb-3">Productos vendidos</h2>
+            {corte.productosVendidos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin productos vendidos este día.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>Producto</th>
+                      <th>Proveedor</th>
+                      <th>Cantidad</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {corte.productosVendidos.map((p) => (
+                      <tr key={`${p.productoId}-${p.proveedorId ?? 'sin-proveedor'}`}>
+                        <td>
+                          <ProductoThumb url={imagenMiniatura(p.imagenUrl ?? undefined)} alt={p.nombre} size={36} />
+                        </td>
+                        <td className="font-medium">{p.nombre}</td>
+                        <td className="text-sm">{p.proveedorNombre}</td>
+                        <td className="tabular-nums">{p.cantidad}</td>
+                        <td className="tabular-nums font-medium">${p.total.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
