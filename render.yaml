@@ -18,6 +18,8 @@ services:
         sync: false
       - key: JWT_EXPIRES_IN
         value: 8h
+      - key: JWT_EXPIRES_IN_CLIENTE
+        value: 30d
       - key: FRONTEND_URL
         sync: false
       - key: SEED_ADMIN_EMAIL
@@ -36,6 +38,26 @@ services:
         sync: false
       - key: EMAIL_APP_PASSWORD
         sync: false
+      - key: EMAIL_FROM_NOMBRE
+        value: Camino al Deporte
+      # Opcionales — el sistema funciona sin ellas (ver backend/.env.example
+      # para el detalle de qué se desactiva mientras queden vacías).
+      - key: KICKSDB_API_KEY
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_TICKET_TEMPLATE_NAME
+        value: ticket_digital_compra_pdf
+      - key: WHATSAPP_TICKET_TEMPLATE_LANG
+        value: es_MX
+      - key: WHATSAPP_RESET_TEMPLATE_NAME
+        value: recuperar_password_cliente
+      - key: WHATSAPP_RESET_TEMPLATE_LANG
+        value: es_MX
+      - key: WHATSAPP_APARTADO_TEMPLATE_NAME
+        value: comprobante_apartado_pdf
+      - key: WHATSAPP_APARTADO_TEMPLATE_LANG
+        value: es_MX
 
   - type: web
     name: camino-al-deporte-frontend
@@ -46,4 +68,6 @@ services:
     startCommand: npm start
     envVars:
       - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
         sync: false

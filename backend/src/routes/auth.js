@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
 const prisma = require('../db');
 const { requireAuth } = require('../middleware/auth');
@@ -8,13 +9,25 @@ const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
+// Límite de intentos de login del personal (por IP): sin esto, un login
+// expuesto a internet es blanco fácil de fuerza bruta. 20 intentos / 15 min
+// es holgado para alguien que se equivoca varias veces, pero corta un
+// ataque automatizado. Mismo patrón que ya se usa en tienda/auth.js.
+const limitarLogin = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de inicio de sesión. Espera unos minutos e intenta de nuevo.' },
+});
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
 // POST /auth/login
-router.post('/login', asyncHandler(async (req, res) => {
+router.post('/login', limitarLogin, asyncHandler(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Email y password son requeridos.' });
