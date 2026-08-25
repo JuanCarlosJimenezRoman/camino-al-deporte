@@ -5,13 +5,16 @@
 -- (transportistaSugeridoId/entregaDomicilio/puntoEntregaTexto se mudan a
 -- CoberturaEnvio).
 --
--- Seguro sin backfill: "destinos_envio" y "tarifas_envio" están vacías en
--- producción (solo hay transportistas del seed) — confirmado con el dueño
--- del proyecto antes de escribir esta migración, no hay tarifas ni destinos
--- reales que migrar. Los pedidos existentes tampoco usan estos campos
--- (tipoEnvio sigue siendo PAQUETERIA_NACIONAL en todos). Por eso se puede
--- rediseñar "tarifas_envio" y "destinos_envio" directamente en vez de
--- dejar columnas viejas y nuevas conviviendo.
+-- "destinos_envio" puede tener filas reales (nombre/municipio siguen
+-- siendo válidos en la forma nueva, solo pierden columnas) — esas se
+-- conservan. "tarifas_envio" en cambio sí se vacía a propósito: su forma
+-- vieja (transportista+destino+tamaño+precio) no tiene forma de mapearse
+-- sola a la nueva (coberturaEnvioId+tamaño) sin inventar una
+-- CoberturaEnvio/RutaEnvio por cada fila, y las que había en producción
+-- eran solo pruebas (confirmado con el dueño del proyecto) — se capturan
+-- de nuevo ya con el modelo de cobertura. Los pedidos existentes tampoco
+-- usan estos campos (tipoEnvio sigue siendo PAQUETERIA_NACIONAL en
+-- todos), así que no hay nada más que dependa de las tarifas viejas.
 
 CREATE TYPE "TipoEntrega" AS ENUM ('DOMICILIO', 'PUNTO_RECOLECCION', 'COTIZACION_MANUAL');
 
@@ -99,9 +102,11 @@ ALTER TABLE "destinos_envio" ADD COLUMN "codigo_postal" TEXT;
 
 -- ---------------------------------------------------------------------
 -- tarifas_envio: ahora depende de coberturaEnvioId, no de transportista+
--- destino directos. Tabla vacía en producción, ver nota arriba — por eso
--- las columnas nuevas pueden ser NOT NULL sin default ni backfill.
+-- destino directos. Se vacía primero (ver nota arriba) para poder agregar
+-- las columnas nuevas como NOT NULL sin necesitar backfill.
 -- ---------------------------------------------------------------------
+
+DELETE FROM "tarifas_envio";
 
 ALTER TABLE "tarifas_envio" DROP CONSTRAINT "tarifas_envio_transportista_id_fkey";
 ALTER TABLE "tarifas_envio" DROP CONSTRAINT "tarifas_envio_destino_id_fkey";
