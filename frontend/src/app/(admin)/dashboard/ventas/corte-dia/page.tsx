@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Receipt, DollarSign, Banknote, CreditCard } from 'lucide-react';
+import { Receipt, DollarSign, Banknote, CreditCard, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatearHora } from '@/lib/utils';
+import { formatearHora, formatoMonedaExacto } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { MetricCard } from '@/components/ui/metric-card';
+import { Button } from '@/components/ui/button';
 import { ProductoThumb } from '@/components/admin/ProductoThumb';
 import { imagenMiniatura } from '@/lib/imagenCloudinary';
 
@@ -41,6 +42,13 @@ interface ProductoVendido {
   total: number;
 }
 
+interface TotalProveedor {
+  proveedorId: number | null;
+  proveedorNombre: string;
+  cantidad: number;
+  total: number;
+}
+
 interface CorteDia {
   fecha: string;
   sucursalId: number | null;
@@ -50,6 +58,7 @@ interface CorteDia {
   porCuentaTransferencia: Record<string, number>;
   canceladas: { cantidad: number; total: number };
   productosVendidos: ProductoVendido[];
+  porProveedor: TotalProveedor[];
   ventas: VentaResumen[];
 }
 
@@ -70,6 +79,10 @@ export default function CorteDelDiaPage() {
   const [fecha, setFecha] = useState(hoyISO());
   const [corte, setCorte] = useState<CorteDia | null>(null);
   const [cargando, setCargando] = useState(false);
+  // Colapsado por defecto: el detalle de cada producto vendido es útil para
+  // revisar algo puntual, pero no hace falta verlo cada vez que se abre el
+  // corte del día — con el total por proveedor de arriba suele bastar.
+  const [mostrarProductos, setMostrarProductos] = useState(false);
 
   useEffect(() => {
     if (esAdmin) api<Sucursal[]>('/sucursales').then(setSucursales);
@@ -133,14 +146,14 @@ export default function CorteDelDiaPage() {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <MetricCard title="Ventas del día" value={String(corte.totalVentas)} icon={Receipt} />
-            <MetricCard title="Total general" value={`$${corte.totalGeneral.toFixed(2)}`} icon={DollarSign} />
-            <MetricCard title="Efectivo" value={`$${(corte.porMetodoPago.EFECTIVO || 0).toFixed(2)}`} icon={Banknote} />
-            <MetricCard title="Tarjeta" value={`$${(corte.porMetodoPago.TARJETA || 0).toFixed(2)}`} icon={CreditCard} />
+            <MetricCard title="Total general" value={formatoMonedaExacto(corte.totalGeneral)} icon={DollarSign} />
+            <MetricCard title="Efectivo" value={formatoMonedaExacto(corte.porMetodoPago.EFECTIVO || 0)} icon={Banknote} />
+            <MetricCard title="Tarjeta" value={formatoMonedaExacto(corte.porMetodoPago.TARJETA || 0)} icon={CreditCard} />
           </div>
 
           <div className="card">
             <h2 className="text-base font-semibold mb-3">
-              Transferencias — ${(corte.porMetodoPago.TRANSFERENCIA || 0).toFixed(2)}
+              Transferencias — {formatoMonedaExacto(corte.porMetodoPago.TRANSFERENCIA || 0)}
             </h2>
             {Object.keys(corte.porCuentaTransferencia).length === 0 ? (
               <p className="text-sm text-muted-foreground">Sin transferencias este día.</p>
@@ -156,7 +169,7 @@ export default function CorteDelDiaPage() {
                   {Object.entries(corte.porCuentaTransferencia).map(([cuenta, monto]) => (
                     <tr key={cuenta}>
                       <td>{cuenta}</td>
-                      <td className="tabular-nums font-medium">${monto.toFixed(2)}</td>
+                      <td className="tabular-nums font-medium">{formatoMonedaExacto(monto)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -165,42 +178,78 @@ export default function CorteDelDiaPage() {
           </div>
 
           <div className="card">
-            <h2 className="text-base font-semibold mb-3">Productos vendidos</h2>
-            {corte.productosVendidos.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin productos vendidos este día.</p>
+            <h2 className="text-base font-semibold mb-3">Total por proveedor</h2>
+            {corte.porProveedor.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin ventas con proveedor asignado este día.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table>
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <th>Producto</th>
-                      <th>Proveedor</th>
-                      <th>Cantidad</th>
-                      <th>Total</th>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Proveedor</th>
+                    <th>Artículos</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {corte.porProveedor.map((p) => (
+                    <tr key={p.proveedorId ?? 'sin-proveedor'}>
+                      <td>{p.proveedorNombre}</td>
+                      <td className="tabular-nums">{p.cantidad}</td>
+                      <td className="tabular-nums font-medium">{formatoMonedaExacto(p.total)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {corte.productosVendidos.map((p) => (
-                      <tr key={`${p.productoId}-${p.proveedorId ?? 'sin-proveedor'}`}>
-                        <td>
-                          <ProductoThumb url={imagenMiniatura(p.imagenUrl ?? undefined)} alt={p.nombre} size={36} />
-                        </td>
-                        <td className="font-medium">{p.nombre}</td>
-                        <td className="text-sm">{p.proveedorNombre}</td>
-                        <td className="tabular-nums">{p.cantidad}</td>
-                        <td className="tabular-nums font-medium">${p.total.toFixed(2)}</td>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold">
+                Productos vendidos {corte.productosVendidos.length > 0 && `(${corte.productosVendidos.length})`}
+              </h2>
+              <Button variant="ghost" size="sm" onClick={() => setMostrarProductos((v) => !v)}>
+                {mostrarProductos ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                {mostrarProductos ? 'Ocultar detalle' : 'Ver detalle'}
+              </Button>
+            </div>
+            {mostrarProductos && (
+              corte.productosVendidos.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">Sin productos vendidos este día.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>Producto</th>
+                        <th>Proveedor</th>
+                        <th>Cantidad</th>
+                        <th>Total</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {corte.productosVendidos.map((p) => (
+                        <tr key={`${p.productoId}-${p.proveedorId ?? 'sin-proveedor'}`}>
+                          <td>
+                            <ProductoThumb url={imagenMiniatura(p.imagenUrl ?? undefined)} alt={p.nombre} size={36} />
+                          </td>
+                          <td className="font-medium">{p.nombre}</td>
+                          <td className="text-sm">{p.proveedorNombre}</td>
+                          <td className="tabular-nums">{p.cantidad}</td>
+                          <td className="tabular-nums font-medium">{formatoMonedaExacto(p.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
 
           {corte.canceladas.cantidad > 0 && (
             <p className="text-sm text-muted-foreground">
-              {corte.canceladas.cantidad} venta(s) cancelada(s) este día por ${corte.canceladas.total.toFixed(2)} (no se incluyen en los totales de arriba).
+              {corte.canceladas.cantidad} venta(s) cancelada(s) este día por {formatoMonedaExacto(corte.canceladas.total)} (no se incluyen en los totales de arriba).
             </p>
           )}
 
@@ -226,7 +275,7 @@ export default function CorteDelDiaPage() {
                     <td className="font-medium">{v.folio}</td>
                     <td>{v.sucursal?.nombre}</td>
                     <td>{v.cliente || '—'}</td>
-                    <td className="tabular-nums font-medium">${v.total}</td>
+                    <td className="tabular-nums font-medium">{formatoMonedaExacto(v.total)}</td>
                     <td className="text-xs">
                       {etiquetaMetodoPago(v.metodoPago)}
                       {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}

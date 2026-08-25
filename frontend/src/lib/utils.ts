@@ -21,6 +21,20 @@ export function formatoMoneda(valor: number | string): string {
   }).format(numero);
 }
 
+// Igual que formatoMoneda, pero siempre con 2 decimales aunque el monto sea
+// entero (formatoMoneda los omite cuando no hay centavos) — para pantallas
+// de caja/reportes donde es más fácil leer $4,799.00 que $4799 a secas.
+export function formatoMonedaExacto(valor: number | string): string {
+  const numero = typeof valor === 'string' ? Number(valor) : valor;
+  if (!Number.isFinite(numero)) return '$0.00';
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numero);
+}
+
 // Zona horaria del negocio — la misma constante (mismo valor) que
 // ZONA_NEGOCIO en backend/src/utils/fechas.js. El navegador de quien ve la
 // pantalla puede estar en cualquier zona horaria (un admin viendo el

@@ -157,6 +157,29 @@ function calcularProductosVendidos(ventas) {
     .sort((a, b) => b.cantidad - a.cantidad);
 }
 
+// Mismo desglose que arriba pero sumado por proveedor (sin importar el
+// producto) — para el total de caja "esto es lo que le corresponde a cada
+// proveedor" del corte del día. Se arma a partir de productosVendidos en vez
+// de volver a recorrer las ventas, para no repetir la agregación.
+function calcularPorProveedor(productosVendidos) {
+  const mapa = new Map();
+  for (const p of productosVendidos) {
+    const clave = p.proveedorId ?? 'sin-proveedor';
+    const actual = mapa.get(clave) || {
+      proveedorId: p.proveedorId,
+      proveedorNombre: p.proveedorNombre,
+      cantidad: 0,
+      total: 0,
+    };
+    actual.cantidad += p.cantidad;
+    actual.total += p.total;
+    mapa.set(clave, actual);
+  }
+  return [...mapa.values()]
+    .map((r) => ({ ...r, total: Math.round(r.total * 100) / 100 }))
+    .sort((a, b) => b.total - a.total);
+}
+
 router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (req, res) => {
   let sucursalId;
   if (esAdmin(req.usuario.rol)) {
@@ -243,6 +266,8 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     }
   }
 
+  const productosVendidos = calcularProductosVendidos(completadas);
+
   res.json({
     fecha: fechaStr,
     sucursalId: sucursalId || null,
@@ -254,7 +279,8 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
       cantidad: canceladas.length,
       total: canceladas.reduce((acc, v) => acc + Number(v.total), 0),
     },
-    productosVendidos: calcularProductosVendidos(completadas),
+    productosVendidos,
+    porProveedor: calcularPorProveedor(productosVendidos),
     ventas: completadas,
   });
 }));
