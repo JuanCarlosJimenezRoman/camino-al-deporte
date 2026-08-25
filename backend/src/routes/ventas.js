@@ -722,4 +722,316 @@ router.post(
   })
 );
 
+// ---------------------------------------------------------------------------
+// Edición de una venta ya registrada (solo ADMIN_PRINCIPAL/DESARROLLO).
+// ---------------------------------------------------------------------------
+//
+// A diferencia de cancelar (que revierte la venta completa), esto corrige
+// datos capturados mal SIN deshacer la venta: el caso típico es un artículo
+// que se descontó del proveedor equivocado (dos proveedores surten la misma
+// talla) y hay que reasignarlo al correcto, pero también sirve para
+// corregir cliente, método de pago, cuenta de transferencia, descuento,
+// cantidad o precio unitario de un renglón.
+//
+// Fuera de alcance a propósito (más riesgoso, mejor cancelar y volver a
+// vender si hace falta): cambiar la sucursal de la venta, agregar/quitar
+// renglones, o cambiar a qué variante (producto/talla/color) pertenece un
+// renglón ya existente.
+
+const ventaEdicionItemSchema = z.object({
+  id: z.number().int(),
+  cantidad: z.number().int().positive(),
+  precioUnitario: z.number().nonnegative(),
+  proveedorId: z.number().int().nullable(),
+});
+
+const ventaEdicionSchema = z
+  .object({
+    // Por qué se corrige — queda en el registro de auditoría (VentaEdicion),
+    // no es solo un campo de UI.
+    motivo: z.string().trim().min(5, 'Escribe un motivo de al menos 5 caracteres.'),
+    cliente: z.string().nullable().optional(),
+    clienteTelefono: z.string().nullable().optional(),
+    metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']),
+    cuentaTransferenciaId: z.number().int().nullable().optional(),
+    descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).nullable(),
+    descuentoValor: z.number().nonnegative().nullable(),
+    descuentoMotivo: z.string().nullable().optional(),
+    items: z.array(ventaEdicionItemSchema).min(1),
+  })
+  .refine((d) => d.metodoPago !== 'TRANSFERENCIA' || !!d.cuentaTransferenciaId, {
+    message: 'cuentaTransferenciaId es requerido cuando el método de pago es transferencia.',
+    path: ['cuentaTransferenciaId'],
+  })
+  .refine((d) => !d.descuentoTipo || (d.descuentoValor !== null && d.descuentoValor !== undefined && d.descuentoValor > 0), {
+    message: 'descuentoValor es requerido y debe ser mayor a 0 cuando se manda descuentoTipo.',
+    path: ['descuentoValor'],
+  })
+  .refine((d) => d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
+    message: 'El descuento por porcentaje no puede ser mayor a 100.',
+    path: ['descuentoValor'],
+  });
+
+// Suma (o resta, con delta negativo) stock al bucket sucursal+variante+
+// proveedor, creándolo si no existía. A diferencia de una venta nueva, aquí
+// SÍ se permite que quede en negativo cuando se está reasignando el
+// proveedor correcto de un artículo (ver el bloque de items más abajo) — el
+// llamador decide si eso amerita una advertencia.
+async function ajustarExistencia(tx, sucursalId, varianteId, proveedorId, delta) {
+  return tx.existencia.upsert({
+    where: { sucursalId_varianteId_proveedorId: { sucursalId, varianteId, proveedorId } },
+    update: { stockActual: { increment: delta } },
+    create: { sucursalId, varianteId, proveedorId, stockActual: delta, stockMinimo: 0 },
+  });
+}
+
+// PATCH /ventas/:id/editar - corrige una venta COMPLETADA ya registrada.
+router.patch(
+  '/:id/editar',
+  requireAuth,
+  requireRole(...ROLES_ADMIN),
+  asyncHandler(async (req, res) => {
+    const ventaId = Number(req.params.id);
+    const parsed = ventaEdicionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    const datos = parsed.data;
+
+    try {
+      const resultado = await prisma.$transaction(async (tx) => {
+        const ventaActual = await tx.venta.findUnique({ where: { id: ventaId }, include: { items: true } });
+        if (!ventaActual) throw new Error('VENTA_NO_ENCONTRADA');
+        if (ventaActual.estado !== 'COMPLETADA') throw new Error('VENTA_NO_EDITABLE');
+
+        const itemsPorId = new Map(ventaActual.items.map((it) => [it.id, it]));
+        if (datos.items.length !== ventaActual.items.length || datos.items.some((it) => !itemsPorId.has(it.id))) {
+          throw new Error('ITEMS_INVALIDOS');
+        }
+
+        if (datos.metodoPago === 'TRANSFERENCIA' && datos.cuentaTransferenciaId) {
+          const cuenta = await tx.cuentaTransferencia.findUnique({ where: { id: datos.cuentaTransferenciaId } });
+          if (!cuenta || !cuenta.activo) throw new Error('CUENTA_TRANSFERENCIA_INVALIDA');
+        }
+
+        const advertencias = [];
+        const cambiosItems = [];
+        let subtotal = 0;
+
+        for (const nuevo of datos.items) {
+          const anterior = itemsPorId.get(nuevo.id);
+          const proveedorCambio = anterior.proveedorId !== nuevo.proveedorId;
+          const cantidadCambio = anterior.cantidad !== nuevo.cantidad;
+
+          if (proveedorCambio) {
+            // Se regresa TODO lo vendido al proveedor anterior (siempre
+            // seguro: es stock que ya se había descontado de ahí) y se
+            // descuenta del proveedor correcto. La pieza física ya salió
+            // del negocio en el momento de la venta original — esto solo
+            // corrige bajo qué proveedor debió quedar contabilizada, así
+            // que NO se bloquea por falta de stock en el proveedor nuevo
+            // (si su bucket no tenía suficiente registrado, probablemente
+            // su entrada tampoco se capturó bien; se avisa, no se bloquea).
+            await ajustarExistencia(tx, ventaActual.sucursalId, anterior.varianteId, anterior.proveedorId, anterior.cantidad);
+            await tx.movimientoInventario.create({
+              data: {
+                sucursalId: ventaActual.sucursalId,
+                varianteId: anterior.varianteId,
+                tipo: 'DEVOLUCION',
+                cantidad: anterior.cantidad,
+                motivo: `Corrección venta ${ventaActual.folio}: se quita del proveedor anterior`,
+                usuarioId: req.usuario.id,
+                proveedorId: anterior.proveedorId,
+              },
+            });
+
+            const existenciaNueva = await ajustarExistencia(
+              tx,
+              ventaActual.sucursalId,
+              anterior.varianteId,
+              nuevo.proveedorId,
+              -nuevo.cantidad
+            );
+            await tx.movimientoInventario.create({
+              data: {
+                sucursalId: ventaActual.sucursalId,
+                varianteId: anterior.varianteId,
+                tipo: 'VENTA',
+                cantidad: -nuevo.cantidad,
+                motivo: `Corrección venta ${ventaActual.folio}: se asigna al proveedor correcto`,
+                usuarioId: req.usuario.id,
+                proveedorId: nuevo.proveedorId,
+              },
+            });
+            if (existenciaNueva.stockActual < 0) {
+              advertencias.push(
+                `La variante #${anterior.varianteId} quedó con stock negativo (${existenciaNueva.stockActual}) para el proveedor asignado en esta sucursal — probablemente su entrada de inventario tampoco estaba bien registrada.`
+              );
+            }
+          } else if (cantidadCambio) {
+            // Mismo proveedor, solo cambia cuánto se vendió: si aumenta, sí
+            // se valida que haya stock suficiente (es, en los hechos,
+            // vender más unidades); si disminuye, se regresa la diferencia.
+            const delta = nuevo.cantidad - anterior.cantidad;
+            if (delta > 0) {
+              const existencia = await tx.existencia.findFirst({
+                where: { sucursalId: ventaActual.sucursalId, varianteId: anterior.varianteId, proveedorId: anterior.proveedorId },
+              });
+              if (!existencia || existencia.stockActual < delta) {
+                throw new Error(`STOCK_INSUFICIENTE:${anterior.varianteId}`);
+              }
+            }
+            await ajustarExistencia(tx, ventaActual.sucursalId, anterior.varianteId, anterior.proveedorId, -delta);
+            await tx.movimientoInventario.create({
+              data: {
+                sucursalId: ventaActual.sucursalId,
+                varianteId: anterior.varianteId,
+                tipo: delta > 0 ? 'VENTA' : 'DEVOLUCION',
+                cantidad: -delta,
+                motivo: `Corrección venta ${ventaActual.folio}: ajuste de cantidad`,
+                usuarioId: req.usuario.id,
+                proveedorId: anterior.proveedorId,
+              },
+            });
+          }
+
+          const subtotalItem = nuevo.cantidad * nuevo.precioUnitario;
+          subtotal += subtotalItem;
+
+          if (proveedorCambio || cantidadCambio || Number(anterior.precioUnitario) !== nuevo.precioUnitario) {
+            cambiosItems.push({
+              itemId: nuevo.id,
+              varianteId: anterior.varianteId,
+              antes: {
+                cantidad: anterior.cantidad,
+                precioUnitario: Number(anterior.precioUnitario),
+                proveedorId: anterior.proveedorId,
+              },
+              despues: { cantidad: nuevo.cantidad, precioUnitario: nuevo.precioUnitario, proveedorId: nuevo.proveedorId },
+            });
+          }
+
+          await tx.ventaItem.update({
+            where: { id: nuevo.id },
+            data: {
+              cantidad: nuevo.cantidad,
+              precioUnitario: nuevo.precioUnitario,
+              subtotal: subtotalItem,
+              proveedorId: nuevo.proveedorId,
+            },
+          });
+        }
+
+        let descuentoMonto = 0;
+        if (datos.descuentoTipo === 'PORCENTAJE') {
+          descuentoMonto = subtotal * ((datos.descuentoValor ?? 0) / 100);
+        } else if (datos.descuentoTipo === 'MONTO') {
+          descuentoMonto = datos.descuentoValor ?? 0;
+        }
+        descuentoMonto = Math.min(descuentoMonto, subtotal);
+        const total = subtotal - descuentoMonto;
+
+        // Snapshot antes/después a nivel de venta, solo de lo que sí
+        // cambió, para el registro de auditoría.
+        const cambiosVenta = {};
+        const compararCampo = (campo, antes, despues) => {
+          if (antes !== despues) cambiosVenta[campo] = { antes, despues };
+        };
+        const cuentaTransferenciaIdNueva = datos.metodoPago === 'TRANSFERENCIA' ? datos.cuentaTransferenciaId ?? null : null;
+        const descuentoValorNuevo = datos.descuentoTipo ? datos.descuentoValor ?? null : null;
+        const descuentoMotivoNuevo = datos.descuentoTipo ? datos.descuentoMotivo || null : null;
+        compararCampo('cliente', ventaActual.cliente ?? null, datos.cliente ?? null);
+        compararCampo('clienteTelefono', ventaActual.clienteTelefono ?? null, datos.clienteTelefono ?? null);
+        compararCampo('metodoPago', ventaActual.metodoPago, datos.metodoPago);
+        compararCampo('cuentaTransferenciaId', ventaActual.cuentaTransferenciaId ?? null, cuentaTransferenciaIdNueva);
+        compararCampo('descuentoTipo', ventaActual.descuentoTipo ?? null, datos.descuentoTipo ?? null);
+        compararCampo(
+          'descuentoValor',
+          ventaActual.descuentoValor !== null ? Number(ventaActual.descuentoValor) : null,
+          descuentoValorNuevo
+        );
+        compararCampo('descuentoMotivo', ventaActual.descuentoMotivo ?? null, descuentoMotivoNuevo);
+        compararCampo('total', Number(ventaActual.total), total);
+
+        const ventaActualizada = await tx.venta.update({
+          where: { id: ventaId },
+          data: {
+            cliente: datos.cliente ?? null,
+            clienteTelefono: datos.clienteTelefono ?? null,
+            metodoPago: datos.metodoPago,
+            cuentaTransferenciaId: cuentaTransferenciaIdNueva,
+            descuentoTipo: datos.descuentoTipo,
+            descuentoValor: descuentoValorNuevo,
+            descuentoMonto,
+            descuentoMotivo: descuentoMotivoNuevo,
+            total,
+          },
+          include: {
+            items: {
+              include: {
+                variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+                proveedor: { select: { id: true, nombre: true } },
+              },
+            },
+            cuentaTransferencia: { select: { nombre: true } },
+            sucursal: { select: { nombre: true } },
+            usuario: { select: { nombre: true } },
+          },
+        });
+
+        await tx.ventaEdicion.create({
+          data: {
+            ventaId,
+            usuarioId: req.usuario.id,
+            motivo: datos.motivo,
+            cambios: { venta: cambiosVenta, items: cambiosItems, advertencias },
+          },
+        });
+
+        return { venta: ventaActualizada, advertencias, varianteIdsTocados: cambiosItems.map((c) => c.varianteId) };
+      });
+
+      // Best-effort y en segundo plano, igual criterio que POST /ventas: si
+      // alguna variante tocada por la corrección quedó en o bajo su
+      // mínimo, avisa a quien reabastece. Nunca debe tumbar la respuesta.
+      verificarBajoStockYNotificar(
+        resultado.varianteIdsTocados.map((varianteId) => ({ sucursalId: resultado.venta.sucursalId, varianteId }))
+      ).catch((err) => console.error('Error verificando bajo stock tras editar venta:', err));
+
+      res.json({ venta: resultado.venta, advertencias: resultado.advertencias });
+    } catch (err) {
+      if (err.message === 'VENTA_NO_ENCONTRADA') return res.status(404).json({ error: 'Venta no encontrada.' });
+      if (err.message === 'VENTA_NO_EDITABLE') {
+        return res.status(400).json({ error: 'Solo se pueden editar ventas completadas (no canceladas).' });
+      }
+      if (err.message === 'ITEMS_INVALIDOS') {
+        return res.status(400).json({ error: 'La lista de artículos no coincide con los de la venta original.' });
+      }
+      if (err.message === 'CUENTA_TRANSFERENCIA_INVALIDA') {
+        return res.status(400).json({ error: 'La cuenta de transferencia indicada no existe o está inactiva.' });
+      }
+      if (err.message.startsWith('STOCK_INSUFICIENTE')) {
+        return res.status(409).json({ error: 'No hay stock suficiente para aumentar la cantidad de ese artículo.' });
+      }
+      throw err;
+    }
+  })
+);
+
+// GET /ventas/:id/ediciones - historial de correcciones hechas a una venta.
+router.get(
+  '/:id/ediciones',
+  requireAuth,
+  requireRole(...ROLES_ADMIN),
+  asyncHandler(async (req, res) => {
+    const ventaId = Number(req.params.id);
+    const ediciones = await prisma.ventaEdicion.findMany({
+      where: { ventaId },
+      include: { usuario: { select: { nombre: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(ediciones);
+  })
+);
+
 module.exports = router;

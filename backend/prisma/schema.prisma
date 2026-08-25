@@ -53,6 +53,7 @@ model Usuario {
 
   movimientos  MovimientoInventario[]
   ventas       Venta[]
+  ventaEdiciones VentaEdicion[]
   transferenciasSolicitadas TransferenciaInventario[] @relation("TransferenciasSolicitadas")
   transferenciasRecibidas   TransferenciaInventario[] @relation("TransferenciasRecibidas")
   apartadosCreados          Apartado[]      @relation("ApartadosCreados")
@@ -631,6 +632,11 @@ model Venta {
 
   estado      EstadoVenta @default(COMPLETADA)
   items       VentaItem[]
+  // Historial de correcciones hechas por un administrador después de
+  // registrada (ver PATCH /ventas/:id/editar) — ej. se vendió con el
+  // proveedor equivocado, se corrigió el método de pago, etc. Cada fila es
+  // una edición con su motivo, quién la hizo y un snapshot de qué cambió.
+  ediciones   VentaEdicion[]
   createdAt   DateTime    @default(now()) @map("created_at")
 
   @@map("ventas")
@@ -652,6 +658,26 @@ model VentaItem {
   subtotal       Decimal          @db.Decimal(10, 2)
 
   @@map("venta_items")
+}
+
+// Auditoría de una corrección hecha por un administrador a una venta ya
+// registrada (ver PATCH /ventas/:id/editar) — por ejemplo, corregir el
+// proveedor de un artículo mal registrado, el método de pago, o un
+// descuento. "motivo" es obligatorio (por qué se corrigió) y "cambios"
+// guarda un snapshot JSON de los campos que cambiaron, antes/después, tanto
+// a nivel de la venta como de cada renglón afectado — así queda un rastro
+// completo sin depender de reconstruirlo a partir de otras tablas.
+model VentaEdicion {
+  id        Int      @id @default(autoincrement())
+  ventaId   Int      @map("venta_id")
+  venta     Venta    @relation(fields: [ventaId], references: [id])
+  usuarioId Int      @map("usuario_id")
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  motivo    String
+  cambios   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("venta_ediciones")
 }
 
 // ---------------------------------------------------------------------------
