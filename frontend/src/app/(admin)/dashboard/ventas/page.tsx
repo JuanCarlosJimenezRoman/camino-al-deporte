@@ -12,6 +12,7 @@ import {
   Receipt,
   History,
   ShoppingBag,
+  Plus,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora } from '@/lib/utils';
@@ -36,17 +37,26 @@ interface CuentaTransferencia {
   banco: string | null;
 }
 
+interface Proveedor {
+  id: number;
+  nombre: string;
+}
+
 interface VentaItem {
   id: number;
   cantidad: number;
   precioUnitario: string;
   subtotal: string;
+  // Null cuando el renglón es un producto NO registrado en el catálogo (ver
+  // descripcionLibre) — no descontó inventario ni tiene SKU/talla/foto.
   variante: {
     sku: string;
     color: string | null;
     talla: { valor: string } | null;
     producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
-  };
+  } | null;
+  descripcionLibre?: string | null;
+  proveedor?: { id: number; nombre: string } | null;
 }
 
 interface Venta {
@@ -122,11 +132,27 @@ function claveExistencia(e: Existencia) {
 // varios artículos distintos, por eso el carrito es una lista de renglones
 // en vez de un solo "seleccionado" — antes solo se podía vender un producto
 // a la vez porque el formulario solo guardaba una selección.
-interface ItemCarrito {
+//
+// Un renglón también puede ser "libre": un producto que NO está dado de
+// alta en el catálogo (ver POST /ventas → descripcionLibre). No tiene
+// Existencia ni límite de stock — el cajero captura descripción, proveedor
+// (opcional, solo de referencia) y precio a mano.
+interface ItemCarritoVariante {
+  tipo: 'variante';
   key: string;
   existencia: Existencia;
   cantidad: number;
 }
+interface ItemCarritoLibre {
+  tipo: 'libre';
+  key: string;
+  descripcion: string;
+  proveedorId: number | null;
+  proveedorNombre: string | null;
+  precioUnitario: number;
+  cantidad: number;
+}
+type ItemCarrito = ItemCarritoVariante | ItemCarritoLibre;
 
 const METODOS_PAGO = [
   { valor: 'EFECTIVO', etiqueta: 'Efectivo' },
@@ -159,6 +185,10 @@ function formatearTelefonoWhatsapp(telefono: string): string {
 function construirTicketTexto(venta: Venta): string {
   const articulos = venta.items
     .map((it) => {
+      if (!it.variante) {
+        // Producto no registrado en el catálogo (ver descripcionLibre).
+        return `- ${it.descripcionLibre ?? 'Producto no registrado'} x${it.cantidad} — $${it.subtotal}`;
+      }
       const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
       return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${it.subtotal}`;
     })
@@ -258,6 +288,16 @@ export default function VentasPage() {
   // "Apartar para el cliente" de un solo artículo (ver seleccion más abajo).
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
 
+  // Formulario para agregar un renglón "producto no registrado" (fuera del
+  // catálogo) al carrito — ver agregarLibreAlCarrito.
+  const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [mostrarFormLibre, setMostrarFormLibre] = useState(false);
+  const [libreDescripcion, setLibreDescripcion] = useState('');
+  const [libreProveedorId, setLibreProveedorId] = useState('');
+  const [librePrecio, setLibrePrecio] = useState('');
+  const [libreCantidad, setLibreCantidad] = useState('1');
+  const [errorLibre, setErrorLibre] = useState('');
+
   // Venta local (producto disponible en la sucursal propia)
   const [cliente, setCliente] = useState('');
   // Opcional: solo se pide para poder mandar el ticket digital por WhatsApp
@@ -304,6 +344,9 @@ export default function VentasPage() {
       setSucursalId(inicial);
     });
     api<CuentaTransferencia[]>('/catalogos/cuentas-transferencia').then(setCuentas);
+    // Para el selector de proveedor del formulario "producto no registrado"
+    // (?todas=1: incluye inactivos, igual criterio que en historial/edición).
+    api<Proveedor[]>('/proveedores?todas=1').then(setProveedores);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -393,20 +436,67 @@ export default function VentasPage() {
         if (existente.cantidad >= e.stockActual) return actual;
         return actual.map((it) => (it.key === key ? { ...it, cantidad: it.cantidad + 1 } : it));
       }
-      return [...actual, { key, existencia: e, cantidad: Math.min(1, e.stockActual) }];
+      return [...actual, { tipo: 'variante', key, existencia: e, cantidad: Math.min(1, e.stockActual) }];
     });
+  }
+
+  // Agrega un renglón "producto no registrado" (fuera del catálogo) al
+  // carrito — a diferencia de agregarAlCarrito, cada uno es su propio
+  // renglón nuevo (no hay una existencia con la que agrupar duplicados) y no
+  // tiene límite de stock, porque no descuenta ningún inventario.
+  function agregarLibreAlCarrito() {
+    setErrorLibre('');
+    const descripcion = libreDescripcion.trim();
+    const precio = Number(librePrecio);
+    const cant = Number(libreCantidad);
+    if (descripcion.length < 3) {
+      setErrorLibre('Describe qué se vendió (mínimo 3 caracteres).');
+      return;
+    }
+    if (!librePrecio || !Number.isFinite(precio) || precio < 0) {
+      setErrorLibre('Captura un precio válido.');
+      return;
+    }
+    if (!libreCantidad || !Number.isInteger(cant) || cant <= 0) {
+      setErrorLibre('Captura una cantidad válida.');
+      return;
+    }
+    const proveedor = libreProveedorId ? proveedores.find((p) => p.id === Number(libreProveedorId)) : undefined;
+    setCarrito((actual) => [
+      ...actual,
+      {
+        tipo: 'libre',
+        key: `libre-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        descripcion,
+        proveedorId: proveedor ? proveedor.id : null,
+        proveedorNombre: proveedor ? proveedor.nombre : null,
+        precioUnitario: precio,
+        cantidad: cant,
+      },
+    ]);
+    setLibreDescripcion('');
+    setLibreProveedorId('');
+    setLibrePrecio('');
+    setLibreCantidad('1');
+    setMostrarFormLibre(false);
   }
 
   function quitarDelCarrito(key: string) {
     setCarrito((actual) => actual.filter((it) => it.key !== key));
   }
 
-  // Cambia la cantidad de un renglón del carrito, siempre entre 1 y el stock
-  // disponible de esa existencia (no se puede vender más de lo que hay).
+  // Cambia la cantidad de un renglón del carrito. Para un renglón normal,
+  // siempre entre 1 y el stock disponible de esa existencia (no se puede
+  // vender más de lo que hay); un renglón libre no tiene stock que
+  // respetar, solo se cuida que sea un entero positivo.
   function cambiarCantidadCarrito(key: string, nuevaCantidad: number) {
     setCarrito((actual) =>
       actual.map((it) => {
         if (it.key !== key) return it;
+        if (it.tipo === 'libre') {
+          const cantidad = Number.isFinite(nuevaCantidad) ? Math.max(1, Math.round(nuevaCantidad)) : 1;
+          return { ...it, cantidad };
+        }
         const max = it.existencia.stockActual;
         const cantidad = Number.isFinite(nuevaCantidad) ? Math.max(1, Math.min(nuevaCantidad, max)) : 1;
         return { ...it, cantidad };
@@ -425,6 +515,12 @@ export default function VentasPage() {
     setDescuentoTipo('PORCENTAJE');
     setDescuentoValor('');
     setDescuentoMotivo('');
+    setMostrarFormLibre(false);
+    setLibreDescripcion('');
+    setLibreProveedorId('');
+    setLibrePrecio('');
+    setLibreCantidad('1');
+    setErrorLibre('');
   }
 
   // El vendedor (VENTAS o admin probando con esa sucursal) nunca vende
@@ -440,8 +536,11 @@ export default function VentasPage() {
 
   // Suma de todos los renglones del carrito de la venta directa (uno o más
   // productos) — antes esto solo consideraba el único producto seleccionado.
+  // Un renglón libre ya trae su propio precio capturado a mano, en vez de
+  // leerlo del catálogo.
   const subtotalVenta = carrito.reduce(
-    (acc, it) => acc + Number(it.existencia.variante.producto.precioVenta) * it.cantidad,
+    (acc, it) =>
+      acc + (it.tipo === 'libre' ? it.precioUnitario : Number(it.existencia.variante.producto.precioVenta)) * it.cantidad,
     0
   );
   // Solo es una vista previa para el cajero — el monto real en pesos
@@ -503,15 +602,26 @@ export default function VentasPage() {
         descuentoMotivo: aplicarDescuento && descuentoMotivo.trim() ? descuentoMotivo.trim() : undefined,
         // Uno o más renglones, cada uno con su propia variante, cantidad y
         // proveedor de stock — antes aquí solo podía ir un artículo porque
-        // el formulario solo guardaba una selección.
-        items: carrito.map((it) => ({
-          varianteId: it.existencia.variante.id,
-          cantidad: it.cantidad,
-          precioUnitario: Number(it.existencia.variante.producto.precioVenta),
-          // De qué proveedor sale el stock vendido — ya viene fijo desde
-          // que se eligió el renglón en la búsqueda.
-          proveedorId: it.existencia.proveedorId,
-        })),
+        // el formulario solo guardaba una selección. Un renglón "libre" no
+        // manda varianteId, manda descripcionLibre en su lugar (ver POST
+        // /ventas) — el servidor lo distingue por eso, no por otro campo.
+        items: carrito.map((it) =>
+          it.tipo === 'libre'
+            ? {
+                descripcionLibre: it.descripcion,
+                cantidad: it.cantidad,
+                precioUnitario: it.precioUnitario,
+                proveedorId: it.proveedorId,
+              }
+            : {
+                varianteId: it.existencia.variante.id,
+                cantidad: it.cantidad,
+                precioUnitario: Number(it.existencia.variante.producto.precioVenta),
+                // De qué proveedor sale el stock vendido — ya viene fijo desde
+                // que se eligió el renglón en la búsqueda.
+                proveedorId: it.existencia.proveedorId,
+              }
+        ),
       };
 
       const formData = new FormData();
@@ -714,6 +824,79 @@ export default function VentasPage() {
               )}
             </div>
 
+            {/* Vender algo que no está dado de alta en el catálogo: no
+                depende de la búsqueda de arriba ni de tener una sucursal
+                "local" seleccionada — es un renglón de cobro aparte que
+                nunca toca inventario (ver POST /ventas → descripcionLibre). */}
+            <div>
+              {!mostrarFormLibre ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setMostrarFormLibre(true)} className="gap-1.5">
+                  <Plus className="w-3.5 h-3.5" />
+                  Producto no registrado
+                </Button>
+              ) : (
+                <div className="rounded-lg border border-border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Producto no registrado en el catálogo</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setMostrarFormLibre(false)}
+                      aria-label="Cancelar"
+                      className="shrink-0"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Descripción (obligatoria)</label>
+                    <Input
+                      value={libreDescripcion}
+                      onChange={(e) => setLibreDescripcion(e.target.value)}
+                      placeholder="Ej. Calcetas sueltas sin marca"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="text-xs text-muted-foreground">Proveedor (opcional)</label>
+                      <Select value={libreProveedorId} onChange={(e) => setLibreProveedorId(e.target.value)}>
+                        <option value="">Sin proveedor</option>
+                        {proveedores.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.nombre}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="w-24">
+                      <label className="text-xs text-muted-foreground">Precio</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={librePrecio}
+                        onChange={(e) => setLibrePrecio(e.target.value)}
+                      />
+                    </div>
+                    <div className="w-20">
+                      <label className="text-xs text-muted-foreground">Cantidad</label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={libreCantidad}
+                        onChange={(e) => setLibreCantidad(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {errorLibre && <p className="text-xs text-destructive">{errorLibre}</p>}
+                  <Button type="button" size="sm" onClick={agregarLibreAlCarrito}>
+                    Agregar a la venta
+                  </Button>
+                </div>
+              )}
+            </div>
+
             {seleccion && !esLocal && (
               <p className="text-xs text-warning">
                 Este producto no está en tu sucursal — hay {seleccion.stockActual} en {seleccion.sucursal?.nombre ?? 'otra sucursal'}.
@@ -732,6 +915,35 @@ export default function VentasPage() {
                     <label>Artículos de la venta ({carrito.length})</label>
                     <div className="rounded-lg border border-border divide-y divide-border">
                       {carrito.map((it) => {
+                        if (it.tipo === 'libre') {
+                          return (
+                            <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary">
+                                <Plus className="w-4 h-4 text-muted-foreground" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium truncate">{it.descripcion}</div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  ${it.precioUnitario.toFixed(2)} c/u · No registrado
+                                  {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
+                                </div>
+                              </div>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={it.cantidad}
+                                onChange={(e) => cambiarCantidadCarrito(it.key, Number(e.target.value))}
+                                className="w-16 shrink-0"
+                              />
+                              <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
+                                ${(it.precioUnitario * it.cantidad).toFixed(2)}
+                              </div>
+                              <Button variant="ghost" size="icon" onClick={() => quitarDelCarrito(it.key)} aria-label="Quitar de la venta" className="shrink-0 text-destructive">
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          );
+                        }
                         const p = it.existencia.variante.producto;
                         const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
                           .filter(Boolean)

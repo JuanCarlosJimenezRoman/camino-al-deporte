@@ -14,6 +14,7 @@ import { MetricCard } from '@/components/ui/metric-card';
 import { Button } from '@/components/ui/button';
 import { ProductoThumb } from '@/components/admin/ProductoThumb';
 import { imagenMiniatura } from '@/lib/imagenCloudinary';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 interface Sucursal {
   id: number;
@@ -33,9 +34,12 @@ interface VentaResumen {
 }
 
 interface ProductoVendido {
-  productoId: number;
+  // Null cuando el renglón es un producto no registrado en el catálogo (ver
+  // esLibre) — se agrupa por su descripción en vez de por un id real.
+  productoId: number | null;
   nombre: string;
   imagenUrl: string | null;
+  esLibre?: boolean;
   proveedorId: number | null;
   proveedorNombre: string;
   cantidad: number;
@@ -242,11 +246,18 @@ export default function CorteDelDiaPage() {
                     </thead>
                     <tbody>
                       {corte.productosVendidos.map((p) => (
-                        <tr key={`${p.productoId}-${p.proveedorId ?? 'sin-proveedor'}`}>
+                        <tr key={`${p.productoId ?? `libre-${p.nombre}`}-${p.proveedorId ?? 'sin-proveedor'}`}>
                           <td>
                             <ProductoThumb url={imagenMiniatura(p.imagenUrl ?? undefined)} alt={p.nombre} size={36} />
                           </td>
-                          <td className="font-medium">{p.nombre}</td>
+                          <td className="font-medium">
+                            {p.nombre}
+                            {p.esLibre && (
+                              <StatusBadge tono="warning" withDot={false} className="ml-2 align-middle">
+                                No registrado
+                              </StatusBadge>
+                            )}
+                          </td>
                           <td className="text-sm">{p.proveedorNombre}</td>
                           <td className="tabular-nums">{p.cantidad}</td>
                           <td className="tabular-nums font-medium">{formatoMonedaExacto(p.total)}</td>

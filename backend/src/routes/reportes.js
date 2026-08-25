@@ -255,6 +255,9 @@ async function fetchVentaItemsCompletados(desde, hasta, sucursalId) {
       cantidad: true,
       subtotal: true,
       proveedor: { select: { id: true, nombre: true } },
+      // Solo presente en renglones "producto no registrado" (ver
+      // migración 20260901100000_venta_items_libres y calcularDesglose).
+      descripcionLibre: true,
       variante: {
         select: {
           color: true,
@@ -408,6 +411,10 @@ function calcularDesglose(items, limiteProductos) {
   const porCategoria = new Map();
   const porTalla = new Map();
   const porProveedor = new Map();
+  // Renglones "producto no registrado" (ver migración
+  // 20260901100000_venta_items_libres): no tienen producto/marca/categoría/
+  // talla del catálogo, así que se desglosan aparte por su descripción.
+  const porProductoLibre = new Map();
 
   for (const item of items) {
     const cantidad = item.cantidad;
@@ -423,6 +430,15 @@ function calcularDesglose(items, limiteProductos) {
       actual.cantidad += cantidad;
       actual.monto += monto;
       porProducto.set(producto.id, actual);
+    } else if (item.descripcionLibre) {
+      const actual = porProductoLibre.get(item.descripcionLibre) || {
+        nombre: item.descripcionLibre,
+        cantidad: 0,
+        monto: 0,
+      };
+      actual.cantidad += cantidad;
+      actual.monto += monto;
+      porProductoLibre.set(item.descripcionLibre, actual);
     }
     if (marca) {
       const actual = porMarca.get(marca.id) || { id: marca.id, nombre: marca.nombre, cantidad: 0, monto: 0 };
@@ -464,6 +480,7 @@ function calcularDesglose(items, limiteProductos) {
     porCategoria: ordenar(porCategoria),
     porTalla: ordenar(porTalla),
     porProveedor: ordenar(porProveedor),
+    productosNoRegistrados: ordenar(porProductoLibre),
   };
 }
 

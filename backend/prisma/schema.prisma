@@ -646,11 +646,23 @@ model VentaItem {
   id             Int              @id @default(autoincrement())
   ventaId        Int              @map("venta_id")
   venta          Venta            @relation(fields: [ventaId], references: [id])
-  varianteId     Int              @map("variante_id")
-  variante       ProductoVariante @relation(fields: [varianteId], references: [id])
+  // Nulo cuando el renglón es un producto NO registrado en el catálogo (ver
+  // descripcionLibre abajo) — en ese caso no hay ProductoVariante ni
+  // Existencia de por medio, así que la venta no descuenta inventario. Un
+  // VentaItem siempre trae exactamente uno de los dos (varianteId XOR
+  // descripcionLibre), reforzado también a nivel de base de datos con un
+  // CHECK constraint (ver migración 20260901100000_venta_items_libres).
+  varianteId     Int?              @map("variante_id")
+  variante       ProductoVariante? @relation(fields: [varianteId], references: [id])
+  // Descripción capturada a mano por el cajero para un artículo que no está
+  // dado de alta en el sistema (ej. algo de otra marca que se vende una sola
+  // vez). Solo aplica cuando varianteId es null.
+  descripcionLibre String?        @map("descripcion_libre")
   // De qué bucket de proveedor salió el stock vendido (null = renglón sin
   // clasificar). Se necesita para poder regresar el stock al bucket correcto
-  // si la venta se cancela.
+  // si la venta se cancela. En un renglón libre este campo es solo
+  // informativo (de qué proveedor vino la mercancía) — no existe ningún
+  // bucket de Existencia que ajustar.
   proveedorId    Int?             @map("proveedor_id")
   proveedor      Proveedor?       @relation(fields: [proveedorId], references: [id])
   cantidad       Int

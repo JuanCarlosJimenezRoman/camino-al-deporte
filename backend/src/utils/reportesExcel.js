@@ -68,6 +68,21 @@ function generarReporteVentasExcel({ periodo, resumen, serie, porMetodoPago, por
     'Por proveedor'
   );
 
+  // Renglones "producto no registrado" (ver migración
+  // 20260901100000_venta_items_libres): productos vendidos que nunca se
+  // dieron de alta en el catálogo, para que el admin los vea aparte del
+  // resto del inventario clasificado.
+  const productosNoRegistrados = desglose.productosNoRegistrados || [];
+  if (productosNoRegistrados.length > 0) {
+    XLSX.utils.book_append_sheet(
+      libro,
+      XLSX.utils.json_to_sheet(
+        productosNoRegistrados.map((p) => ({ descripcion: p.nombre, cantidad: p.cantidad, monto: fmt(p.monto) }))
+      ),
+      'No registrados'
+    );
+  }
+
   if (estimacion?.proyeccion?.length) {
     const hojaProy = XLSX.utils.aoa_to_sheet([
       ['Proyección de ventas (estimación)'],

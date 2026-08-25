@@ -147,18 +147,41 @@ function calcularProductosVendidos(ventas) {
     const factor = subtotalVenta > 0 ? Number(venta.total) / subtotalVenta : 1;
     for (const item of venta.items) {
       const producto = item.variante?.producto;
-      if (!producto) continue;
       const proveedorId = item.proveedorId ?? null;
-      const clave = `${producto.id}-${proveedorId ?? 'sin-proveedor'}`;
-      const actual = mapa.get(clave) || {
-        productoId: producto.id,
-        nombre: producto.nombre,
-        imagenUrl: producto.imagenes?.[0]?.url || null,
-        proveedorId,
-        proveedorNombre: item.proveedor?.nombre || 'Sin proveedor',
-        cantidad: 0,
-        total: 0,
-      };
+      let clave;
+      let base;
+      if (producto) {
+        clave = `${producto.id}-${proveedorId ?? 'sin-proveedor'}`;
+        base = {
+          productoId: producto.id,
+          nombre: producto.nombre,
+          imagenUrl: producto.imagenes?.[0]?.url || null,
+          esLibre: false,
+          proveedorId,
+          proveedorNombre: item.proveedor?.nombre || 'Sin proveedor',
+          cantidad: 0,
+          total: 0,
+        };
+      } else if (item.descripcionLibre) {
+        // Producto no registrado en el catálogo (ver migración
+        // 20260901100000_venta_items_libres): se agrupa por su descripción
+        // + proveedor, igual criterio que un producto real, para que se vea
+        // en el corte del día en vez de perderse silenciosamente.
+        clave = `libre-${item.descripcionLibre}-${proveedorId ?? 'sin-proveedor'}`;
+        base = {
+          productoId: null,
+          nombre: item.descripcionLibre,
+          imagenUrl: null,
+          esLibre: true,
+          proveedorId,
+          proveedorNombre: item.proveedor?.nombre || 'Sin proveedor',
+          cantidad: 0,
+          total: 0,
+        };
+      } else {
+        continue;
+      }
+      const actual = mapa.get(clave) || base;
       actual.cantidad += item.cantidad;
       actual.total += Number(item.subtotal) * factor;
       mapa.set(clave, actual);
@@ -229,6 +252,9 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
             cantidad: true,
             subtotal: true,
             proveedorId: true,
+            // Solo presente en renglones "producto no registrado" (ver
+            // calcularProductosVendidos arriba).
+            descripcionLibre: true,
             proveedor: { select: { id: true, nombre: true } },
             variante: {
               select: {
@@ -354,16 +380,33 @@ router.get(
   })
 );
 
-const ventaItemSchema = z.object({
-  varianteId: z.number().int(),
-  cantidad: z.number().int().positive(),
-  precioUnitario: z.number().nonnegative(),
-  // De qué proveedor sale el stock vendido (null = bucket "sin proveedor").
-  // Es obligatorio mandarlo explícitamente: como el stock ahora se separa
-  // por proveedor, el punto de venta debe decir siempre de cuál se descuenta
-  // cuando una talla tiene stock de más de uno.
-  proveedorId: z.number().int().nullable(),
-});
+const ventaItemSchema = z
+  .object({
+    varianteId: z.number().int().optional(),
+    // Producto que NO está dado de alta en el catálogo (ver migración
+    // 20260901100000_venta_items_libres): el cajero escribe a mano qué es
+    // en vez de elegir una variante. Este renglón NUNCA descuenta
+    // inventario (no hay Existencia que ajustar).
+    descripcionLibre: z
+      .string()
+      .trim()
+      .min(3, 'Describe qué se vendió (mínimo 3 caracteres).')
+      .max(200)
+      .optional(),
+    cantidad: z.number().int().positive(),
+    precioUnitario: z.number().nonnegative(),
+    // De qué proveedor sale el stock vendido (null = bucket "sin proveedor").
+    // Es obligatorio mandarlo explícitamente: como el stock ahora se separa
+    // por proveedor, el punto de venta debe decir siempre de cuál se descuenta
+    // cuando una talla tiene stock de más de uno. En un renglón libre es
+    // opcional/informativo (de qué proveedor vino la mercancía).
+    proveedorId: z.number().int().nullable(),
+  })
+  .refine((d) => !!d.varianteId !== !!d.descripcionLibre, {
+    message:
+      'Cada renglón debe traer varianteId (producto del catálogo) o descripcionLibre (producto no registrado), pero no ambos.',
+    path: ['varianteId'],
+  });
 
 const ventaSchema = z
   .object({
@@ -484,6 +527,34 @@ router.post(
         const itemsData = [];
 
         for (const item of items) {
+          // Renglón "producto no registrado" (ver migración
+          // 20260901100000_venta_items_libres): no hay Existencia ni
+          // ProductoVariante que tocar, solo se cobra. varianteId se manda
+          // explícitamente como null para que quede claro en itemsData que
+          // no aplica (Prisma lo omitiría igual si viniera undefined, pero
+          // así es explícito para quien lea el código).
+          if (!item.varianteId) {
+            const subtotalItem = item.cantidad * item.precioUnitario;
+            subtotal += subtotalItem;
+
+            itemsParaTicket.push({
+              descripcion: item.descripcionLibre,
+              cantidad: item.cantidad,
+              precioUnitario: item.precioUnitario,
+              subtotal: subtotalItem,
+            });
+
+            itemsData.push({
+              varianteId: null,
+              descripcionLibre: item.descripcionLibre,
+              proveedorId: item.proveedorId,
+              cantidad: item.cantidad,
+              precioUnitario: item.precioUnitario,
+              subtotal: subtotalItem,
+            });
+            continue;
+          }
+
           const existencia = await tx.existencia.findFirst({
             where: { sucursalId, varianteId: item.varianteId, proveedorId: item.proveedorId },
             include: { variante: { include: { producto: true, talla: true } } },
@@ -590,9 +661,11 @@ router.post(
       // variantes vendidas quedó en o bajo su mínimo, avisa a quien le toca
       // reabastecerla (ver utils/bajoStock.js). No debe agregar latencia al
       // cajero ni tumbar la venta si algo falla.
-      verificarBajoStockYNotificar(items.map((i) => ({ sucursalId, varianteId: i.varianteId }))).catch((err) =>
-        console.error('Error verificando bajo stock tras la venta:', err)
-      );
+      // Los renglones libres (producto no registrado) no tienen varianteId
+      // ni Existencia que revisar — se excluyen aquí.
+      verificarBajoStockYNotificar(
+        items.filter((i) => i.varianteId).map((i) => ({ sucursalId, varianteId: i.varianteId }))
+      ).catch((err) => console.error('Error verificando bajo stock tras la venta:', err));
 
       // A partir de aquí la venta YA quedó registrada (la transacción de
       // arriba ya se guardó en la base de datos y ya se descontó el stock).
@@ -678,6 +751,10 @@ router.post(
         if (v.estado === 'CANCELADA') return v;
 
         for (const item of v.items) {
+          // Renglón "producto no registrado": nunca se descontó inventario
+          // al venderse, así que cancelar tampoco tiene nada que reponer.
+          if (!item.varianteId) continue;
+
           const existencia = await tx.existencia.findFirst({
             where: { sucursalId: v.sucursalId, varianteId: item.varianteId, proveedorId: item.proveedorId },
           });
@@ -831,6 +908,45 @@ router.patch(
 
         for (const nuevo of datos.items) {
           const anterior = itemsPorId.get(nuevo.id);
+
+          // Renglón "producto no registrado" (varianteId null): no hay
+          // Existencia ni MovimientoInventario que ajustar aquí, solo se
+          // corrigen cantidad/precio/proveedor (proveedorId es meramente
+          // informativo en este tipo de renglón). El resto del bloque de
+          // abajo es todo ajuste de inventario, así que se salta entero.
+          if (!anterior.varianteId) {
+            const subtotalItemLibre = nuevo.cantidad * nuevo.precioUnitario;
+            subtotal += subtotalItemLibre;
+
+            if (
+              anterior.cantidad !== nuevo.cantidad ||
+              Number(anterior.precioUnitario) !== nuevo.precioUnitario ||
+              anterior.proveedorId !== nuevo.proveedorId
+            ) {
+              cambiosItems.push({
+                itemId: nuevo.id,
+                varianteId: null,
+                antes: {
+                  cantidad: anterior.cantidad,
+                  precioUnitario: Number(anterior.precioUnitario),
+                  proveedorId: anterior.proveedorId,
+                },
+                despues: { cantidad: nuevo.cantidad, precioUnitario: nuevo.precioUnitario, proveedorId: nuevo.proveedorId },
+              });
+            }
+
+            await tx.ventaItem.update({
+              where: { id: nuevo.id },
+              data: {
+                cantidad: nuevo.cantidad,
+                precioUnitario: nuevo.precioUnitario,
+                subtotal: subtotalItemLibre,
+                proveedorId: nuevo.proveedorId,
+              },
+            });
+            continue;
+          }
+
           const proveedorCambio = anterior.proveedorId !== nuevo.proveedorId;
           const cantidadCambio = anterior.cantidad !== nuevo.cantidad;
 
@@ -1005,8 +1121,12 @@ router.patch(
       // Best-effort y en segundo plano, igual criterio que POST /ventas: si
       // alguna variante tocada por la corrección quedó en o bajo su
       // mínimo, avisa a quien reabastece. Nunca debe tumbar la respuesta.
+      // varianteIdsTocados trae null por cada renglón libre corregido (no
+      // aplica inventario ahí) — se filtran antes de consultar bajo stock.
       verificarBajoStockYNotificar(
-        resultado.varianteIdsTocados.map((varianteId) => ({ sucursalId: resultado.venta.sucursalId, varianteId }))
+        resultado.varianteIdsTocados
+          .filter(Boolean)
+          .map((varianteId) => ({ sucursalId: resultado.venta.sucursalId, varianteId }))
       ).catch((err) => console.error('Error verificando bajo stock tras editar venta:', err));
 
       res.json({ venta: resultado.venta, advertencias: resultado.advertencias });

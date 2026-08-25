@@ -40,12 +40,15 @@ interface VentaItem {
   subtotal: string;
   proveedorId: number | null;
   proveedor: { id: number; nombre: string } | null;
+  // Null cuando el renglón es un producto NO registrado en el catálogo (ver
+  // descripcionLibre) — no descontó inventario ni tiene SKU/talla/foto.
   variante: {
     id: number;
     color: string | null;
     talla: { valor: string } | null;
     producto: { nombre: string; imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[] };
-  };
+  } | null;
+  descripcionLibre?: string | null;
 }
 
 interface Venta {
@@ -89,7 +92,7 @@ interface VentaEdicionRegistro {
 
 interface FormItem {
   id: number;
-  varianteId: number;
+  varianteId: number | null;
   descripcion: string;
   cantidad: string;
   precioUnitario: string;
@@ -191,8 +194,10 @@ export default function HistorialVentasPage() {
     setFormItems(
       venta.items.map((it) => ({
         id: it.id,
-        varianteId: it.variante.id,
-        descripcion: `${it.variante.producto.nombre}${it.variante.talla ? ` (${it.variante.talla.valor}${it.variante.color ? ` / ${it.variante.color}` : ''})` : ''}`,
+        varianteId: it.variante?.id ?? null,
+        descripcion: it.variante
+          ? `${it.variante.producto.nombre}${it.variante.talla ? ` (${it.variante.talla.valor}${it.variante.color ? ` / ${it.variante.color}` : ''})` : ''}`
+          : `${it.descripcionLibre || 'Producto no registrado'} (no registrado)`,
         cantidad: String(it.cantidad),
         precioUnitario: it.precioUnitario,
         proveedorId: it.proveedorId ? String(it.proveedorId) : '',
@@ -383,12 +388,17 @@ export default function HistorialVentasPage() {
                   return (
                     <tr key={v.id}>
                       <td>
-                        <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)} alt={primerItem?.variante.producto.nombre || ''} />
+                        <ProductoThumb
+                          url={imagenPrincipal(primerItem?.variante?.producto, primerItem?.variante?.color)}
+                          alt={primerItem?.variante?.producto.nombre || primerItem?.descripcionLibre || ''}
+                        />
                       </td>
                       <td className="font-medium">{v.folio}</td>
                       <td>
                         {primerItem
-                          ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                          ? primerItem.variante
+                            ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                            : `${primerItem.descripcionLibre || 'Producto no registrado'} (no registrado)`
                           : '—'}
                         {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
                       </td>
@@ -440,7 +450,14 @@ export default function HistorialVentasPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Artículos</p>
                   {formItems.map((it) => (
                     <div key={it.id} className="rounded-lg border border-border p-3 space-y-2">
-                      <p className="text-sm font-medium">{it.descripcion}</p>
+                      <p className="text-sm font-medium">
+                        {it.descripcion}
+                        {it.varianteId === null && (
+                          <StatusBadge tono="warning" withDot={false} className="ml-2 align-middle">
+                            No registrado
+                          </StatusBadge>
+                        )}
+                      </p>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label>Cantidad</label>
