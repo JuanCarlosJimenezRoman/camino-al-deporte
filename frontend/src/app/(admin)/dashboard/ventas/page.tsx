@@ -1206,12 +1206,17 @@ export default function VentasPage() {
               return (
                 <tr key={v.id}>
                   <td>
-                    <ProductoThumb url={imagenPrincipal(primerItem?.variante.producto, primerItem?.variante.color)} alt={primerItem?.variante.producto.nombre || ''} />
+                    <ProductoThumb
+                      url={imagenPrincipal(primerItem?.variante?.producto, primerItem?.variante?.color)}
+                      alt={primerItem?.variante?.producto.nombre || primerItem?.descripcionLibre || ''}
+                    />
                   </td>
                   <td className="font-medium">{v.folio}</td>
                   <td>
                     {primerItem
-                      ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                      ? primerItem.variante
+                        ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                        : `${primerItem.descripcionLibre || 'Producto no registrado'} (no registrado)`
                       : '—'}
                     {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
                   </td>
