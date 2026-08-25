@@ -79,9 +79,11 @@ export default function CorteDelDiaPage() {
   const [fecha, setFecha] = useState(hoyISO());
   const [corte, setCorte] = useState<CorteDia | null>(null);
   const [cargando, setCargando] = useState(false);
-  // Colapsado por defecto: el detalle de cada producto vendido es útil para
+  // Colapsados por defecto: el detalle por proveedor/producto es útil para
   // revisar algo puntual, pero no hace falta verlo cada vez que se abre el
-  // corte del día — con el total por proveedor de arriba suele bastar.
+  // corte del día — con las métricas de arriba (total, efectivo, tarjeta)
+  // suele bastar.
+  const [mostrarProveedores, setMostrarProveedores] = useState(false);
   const [mostrarProductos, setMostrarProductos] = useState(false);
 
   useEffect(() => {
@@ -178,28 +180,38 @@ export default function CorteDelDiaPage() {
           </div>
 
           <div className="card">
-            <h2 className="text-base font-semibold mb-3">Total por proveedor</h2>
-            {corte.porProveedor.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin ventas con proveedor asignado este día.</p>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Proveedor</th>
-                    <th>Artículos</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {corte.porProveedor.map((p) => (
-                    <tr key={p.proveedorId ?? 'sin-proveedor'}>
-                      <td>{p.proveedorNombre}</td>
-                      <td className="tabular-nums">{p.cantidad}</td>
-                      <td className="tabular-nums font-medium">{formatoMonedaExacto(p.total)}</td>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold">
+                Total por proveedor {corte.porProveedor.length > 0 && `(${corte.porProveedor.length})`}
+              </h2>
+              <Button variant="ghost" size="sm" onClick={() => setMostrarProveedores((v) => !v)}>
+                {mostrarProveedores ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                {mostrarProveedores ? 'Ocultar detalle' : 'Ver detalle'}
+              </Button>
+            </div>
+            {mostrarProveedores && (
+              corte.porProveedor.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">Sin ventas con proveedor asignado este día.</p>
+              ) : (
+                <table className="mt-3">
+                  <thead>
+                    <tr>
+                      <th>Proveedor</th>
+                      <th>Artículos</th>
+                      <th>Total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {corte.porProveedor.map((p) => (
+                      <tr key={p.proveedorId ?? 'sin-proveedor'}>
+                        <td>{p.proveedorNombre}</td>
+                        <td className="tabular-nums">{p.cantidad}</td>
+                        <td className="tabular-nums font-medium">{formatoMonedaExacto(p.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
             )}
           </div>
 

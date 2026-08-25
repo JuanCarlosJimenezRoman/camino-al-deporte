@@ -133,6 +133,18 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
 function calcularProductosVendidos(ventas) {
   const mapa = new Map();
   for (const venta of ventas) {
+    // item.subtotal SIEMPRE es cantidad*precioUnitario "de lista", sin
+    // descuento (ver POST /ventas): el descuento libre que capturó el
+    // cajero se resta una sola vez del total de la VENTA completa, no de
+    // cada renglón por separado. Si aquí solo sumáramos item.subtotal tal
+    // cual, una venta con descuento inflaría el total de este desglose por
+    // encima de lo que en realidad se cobró (y de "Total general" arriba,
+    // que sí usa venta.total). Se prorratea el descuento entre los
+    // renglones según su peso en el subtotal de esa venta — mismo criterio
+    // que ya usa el reporte general (ver reportes.js calcularDesglose,
+    // donde queda la misma limitación documentada).
+    const subtotalVenta = venta.items.reduce((acc, it) => acc + Number(it.subtotal), 0);
+    const factor = subtotalVenta > 0 ? Number(venta.total) / subtotalVenta : 1;
     for (const item of venta.items) {
       const producto = item.variante?.producto;
       if (!producto) continue;
@@ -148,7 +160,7 @@ function calcularProductosVendidos(ventas) {
         total: 0,
       };
       actual.cantidad += item.cantidad;
-      actual.total += Number(item.subtotal);
+      actual.total += Number(item.subtotal) * factor;
       mapa.set(clave, actual);
     }
   }
