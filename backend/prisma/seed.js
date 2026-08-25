@@ -91,6 +91,32 @@ async function main() {
     });
   }
 
+  // Transportistas base: las 3 paqueterías nacionales que ya usan (Skydrop
+  // sigue siendo donde se genera la guía, esto solo es el catálogo interno
+  // para relacionarlas con pedidos) y unos cuantos transportistas locales
+  // de Oaxaca para arrancar el catálogo — el negocio los va a querer editar
+  // /renombrar/duplicar con los nombres reales de líneas y rutas conforme
+  // los va dando de alta desde el dashboard (ver routes/envios.js). No se
+  // usa upsert (Transportista.nombre no es único a propósito, por si dos
+  // transportistas locales distintos comparten nombre genérico como
+  // "Taxi") — este findFirst+create solo evita duplicar en un re-seed.
+  console.log('Asegurando transportistas base...');
+  const TRANSPORTISTAS_BASE = [
+    { nombre: 'Estafeta', tipo: 'PAQUETERIA', esNacional: true },
+    { nombre: 'DHL', tipo: 'PAQUETERIA', esNacional: true },
+    { nombre: 'FedEx', tipo: 'PAQUETERIA', esNacional: true },
+    { nombre: 'Aragal', tipo: 'LINEA_TRANSPORTE', esNacional: false },
+    { nombre: 'Suburban', tipo: 'SUBURBAN', esNacional: false },
+    { nombre: 'Autobús', tipo: 'AUTOBUS', esNacional: false },
+    { nombre: 'Taxi', tipo: 'TAXI', esNacional: false },
+  ];
+  for (const data of TRANSPORTISTAS_BASE) {
+    const existente = await prisma.transportista.findFirst({ where: { nombre: data.nombre } });
+    if (!existente) {
+      await prisma.transportista.create({ data });
+    }
+  }
+
   console.log('Seed completado.');
 }
 

@@ -938,6 +938,120 @@ model ApartadoPago {
 }
 
 // ---------------------------------------------------------------------------
+// Envíos: paqueterías nacionales y transporte local (Oaxaca)
+// ---------------------------------------------------------------------------
+//
+// Dos formas muy distintas de mandar un pedido: paquetería nacional
+// (Estafeta/DHL/FedEx — la guía se sigue generando a mano en Skydrop, fuera
+// de este sistema) y transporte local dentro de Oaxaca (autobuses,
+// Suburban, taxis, líneas de transporte como "Aragal"), donde no hay
+// tarifa fija ni API: cobran por tamaño de paquete y distancia, y muchos
+// destinos no tienen entrega a domicilio — el paquete se manda al punto más
+// cercano (una terminal, una encomienda) y el cliente pasa a recogerlo.
+//
+// Estos tres catálogos (Transportista, DestinoEnvio, TarifaEnvio) capturan
+// ese conocimiento la primera vez que se cotiza un destino, para no volver
+// a preguntar cada vez. Son opcionales en Pedido (ver más abajo): un pedido
+// de paquetería nacional puede seguir sin usarlos igual que hasta ahora
+// (paqueteria/numeroGuia libres), y uno de transporte local los usa para
+// sugerir transportista + precio + dónde recoge el cliente.
+enum TipoEnvio {
+  PAQUETERIA_NACIONAL // Estafeta, DHL, FedEx — guía generada aparte en Skydrop (default histórico)
+  TRANSPORTE_LOCAL    // autobús, Suburban, taxi, línea de transporte dentro de Oaxaca
+  OTRO
+}
+
+enum TipoTransportista {
+  PAQUETERIA
+  AUTOBUS
+  SUBURBAN
+  TAXI
+  LINEA_TRANSPORTE
+  OTRO
+}
+
+enum TamanoPaquete {
+  CHICO
+  MEDIANO
+  GRANDE
+  EXTRA_GRANDE
+}
+
+model Transportista {
+  id         Int               @id @default(autoincrement())
+  nombre     String
+  tipo       TipoTransportista
+  // Paquetería nacional (Estafeta/DHL/FedEx) vs. transporte local dentro de
+  // Oaxaca — separa el filtro en el selector según el tipo de envío.
+  esNacional Boolean           @default(false) @map("es_nacional")
+  telefono   String?
+  notas      String?
+  activo     Boolean           @default(true)
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  destinosSugeridos DestinoEnvio[]
+  tarifas           TarifaEnvio[]
+  pedidos           Pedido[]
+
+  @@map("transportistas")
+}
+
+// Un lugar (colonia, población, municipio) al que ya se ha enviado o se
+// sabe cómo enviar dentro de Oaxaca. entregaDomicilio=false es el caso que
+// más dolores de cabeza da: ningún transportista llega directo a la puerta
+// del cliente, así que se manda al puntoEntregaTexto (una terminal, una
+// encomienda) más cercano y el cliente pasa a recogerlo — ese texto se
+// "congela" en Pedido.puntoEntregaTexto al marcar el pedido como enviado
+// (mismo criterio que Pedido.costoEnvio con ConfiguracionTienda) para poder
+// avisarle al cliente exactamente dónde, aunque el punto de entrega de este
+// destino cambie después.
+model DestinoEnvio {
+  id                      Int            @id @default(autoincrement())
+  nombre                  String
+  municipio               String
+  // Región de Oaxaca (Valles Centrales, Costa, Istmo, Mixteca, Sierra,
+  // Cañada, Papaloapan...) — libre por ahora, para agrupar/filtrar en
+  // reportes futuros sin forzar un catálogo cerrado desde el día uno.
+  region                  String?
+  transportistaSugeridoId Int?           @map("transportista_sugerido_id")
+  transportistaSugerido   Transportista? @relation(fields: [transportistaSugeridoId], references: [id])
+  entregaDomicilio        Boolean        @default(true) @map("entrega_domicilio")
+  puntoEntregaTexto       String?        @map("punto_entrega_texto")
+  notas                   String?
+  activo                  Boolean        @default(true)
+  createdAt               DateTime       @default(now()) @map("created_at")
+  updatedAt               DateTime       @updatedAt @map("updated_at")
+
+  tarifas TarifaEnvio[]
+  pedidos Pedido[]
+
+  @@unique([nombre, municipio])
+  @@map("destinos_envio")
+}
+
+// Precio conocido de un transportista hacia un destino, por tamaño de
+// paquete. Igual que los catálogos de mercancía, el precio vigente se edita
+// en el mismo renglón (no se versiona por fecha) — lo que sí se congela es
+// el monto realmente cobrado en cada pedido (Pedido.costoEnvio, ya
+// existente, sin cambios).
+model TarifaEnvio {
+  id              Int           @id @default(autoincrement())
+  transportistaId Int           @map("transportista_id")
+  transportista   Transportista @relation(fields: [transportistaId], references: [id])
+  destinoId       Int           @map("destino_id")
+  destino         DestinoEnvio  @relation(fields: [destinoId], references: [id])
+  tamano          TamanoPaquete
+  precio          Decimal       @db.Decimal(10, 2)
+  notas           String?
+  activo          Boolean       @default(true)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@unique([transportistaId, destinoId, tamano])
+  @@map("tarifas_envio")
+}
+
+// ---------------------------------------------------------------------------
 // Tienda en línea: pedidos de clientes con cuenta propia
 // ---------------------------------------------------------------------------
 //
@@ -1093,6 +1207,21 @@ model Pedido {
   numeroGuia String?   @map("numero_guia")
   enviadoAt  DateTime? @map("enviado_at")
   recibidoAt DateTime? @map("recibido_at")
+
+  // Transporte local (ver modelos Transportista/DestinoEnvio/TarifaEnvio
+  // arriba): opcional — un pedido de paquetería nacional (tipoEnvio
+  // PAQUETERIA_NACIONAL, el default histórico) sigue sin usarlos, igual que
+  // hasta ahora, con paqueteria/numeroGuia libres arriba. tamanoPaquete y
+  // puntoEntregaTexto se "congelan" al momento de enviar (copiados de
+  // TarifaEnvio/DestinoEnvio) para conservar con qué se cotizó realmente
+  // aunque el tarifario cambie después.
+  tipoEnvio         TipoEnvio      @default(PAQUETERIA_NACIONAL) @map("tipo_envio")
+  transportistaId   Int?           @map("transportista_id")
+  transportista     Transportista? @relation(fields: [transportistaId], references: [id])
+  destinoEnvioId    Int?           @map("destino_envio_id")
+  destinoEnvio      DestinoEnvio?  @relation(fields: [destinoEnvioId], references: [id])
+  tamanoPaquete     TamanoPaquete? @map("tamano_paquete")
+  puntoEntregaTexto String?        @map("punto_entrega_texto")
 
   notas String?
 

@@ -68,6 +68,8 @@ const PEDIDO_INCLUDE = {
   resena: { include: { fotos: true } },
   descuentoAplicadoPor: { select: { nombre: true } },
   creadoPor: { select: { nombre: true } },
+  transportista: true,
+  destinoEnvio: true,
 };
 
 // GET /pedidos-online?estado= - lista pedidos, más recientes primero.
@@ -480,6 +482,14 @@ router.post(
 const envioSchema = z.object({
   paqueteria: z.string().optional(),
   numeroGuia: z.string().optional(),
+  // Transporte local (opcional, ver modelos Transportista/DestinoEnvio en
+  // schema.prisma) — nada de esto es obligatorio: un pedido de paquetería
+  // nacional se sigue marcando como enviado solo con paqueteria/numeroGuia,
+  // igual que hasta hoy.
+  tipoEnvio: z.enum(['PAQUETERIA_NACIONAL', 'TRANSPORTE_LOCAL', 'OTRO']).optional(),
+  transportistaId: z.number().int().optional(),
+  destinoEnvioId: z.number().int().optional(),
+  tamanoPaquete: z.enum(['CHICO', 'MEDIANO', 'GRANDE', 'EXTRA_GRANDE']).optional(),
 });
 
 // POST /pedidos-online/:id/marcar-enviado
@@ -502,9 +512,24 @@ router.post(
       return res.status(409).json({ error: 'Solo se puede marcar como enviado un pedido ya pagado.' });
     }
 
+    const datosEnvio = { ...parsed.data };
+    // Si se eligió un destino de transporte local conocido y ese destino no
+    // llega a domicilio, se congela su punto de entrega en el pedido (ver
+    // comentario en Pedido.puntoEntregaTexto) — así se sabe con qué se avisó
+    // al cliente aunque el destino cambie de punto de entrega después.
+    if (datosEnvio.destinoEnvioId) {
+      const destino = await prisma.destinoEnvio.findUnique({ where: { id: datosEnvio.destinoEnvioId } });
+      if (!destino) {
+        return res.status(400).json({ error: 'Destino de envío no encontrado.' });
+      }
+      if (!destino.entregaDomicilio && destino.puntoEntregaTexto) {
+        datosEnvio.puntoEntregaTexto = destino.puntoEntregaTexto;
+      }
+    }
+
     const actualizado = await prisma.pedido.update({
       where: { id: pedido.id },
-      data: { estado: 'ENVIADO', enviadoAt: new Date(), ...parsed.data },
+      data: { estado: 'ENVIADO', enviadoAt: new Date(), ...datosEnvio },
       include: PEDIDO_INCLUDE,
     });
     res.json(actualizado);

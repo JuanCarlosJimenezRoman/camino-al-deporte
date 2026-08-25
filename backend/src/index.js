@@ -30,6 +30,7 @@ const tiendaResenasRoutes = require('./routes/tienda/resenas');
 const tiendaConfiguracionRoutes = require('./routes/tienda/configuracion');
 const tiendaCuponesRoutes = require('./routes/tienda/cupones');
 const tiendaFavoritosRoutes = require('./routes/tienda/favoritos');
+const enviosRoutes = require('./routes/envios');
 
 const app = express();
 
@@ -81,6 +82,7 @@ app.use('/resenas', resenasRoutes);
 app.use('/solicitudes', solicitudesRoutes);
 app.use('/notificaciones', notificacionesRoutes);
 app.use('/cupones', cuponesRoutes);
+app.use('/envios', enviosRoutes);
 
 // Tienda en línea (cara al cliente): catálogo público + cuenta + pedidos.
 app.use('/tienda/auth', tiendaAuthRoutes);

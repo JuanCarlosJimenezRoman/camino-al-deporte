@@ -654,6 +654,71 @@ lugar.
 cancelar) son los mismos roles que ya operan ventas/apartados:
 ADMIN_PRINCIPAL, DESARROLLO, VENTAS.
 
+## Envíos: paquetería nacional y transporte local (Oaxaca)
+
+Un pedido se manda de dos formas muy distintas, y el sistema modela cada
+una por separado (ver modelos `Transportista`/`DestinoEnvio`/`TarifaEnvio`
+en `schema.prisma`, junto a `Pedido`):
+
+- **Paquetería nacional** (Estafeta, DHL, FedEx): la guía se sigue
+  generando a mano en Skydrop, fuera de este sistema — aquí solo se
+  registra qué paquetería y número de guía (`Pedido.paqueteria` /
+  `numeroGuia`, como hasta ahora, sin cambios).
+- **Transporte local dentro de Oaxaca** (autobuses, Suburban, taxis,
+  líneas de transporte como "Aragal"): no hay tarifa fija ni API, cobran
+  por tamaño de paquete y distancia, y muchos destinos no tienen entrega a
+  domicilio — el paquete se manda al punto más cercano (una terminal, una
+  encomienda) y el cliente pasa a recogerlo.
+
+Para el transporte local existen tres catálogos nuevos, pensados para que
+el conocimiento de "cuánto cobra tal camión a tal pueblo" se capture una
+vez y quede disponible para la siguiente cotización, en vez de vivir solo
+en la memoria de quien atiende WhatsApp:
+
+- **Transportista**: paqueterías nacionales y transportistas locales
+  (`tipo`: PAQUETERIA, AUTOBUS, SUBURBAN, TAXI, LINEA_TRANSPORTE, OTRO).
+- **DestinoEnvio**: un lugar dentro de Oaxaca al que ya se sabe cómo
+  enviar — municipio, región, transportista sugerido y, si nadie llega a
+  domicilio (`entregaDomicilio: false`), el punto de entrega
+  (`puntoEntregaTexto`) donde el cliente debe recogerlo.
+- **TarifaEnvio**: precio conocido de un transportista hacia un destino,
+  por tamaño de paquete (CHICO/MEDIANO/GRANDE/EXTRA_GRANDE).
+
+Estos catálogos son **opcionales** en `Pedido` (`tipoEnvio`,
+`transportistaId`, `destinoEnvioId`, `tamanoPaquete`,
+`puntoEntregaTexto`): un pedido de paquetería nacional (`tipoEnvio`
+PAQUETERIA_NACIONAL, el default de todos los pedidos existentes) sigue sin
+usarlos igual que hasta hoy. Al marcar un pedido de transporte local como
+enviado (`POST /pedidos-online/:id/marcar-enviado`), si se manda
+`destinoEnvioId` y ese destino no tiene entrega a domicilio, su
+`puntoEntregaTexto` se "congela" en el pedido — mismo criterio que
+`Pedido.costoEnvio` con `ConfiguracionTienda.costoEnvio` — para conservar
+con qué se avisó al cliente aunque el destino cambie de punto de entrega
+después.
+
+**Rutas** (`routes/envios.js`, montado en `/envios`): CRUD de
+`/transportistas`, `/destinos` y `/tarifas`, más `GET /envios/cotizar?
+destinoId=&tamano=` para consultar las tarifas conocidas de un destino (y
+su punto de entrega si no llega a domicilio) sin tener que preguntar de
+nuevo.
+
+**Roles.** Igual que quien opera pedidos manuales (ver sección de tienda en
+línea): ADMIN_PRINCIPAL, DESARROLLO, VENTAS. A diferencia de los catálogos
+de mercancía (`routes/catalogos.js`), esto no pasa por una solicitud de
+aprobación — VENTAS puede dar de alta o corregir un transportista, destino
+o tarifa directo, porque normalmente es quien se entera del dato mientras
+cotiza con un cliente.
+
+**Qué falta (ver también "Próximos pasos" al final de este documento):** el
+tarifario y los destinos empiezan vacíos salvo un puñado de transportistas
+base (`prisma/seed.js`) — hay que cargar los destinos y precios reales
+conforme se van conociendo. El checkout de la tienda en línea sigue usando
+el costo de envío fijo de `ConfiguracionTienda` sin cambios; conectar estos
+catálogos ahí (para que un pedido de transporte local cotice
+automáticamente en vez de usar el monto fijo) queda pendiente, igual que
+una pantalla en el frontend para administrar transportistas/destinos/
+tarifas y elegirlos al marcar un pedido como enviado.
+
 ## SKU de fábrica vs. código interno
 
 El SKU que traen los productos de fábrica —sobre todo en calzado— no es un
@@ -913,3 +978,12 @@ con otro proveedor distinto.
   cliente o el negocio cancelan a mano).
 - Devolución/reembolso de un pedido ya `ENVIADO`/`RECIBIDO` (hoy solo se
   puede cancelar antes de enviarse, misma limitación que Apartados).
+- Conectar el tarifario de transporte local (`TarifaEnvio`) al costo de
+  envío que se cobra en el checkout de la tienda en línea (hoy sigue siendo
+  el monto fijo de `ConfiguracionTienda.costoEnvio`, ver sección de
+  envíos) y una pantalla en el frontend para administrar
+  transportistas/destinos/tarifas y elegirlos al marcar un pedido como
+  enviado.
+- Integrar la API de Skydrop para generar la guía de paquetería nacional
+  automáticamente y cotizar por peso/dimensiones/CP en vez de manual (ver
+  sección de envíos).
