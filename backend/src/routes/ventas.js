@@ -777,12 +777,23 @@ const ventaEdicionSchema = z
 // SÍ se permite que quede en negativo cuando se está reasignando el
 // proveedor correcto de un artículo (ver el bloque de items más abajo) — el
 // llamador decide si eso amerita una advertencia.
+//
+// NO se usa upsert(): el índice único real de "existencias" no es un solo
+// unique de 3 columnas (aunque @@unique lo declare así en schema.prisma) —
+// son dos índices ÚNICOS PARCIALES creados a mano en la migración
+// 20260813090000_stock_por_proveedor (uno con WHERE proveedor_id IS NOT
+// NULL, otro con WHERE proveedor_id IS NULL), porque un mismo
+// sucursal+variante puede tener como máximo un bucket "sin proveedor" pero
+// varios buckets con proveedor distinto. Postgres no deja usar ON CONFLICT
+// (lo que genera upsert) contra un índice parcial sin repetir su condición
+// WHERE, así que como el resto de este archivo, se resuelve a mano con
+// findFirst + create/update.
 async function ajustarExistencia(tx, sucursalId, varianteId, proveedorId, delta) {
-  return tx.existencia.upsert({
-    where: { sucursalId_varianteId_proveedorId: { sucursalId, varianteId, proveedorId } },
-    update: { stockActual: { increment: delta } },
-    create: { sucursalId, varianteId, proveedorId, stockActual: delta, stockMinimo: 0 },
-  });
+  const existente = await tx.existencia.findFirst({ where: { sucursalId, varianteId, proveedorId } });
+  if (existente) {
+    return tx.existencia.update({ where: { id: existente.id }, data: { stockActual: { increment: delta } } });
+  }
+  return tx.existencia.create({ data: { sucursalId, varianteId, proveedorId, stockActual: delta, stockMinimo: 0 } });
 }
 
 // PATCH /ventas/:id/editar - corrige una venta COMPLETADA ya registrada.
