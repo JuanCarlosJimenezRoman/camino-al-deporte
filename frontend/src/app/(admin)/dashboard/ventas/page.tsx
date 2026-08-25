@@ -13,6 +13,7 @@ import {
   History,
   ShoppingBag,
   Plus,
+  Wallet,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora } from '@/lib/utils';
@@ -746,6 +747,14 @@ export default function VentasPage() {
                 <Link href="/dashboard/ventas/historial">
                   <History className="w-4 h-4" />
                   Historial
+                </Link>
+              </Button>
+            )}
+            {puedeVer('gastos', usuario?.rol) && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/gastos">
+                  <Wallet className="w-4 h-4" />
+                  Gastos
                 </Link>
               </Button>
             )}

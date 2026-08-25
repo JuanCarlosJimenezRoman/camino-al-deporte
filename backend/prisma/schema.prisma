@@ -70,6 +70,7 @@ model Usuario {
   // Pedido.creadoPorId más abajo. Null en un pedido = lo armó el cliente
   // mismo desde el checkout de la tienda en línea.
   pedidosCreadosManualmente Pedido[] @relation("PedidosCreadosManualmente")
+  gastosRegistrados         Gasto[]  @relation("GastosRegistrados")
 
   @@map("usuarios")
 }
@@ -103,6 +104,7 @@ model Sucursal {
   apartadosStock  ApartadoItem[] @relation("ApartadoStock")
   apartadosVenta  Apartado[]     @relation("ApartadoVenta")
   pedidosStock    PedidoItem[]   @relation("PedidoStock")
+  gastos          Gasto[]
 
   @@map("sucursales")
 }
@@ -492,6 +494,7 @@ model Proveedor {
   // Pedidos en línea donde un empleado confirmó que la transferencia llegó
   // a la cuenta de ESTE proveedor (no a la cuenta de la tienda).
   pedidosPagoConfirmado Pedido[] @relation("PedidosConfirmadosProveedor")
+  gastos       GastoProveedor[]
 
   @@map("proveedores")
 }
@@ -518,6 +521,65 @@ model PagoProveedor {
   createdAt             DateTime @default(now()) @map("created_at")
 
   @@map("pagos_proveedor")
+}
+
+// ---------------------------------------------------------------------------
+// Gastos: salidas de dinero de una sucursal que NO son pagos a proveedor por
+// mercancía (para eso está PagoProveedor arriba) — renta, papelería, envíos,
+// mantenimiento, etc. Siempre pertenecen a una sucursal (independientes
+// entre sucursales, ver sucursalId abajo) y se le atribuyen a uno o varios
+// proveedores para prorratear costos de operación entre ellos:
+//  - nivel PROVEEDOR: el gasto es 100% de un solo proveedor (ej. flete que
+//    solo trajo mercancía de ese proveedor) — un único renglón en
+//    GastoProveedor con el monto completo.
+//  - nivel SUCURSAL: el gasto es de la sucursal en general (ej. luz, renta)
+//    pero se reparte entre los proveedores seleccionados — un renglón por
+//    proveedor en GastoProveedor con su parte (repartido en partes iguales
+//    al crearse, ver POST /gastos en routes/gastos.js).
+// Aparecen en el corte del día de su sucursal (ver GET /ventas/corte-dia)
+// para poder cuadrar caja: si se pagaron en efectivo, salieron físicamente
+// del cajón ese mismo día.
+// ---------------------------------------------------------------------------
+
+enum GastoNivel {
+  PROVEEDOR
+  SUCURSAL
+}
+
+model Gasto {
+  id              Int        @id @default(autoincrement())
+  sucursalId      Int        @map("sucursal_id")
+  sucursal        Sucursal   @relation(fields: [sucursalId], references: [id])
+  nivel           GastoNivel
+  motivo          String
+  monto           Decimal    @db.Decimal(10, 2)
+  metodoPago      MetodoPago @default(EFECTIVO) @map("metodo_pago")
+  notas           String?
+
+  registradoPorId Int        @map("registrado_por_id")
+  registradoPor   Usuario    @relation("GastosRegistrados", fields: [registradoPorId], references: [id])
+
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  proveedores     GastoProveedor[]
+
+  @@map("gastos")
+}
+
+// Reparto de un Gasto entre proveedores: en nivel PROVEEDOR siempre hay
+// exactamente un renglón (monto = Gasto.monto completo); en nivel SUCURSAL
+// hay uno por cada proveedor seleccionado, con su parte del total (la suma
+// de estos montos siempre debe sumar Gasto.monto, ver POST /gastos).
+model GastoProveedor {
+  id          Int       @id @default(autoincrement())
+  gastoId     Int       @map("gasto_id")
+  gasto       Gasto     @relation(fields: [gastoId], references: [id], onDelete: Cascade)
+  proveedorId Int       @map("proveedor_id")
+  proveedor   Proveedor @relation(fields: [proveedorId], references: [id])
+  monto       Decimal   @db.Decimal(10, 2)
+
+  @@unique([gastoId, proveedorId])
+  @@map("gasto_proveedores")
 }
 
 // ---------------------------------------------------------------------------

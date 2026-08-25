@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Receipt, DollarSign, Banknote, CreditCard, ChevronDown, ChevronRight } from 'lucide-react';
+import { Receipt, DollarSign, Banknote, CreditCard, Wallet, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatearHora, formatoMonedaExacto } from '@/lib/utils';
-import { useAuth } from '@/lib/auth';
+import { useAuth, puedeVer } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { ProductoThumb } from '@/components/admin/ProductoThumb';
 import { imagenMiniatura } from '@/lib/imagenCloudinary';
 import { StatusBadge } from '@/components/ui/status-badge';
+import Link from 'next/link';
 
 interface Sucursal {
   id: number;
@@ -56,6 +57,24 @@ interface TotalProveedor {
   total: number;
 }
 
+interface GastoProveedorCorte {
+  proveedorId: number;
+  monto: string;
+  proveedor: { id: number; nombre: string };
+}
+
+interface GastoCorteDia {
+  id: number;
+  nivel: 'PROVEEDOR' | 'SUCURSAL';
+  motivo: string;
+  monto: string;
+  metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+  notas: string | null;
+  registradoPor: { nombre: string };
+  createdAt: string;
+  proveedores: GastoProveedorCorte[];
+}
+
 interface CorteDia {
   fecha: string;
   sucursalId: number | null;
@@ -67,6 +86,14 @@ interface CorteDia {
   productosVendidos: ProductoVendido[];
   porProveedor: TotalProveedor[];
   ventas: VentaResumen[];
+  gastos: {
+    cantidad: number;
+    total: number;
+    porMetodoPago: Record<string, number>;
+    porProveedor: TotalProveedor[];
+    detalle: GastoCorteDia[];
+  };
+  efectivoEnCaja: number;
 }
 
 function hoyISO() {
@@ -92,6 +119,7 @@ export default function CorteDelDiaPage() {
   // suele bastar.
   const [mostrarProveedores, setMostrarProveedores] = useState(false);
   const [mostrarProductos, setMostrarProductos] = useState(false);
+  const [mostrarGastos, setMostrarGastos] = useState(false);
 
   useEffect(() => {
     if (esAdmin) api<Sucursal[]>('/sucursales').then(setSucursales);
@@ -183,6 +211,74 @@ export default function CorteDelDiaPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold">
+                Gastos del día — {formatoMonedaExacto(corte.gastos.total)}
+              </h2>
+              <div className="flex items-center gap-2">
+                {puedeVer('gastos', usuario?.rol) && (
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link href="/dashboard/gastos">
+                      <Wallet className="w-3.5 h-3.5" />
+                      Registrar
+                    </Link>
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => setMostrarGastos((v) => !v)}>
+                  {mostrarGastos ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  {mostrarGastos ? 'Ocultar detalle' : 'Ver detalle'}
+                </Button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Efectivo vendido menos efectivo gastado hoy — referencia para cuadrar el cajón:{' '}
+              <span className="font-medium text-foreground">{formatoMonedaExacto(corte.efectivoEnCaja)}</span>
+            </p>
+            {mostrarGastos && (
+              corte.gastos.detalle.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">Sin gastos registrados este día.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Motivo</th>
+                        <th>Proveedor(es)</th>
+                        <th>Monto</th>
+                        <th>Método</th>
+                        <th>Registró</th>
+                        <th>Hora</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {corte.gastos.detalle.map((g) => (
+                        <tr key={g.id}>
+                          <td className="font-medium">{g.motivo}</td>
+                          <td className="text-sm">
+                            {g.nivel === 'SUCURSAL' ? (
+                              <StatusBadge tono="neutral" withDot={false}>
+                                Sucursal · {g.proveedores.length} proveedores
+                              </StatusBadge>
+                            ) : (
+                              g.proveedores[0]?.proveedor.nombre || '—'
+                            )}
+                          </td>
+                          <td className="tabular-nums font-medium">{formatoMonedaExacto(g.monto)}</td>
+                          <td className="text-xs">
+                            {g.metodoPago === 'EFECTIVO' ? 'Efectivo' : g.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
+                          </td>
+                          <td className="text-sm">{g.registradoPor?.nombre}</td>
+                          <td className="text-xs text-muted-foreground">{formatearHora(g.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
 

@@ -23,6 +23,7 @@ import {
   LucideIcon,
   BarChart3,
   SlidersHorizontal,
+  Wallet,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
 import { NavItem } from './NavItem';
@@ -103,6 +104,11 @@ export function AppSidebar({
           href: '/dashboard/transferencias',
           label: 'Transferencias',
           icon: ArrowLeftRight,
+        },
+        puedeVer('gastos', rol) && {
+          href: '/dashboard/gastos',
+          label: 'Gastos',
+          icon: Wallet,
         },
       ].filter(Boolean) as NavLink[],
     },

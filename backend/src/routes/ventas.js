@@ -223,6 +223,30 @@ function calcularPorProveedor(productosVendidos) {
     .sort((a, b) => b.total - a.total);
 }
 
+// Suma los gastos del día por proveedor (a partir de sus renglones
+// GastoProveedor, ver routes/gastos.js): un gasto nivel PROVEEDOR aporta un
+// solo renglón con el monto completo, uno nivel SUCURSAL aporta la parte de
+// cada proveedor seleccionado — aquí no importa distinguirlos, solo sumar
+// cuánto le "tocó" a cada proveedor ese día.
+function calcularGastosPorProveedor(gastos) {
+  const mapa = new Map();
+  for (const g of gastos) {
+    for (const gp of g.proveedores) {
+      const clave = gp.proveedorId;
+      const actual = mapa.get(clave) || {
+        proveedorId: gp.proveedorId,
+        proveedorNombre: gp.proveedor.nombre,
+        total: 0,
+      };
+      actual.total += Number(gp.monto);
+      mapa.set(clave, actual);
+    }
+  }
+  return [...mapa.values()]
+    .map((r) => ({ ...r, total: Math.round(r.total * 100) / 100 }))
+    .sort((a, b) => b.total - a.total);
+}
+
 router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (req, res) => {
   let sucursalId;
   if (esAdmin(req.usuario.rol)) {
@@ -241,7 +265,7 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     return res.status(400).json({ error: 'fecha inválida, usa formato YYYY-MM-DD.' });
   }
 
-  const [completadas, canceladas] = await Promise.all([
+  const [completadas, canceladas, gastosDelDia] = await Promise.all([
     prisma.venta.findMany({
       where: {
         estado: 'COMPLETADA',
@@ -297,6 +321,24 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
       },
       select: { id: true, folio: true, total: true },
     }),
+    // Gastos del mismo día/sucursal (ver routes/gastos.js) — se muestran en
+    // el corte para poder cuadrar caja: si se pagaron en efectivo, salieron
+    // físicamente del cajón ese día.
+    prisma.gasto.findMany({
+      where: {
+        createdAt: { gte: inicio, lte: fin },
+        ...(sucursalId ? { sucursalId } : {}),
+      },
+      include: {
+        sucursal: { select: { nombre: true } },
+        registradoPor: { select: { nombre: true } },
+        proveedores: {
+          include: { proveedor: { select: { id: true, nombre: true } } },
+          orderBy: { id: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
   ]);
 
   const porMetodoPago = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0 };
@@ -315,6 +357,14 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
 
   const productosVendidos = calcularProductosVendidos(completadas);
 
+  const gastosPorMetodoPago = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0 };
+  let totalGastos = 0;
+  for (const g of gastosDelDia) {
+    const monto = Number(g.monto);
+    totalGastos += monto;
+    gastosPorMetodoPago[g.metodoPago] = (gastosPorMetodoPago[g.metodoPago] || 0) + monto;
+  }
+
   res.json({
     fecha: fechaStr,
     sucursalId: sucursalId || null,
@@ -329,6 +379,17 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     productosVendidos,
     porProveedor: calcularPorProveedor(productosVendidos),
     ventas: completadas,
+    gastos: {
+      cantidad: gastosDelDia.length,
+      total: Math.round(totalGastos * 100) / 100,
+      porMetodoPago: gastosPorMetodoPago,
+      porProveedor: calcularGastosPorProveedor(gastosDelDia),
+      detalle: gastosDelDia,
+    },
+    // Efectivo que debería quedar físicamente en el cajón: lo vendido en
+    // efectivo menos lo gastado en efectivo ese mismo día. Solo de
+    // referencia para cuadrar caja, no descuenta nada de totalGeneral.
+    efectivoEnCaja: Math.round(((porMetodoPago.EFECTIVO || 0) - (gastosPorMetodoPago.EFECTIVO || 0)) * 100) / 100,
   });
 }));
 

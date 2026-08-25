@@ -25,13 +25,13 @@ inventarios y ventas de "Camino al Deporte", con acceso diferenciado por rol.
 
 ## Roles y permisos
 
-| Rol | Productos | Inventario | Ventas | Apartados | Usuarios | Campos personalizados |
-|---|---|---|---|---|---|---|
-| ADMIN_PRINCIPAL | CRUD | CRUD | CRUD + cancelar, cualquier sucursal, historial global | CRUD, cualquier sucursal | CRUD | CRUD |
-| DESARROLLO | CRUD | CRUD | CRUD + cancelar, cualquier sucursal, historial global | CRUD, cualquier sucursal | CRUD | CRUD |
-| INVENTARIO | CRUD | CRUD | — | — | — | — |
-| VENTAS | Solo lectura | Lectura de cualquier sucursal (para buscar/pedir), edición solo vía Inventario/Admin | Crear/ver, forzado a **su propia sucursal** | Crear/abonar/cancelar, forzado a su propia sucursal | — | — |
-| CONSULTA | Solo lectura | Solo lectura (existencias) | — | — | — | — |
+| Rol | Productos | Inventario | Ventas | Apartados | Gastos | Usuarios | Campos personalizados |
+|---|---|---|---|---|---|---|---|
+| ADMIN_PRINCIPAL | CRUD | CRUD | CRUD + cancelar, cualquier sucursal, historial global | CRUD, cualquier sucursal | CRUD, cualquier sucursal | CRUD | CRUD |
+| DESARROLLO | CRUD | CRUD | CRUD + cancelar, cualquier sucursal, historial global | CRUD, cualquier sucursal | CRUD, cualquier sucursal | CRUD | CRUD |
+| INVENTARIO | CRUD | CRUD | — | — | — | — | — |
+| VENTAS | Solo lectura | Lectura de cualquier sucursal (para buscar/pedir), edición solo vía Inventario/Admin | Crear/ver, forzado a **su propia sucursal** | Crear/abonar/cancelar, forzado a su propia sucursal | Crear/ver, forzado a su propia sucursal (no puede eliminar) | — | — |
+| CONSULTA | Solo lectura | Solo lectura (existencias) | — | — | — | — | — |
 
 **Importante — VENTAS y su sucursal:** un usuario con rol VENTAS solo puede
 registrar ventas y apartados desde la sucursal que tiene asignada
@@ -306,6 +306,46 @@ de total por sucursal además del listado detallado.
   referencia de cuánto se le debe devolver al cliente si aplica.
 - La pantalla de Apartados también muestra un resumen de "clientes con
   adeudo" (suma del saldo pendiente de sus apartados activos).
+
+## Gastos: registro por sucursal y reparto entre proveedores
+
+Además de los pagos que se le hacen a un proveedor por mercancía
+(`PagoProveedor`, ver sección de Proveedores más abajo), el sistema registra
+**gastos operativos de la sucursal** (envíos, papelería, luz, renta,
+mantenimiento, etc.) en el modelo `Gasto`. Son independientes por sucursal
+(`Gasto.sucursalId`) y siempre se le atribuyen a uno o varios proveedores por
+`GastoProveedor`, para poder prorratear costos de operación entre ellos:
+
+- **Nivel "PROVEEDOR"**: el gasto es 100% de un solo proveedor (ej. el flete
+  que solo trajo mercancía de ese proveedor) — un único renglón en
+  `GastoProveedor` con el monto completo.
+- **Nivel "SUCURSAL"**: el gasto es de la sucursal en general (ej. luz,
+  renta) pero se reparte entre los proveedores que se seleccionen — un
+  renglón por proveedor en `GastoProveedor`, repartido en partes iguales al
+  crearse (`POST /gastos`, función `repartirEntreProveedores`, que reparte en
+  centavos exactos y le da el residuo de redondeo al último renglón para que
+  la suma siempre cuadre con el total).
+
+**Rutas** (`backend/src/routes/gastos.js`, roles ADMIN_PRINCIPAL/DESARROLLO/
+VENTAS — los mismos que operan ventas/caja, ver `ROLES_GASTOS`):
+
+- `GET /gastos` — listado con filtros opcionales `sucursalId` (solo admin;
+  VENTAS siempre forzado a la suya), `proveedorId`, `fechaInicio`/`fechaFin`.
+- `POST /gastos` — registra un gasto (nivel, motivo, monto/montoTotal,
+  proveedor o proveedorIds, método de pago, notas opcionales).
+- `DELETE /gastos/:id` — solo ADMIN_PRINCIPAL/DESARROLLO, porque borrar un
+  gasto afecta la conciliación de un corte ya cerrado.
+
+**En el corte del día.** `GET /ventas/corte-dia` incluye un bloque `gastos`
+(total, desglose por método de pago, por proveedor y el detalle) con los
+gastos de esa misma sucursal y fecha, más un campo de referencia
+`efectivoEnCaja` (efectivo vendido menos efectivo gastado ese día) para
+cuadrar el cajón físico — no descuenta nada de `totalGeneral`, es solo
+informativo.
+
+**Dónde se ve en el frontend:** Ventas → **Gastos** (también accesible desde
+el menú lateral, sección Operación) para registrar y listar; y una tarjeta
+"Gastos del día" dentro de Ventas → Corte del día con el mismo desglose.
 
 ## Reportes y estimaciones de ventas
 

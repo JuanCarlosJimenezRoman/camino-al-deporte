@@ -123,6 +123,10 @@ export const PERMISOS = {
   // ventas (ver GET /reportes/* en el backend) — ADMIN_PRINCIPAL/DESARROLLO
   // ven todas las sucursales, VENTAS ve acotado a la suya.
   reportes: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  // Registro de gastos por sucursal/proveedor: mismos roles que operan caja
+  // (ver ROLES_GASTOS en el backend, routes/gastos.js) — VENTAS solo ve/
+  // registra los de su propia sucursal.
+  gastos: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {
