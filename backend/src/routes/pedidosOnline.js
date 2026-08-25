@@ -70,6 +70,12 @@ const PEDIDO_INCLUDE = {
   creadoPor: { select: { nombre: true } },
   transportista: true,
   destinoEnvio: true,
+  // Envíos v2 (ver schema.prisma junto a CoberturaEnvio) — snapshot de la
+  // opción de envío elegida, si el pedido es de transporte local.
+  sucursalDespacho: { select: { id: true, nombre: true } },
+  rutaEnvio: { include: { transportista: true, sucursalOrigen: { select: { id: true, nombre: true } } } },
+  puntoEntrega: true,
+  tarifaEnvio: true,
 };
 
 // GET /pedidos-online?estado= - lista pedidos, más recientes primero.
@@ -482,15 +488,32 @@ router.post(
 const envioSchema = z.object({
   paqueteria: z.string().optional(),
   numeroGuia: z.string().optional(),
-  // Transporte local (opcional, ver modelos Transportista/DestinoEnvio en
-  // schema.prisma) — nada de esto es obligatorio: un pedido de paquetería
-  // nacional se sigue marcando como enviado solo con paqueteria/numeroGuia,
-  // igual que hasta hoy.
+  // Transporte local: nada de esto es obligatorio — un pedido de
+  // paquetería nacional se sigue marcando como enviado solo con
+  // paqueteria/numeroGuia, igual que hasta hoy. tarifaEnvioId es el id de
+  // una de las opciones que devuelve GET /envios/cotizar (ya trae ruta,
+  // transportista, tipo de entrega y punto de entrega resueltos) — no se
+  // capturan destino/transportista/tamaño sueltos a mano, para no poder
+  // marcar un pedido como enviado con una combinación que en realidad no
+  // existe en el catálogo de cobertura.
   tipoEnvio: z.enum(['PAQUETERIA_NACIONAL', 'TRANSPORTE_LOCAL', 'OTRO']).optional(),
   transportistaId: z.number().int().optional(),
-  destinoEnvioId: z.number().int().optional(),
-  tamanoPaquete: z.enum(['CHICO', 'MEDIANO', 'GRANDE', 'EXTRA_GRANDE']).optional(),
+  tarifaEnvioId: z.number().int().optional(),
+  // Sucursal desde la que realmente sale este envío (ver comentario en
+  // Pedido.sucursalDespachoId) — por default se usa la de la ruta elegida,
+  // pero se puede corregir a mano si el paquete se manda desde otra.
+  sucursalDespachoId: z.number().int().optional(),
 });
+
+const TARIFA_ENVIO_INCLUDE = {
+  coberturaEnvio: {
+    include: {
+      destinoEnvio: true,
+      rutaEnvio: { include: { sucursalOrigen: true, transportista: true } },
+      puntoEntrega: true,
+    },
+  },
+};
 
 // POST /pedidos-online/:id/marcar-enviado
 router.post(
@@ -512,19 +535,39 @@ router.post(
       return res.status(409).json({ error: 'Solo se puede marcar como enviado un pedido ya pagado.' });
     }
 
-    const datosEnvio = { ...parsed.data };
-    // Si se eligió un destino de transporte local conocido y ese destino no
-    // llega a domicilio, se congela su punto de entrega en el pedido (ver
-    // comentario en Pedido.puntoEntregaTexto) — así se sabe con qué se avisó
-    // al cliente aunque el destino cambie de punto de entrega después.
-    if (datosEnvio.destinoEnvioId) {
-      const destino = await prisma.destinoEnvio.findUnique({ where: { id: datosEnvio.destinoEnvioId } });
-      if (!destino) {
-        return res.status(400).json({ error: 'Destino de envío no encontrado.' });
-      }
-      if (!destino.entregaDomicilio && destino.puntoEntregaTexto) {
-        datosEnvio.puntoEntregaTexto = destino.puntoEntregaTexto;
-      }
+    const { tarifaEnvioId, sucursalDespachoId, ...datosEnvio } = parsed.data;
+
+    // Si se eligió una tarifa de transporte local, se congela toda la
+    // cadena (destino/cobertura/ruta/transportista/punto de entrega/
+    // tamaño/costo real) tal como estaba al momento de enviar — ver
+    // comentario en Pedido junto a estos campos. costoEnvio (lo que ya
+    // pagó el cliente) NO se toca aquí: ese monto se fija al crear el
+    // pedido, no al enviarlo.
+    if (tarifaEnvioId) {
+      const tarifa = await prisma.tarifaEnvio.findUnique({
+        where: { id: tarifaEnvioId },
+        include: TARIFA_ENVIO_INCLUDE,
+      });
+      if (!tarifa) return res.status(400).json({ error: 'Tarifa de envío no encontrada.' });
+
+      const cobertura = tarifa.coberturaEnvio;
+      const ruta = cobertura.rutaEnvio;
+
+      datosEnvio.destinoEnvioId = cobertura.destinoEnvioId;
+      datosEnvio.coberturaEnvioId = cobertura.id;
+      datosEnvio.rutaEnvioId = ruta.id;
+      datosEnvio.transportistaId = ruta.transportistaId;
+      datosEnvio.sucursalDespachoId = sucursalDespachoId || ruta.sucursalOrigenId;
+      datosEnvio.puntoEntregaId = cobertura.puntoEntregaId;
+      datosEnvio.tipoEntrega = cobertura.tipoEntrega;
+      datosEnvio.tamanoPaquete = tarifa.tamano;
+      datosEnvio.tarifaEnvioId = tarifa.id;
+      datosEnvio.costoEnvioReal = tarifa.costoReal;
+      datosEnvio.puntoEntregaTexto = cobertura.puntoEntrega
+        ? `${cobertura.puntoEntrega.nombre}${cobertura.puntoEntrega.direccion ? ` — ${cobertura.puntoEntrega.direccion}` : ''}`
+        : null;
+    } else if (sucursalDespachoId) {
+      datosEnvio.sucursalDespachoId = sucursalDespachoId;
     }
 
     const actualizado = await prisma.pedido.update({

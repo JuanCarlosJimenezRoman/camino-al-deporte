@@ -105,6 +105,12 @@ model Sucursal {
   apartadosVenta  Apartado[]     @relation("ApartadoVenta")
   pedidosStock    PedidoItem[]   @relation("PedidoStock")
   gastos          Gasto[]
+  // Envíos (ver comentario junto a RutaEnvio/Pedido más abajo): de dónde
+  // sale cada ruta de transporte local, y de qué sucursal se despachó
+  // realmente cada pedido — independiente de PedidoItem.sucursalStockId
+  // (que sigue siendo por artículo, sin cambios).
+  rutasEnvio      RutaEnvio[]    @relation("RutaOrigen")
+  pedidosDespacho Pedido[]       @relation("PedidoDespacho")
 
   @@map("sucursales")
 }
@@ -955,8 +961,35 @@ model ApartadoPago {
 // de paquetería nacional puede seguir sin usarlos igual que hasta ahora
 // (paqueteria/numeroGuia libres), y uno de transporte local los usa para
 // sugerir transportista + precio + dónde recoge el cliente.
+// ---------------------------------------------------------------------------
+// Envíos: transportistas, rutas, puntos de entrega, cobertura y tarifas
+// ---------------------------------------------------------------------------
+//
+// v2 del módulo de envíos (v1: Transportista+DestinoEnvio+TarifaEnvio
+// directos, un solo "destino=precio"). Se separa en capas para poder
+// representar la realidad del transporte regional en Oaxaca, donde el costo
+// no depende solo del municipio sino de qué transportista cubre esa zona,
+// por qué ruta, y si llega a domicilio o el cliente tiene que recogerlo en
+// un punto físico — un mismo destino puede tener varias formas válidas de
+// atenderse (varias CoberturaEnvio), cada una con su propio tarifario.
+//
+// Capas (de "cómo nos movemos" a "qué le ofrecemos al cliente"):
+//   Sucursal + Transportista → RutaEnvio → RutaPuntoEntrega → PuntoEntrega
+//   DestinoEnvio → CoberturaEnvio (una ruta + un punto/domicilio) → TarifaEnvio
+//
+// Paquetería nacional (Estafeta/DHL/FedEx) queda FUERA de este grafo por
+// ahora: la guía se sigue generando a mano en Skydropx y el pedido solo
+// guarda transportista + paqueteria/numeroGuia libres (ver modelo Pedido).
+// El día que se integre una API de cotización nacional (Skydropx u otra),
+// su resultado deberá normalizarse a la misma forma de "opción de envío"
+// que ya devuelve la cotización regional (ver GET /envios/cotizar en
+// routes/envios.js: carrier/deliveryType/deliveryPoint/price) — ese
+// contrato de respuesta es la "interfaz común" entre ambos caminos, no una
+// tabla compartida: nacional y regional se resuelven distinto por dentro,
+// pero de cara a quien cotiza (frontend, y a futuro un cliente final o una
+// API externa) se ven igual.
 enum TipoEnvio {
-  PAQUETERIA_NACIONAL // Estafeta, DHL, FedEx — guía generada aparte en Skydrop (default histórico)
+  PAQUETERIA_NACIONAL // Estafeta, DHL, FedEx — guía generada aparte en Skydropx (default histórico)
   TRANSPORTE_LOCAL    // autobús, Suburban, taxi, línea de transporte dentro de Oaxaca
   OTRO
 }
@@ -977,6 +1010,21 @@ enum TamanoPaquete {
   EXTRA_GRANDE
 }
 
+// Cómo se resuelve una CoberturaEnvio en la práctica:
+//  - DOMICILIO: el transportista de la ruta entrega en la puerta del cliente.
+//  - PUNTO_RECOLECCION: se manda al puntoEntregaId de esta cobertura (una
+//    terminal, una agencia) y el cliente pasa a recogerlo.
+//  - COTIZACION_MANUAL: se conoce la ruta/transportista para ese destino,
+//    pero no hay un precio estandarizado — se cotiza a mano cada vez (no
+//    confundir con que NO EXISTA ninguna CoberturaEnvio para un destino,
+//    que es el otro caso en el que el motor de cotización responde
+//    "MANUAL_QUOTE_REQUIRED": ver GET /envios/cotizar).
+enum TipoEntrega {
+  DOMICILIO
+  PUNTO_RECOLECCION
+  COTIZACION_MANUAL
+}
+
 model Transportista {
   id         Int               @id @default(autoincrement())
   nombre     String
@@ -989,65 +1037,158 @@ model Transportista {
   activo     Boolean           @default(true)
   createdAt  DateTime          @default(now()) @map("created_at")
 
-  destinosSugeridos DestinoEnvio[]
-  tarifas           TarifaEnvio[]
-  pedidos           Pedido[]
+  rutas   RutaEnvio[]
+  pedidos Pedido[]
 
   @@map("transportistas")
 }
 
-// Un lugar (colonia, población, municipio) al que ya se ha enviado o se
-// sabe cómo enviar dentro de Oaxaca. entregaDomicilio=false es el caso que
-// más dolores de cabeza da: ningún transportista llega directo a la puerta
-// del cliente, así que se manda al puntoEntregaTexto (una terminal, una
-// encomienda) más cercano y el cliente pasa a recogerlo — ese texto se
-// "congela" en Pedido.puntoEntregaTexto al marcar el pedido como enviado
-// (mismo criterio que Pedido.costoEnvio con ConfiguracionTienda) para poder
-// avisarle al cliente exactamente dónde, aunque el punto de entrega de este
-// destino cambie después.
-model DestinoEnvio {
-  id                      Int            @id @default(autoincrement())
-  nombre                  String
-  municipio               String
-  // Región de Oaxaca (Valles Centrales, Costa, Istmo, Mixteca, Sierra,
-  // Cañada, Papaloapan...) — libre por ahora, para agrupar/filtrar en
-  // reportes futuros sin forzar un catálogo cerrado desde el día uno.
-  region                  String?
-  transportistaSugeridoId Int?           @map("transportista_sugerido_id")
-  transportistaSugerido   Transportista? @relation(fields: [transportistaSugeridoId], references: [id])
-  entregaDomicilio        Boolean        @default(true) @map("entrega_domicilio")
-  puntoEntregaTexto       String?        @map("punto_entrega_texto")
-  notas                   String?
-  activo                  Boolean        @default(true)
-  createdAt               DateTime       @default(now()) @map("created_at")
-  updatedAt               DateTime       @updatedAt @map("updated_at")
+// El conocimiento logístico real: qué transportista cubre qué tramo,
+// saliendo de qué sucursal. Un transportista local (ej. Aragal) no es "un
+// precio por municipio" — tiene rutas específicas (Pinotepa→Putla,
+// Pinotepa→Juquila...), cada una con sus propios puntos de entrega.
+model RutaEnvio {
+  id               Int           @id @default(autoincrement())
+  nombre           String
+  sucursalOrigenId Int           @map("sucursal_origen_id")
+  sucursalOrigen   Sucursal      @relation("RutaOrigen", fields: [sucursalOrigenId], references: [id])
+  transportistaId  Int           @map("transportista_id")
+  transportista    Transportista @relation(fields: [transportistaId], references: [id])
+  activo           Boolean       @default(true)
+  notas            String?
+  createdAt        DateTime      @default(now()) @map("created_at")
 
-  tarifas TarifaEnvio[]
-  pedidos Pedido[]
+  puntos     RutaPuntoEntrega[]
+  coberturas CoberturaEnvio[]
+  pedidos    Pedido[]
+
+  @@map("rutas_envio")
+}
+
+// Un lugar físico reutilizable donde el cliente puede recoger su pedido
+// (terminal, agencia, base de taxis, la propia sucursal...). Reutilizable a
+// propósito: varias localidades distintas pueden compartir el mismo
+// PuntoEntrega ("Localidad A/B/C → Terminal Putla") en vez de repetir el
+// texto en cada una, que era la limitación de DestinoEnvio.puntoEntregaTexto
+// en v1 (ese campo se conserva en Pedido solo como snapshot histórico).
+model PuntoEntrega {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  estadoMx  String?  @map("estado_mx")
+  municipio String?
+  localidad String?
+  direccion String?
+  telefono  String?
+  activo    Boolean  @default(true)
+  notas     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rutas      RutaPuntoEntrega[]
+  coberturas CoberturaEnvio[]
+  pedidos    Pedido[]
+
+  @@map("puntos_entrega")
+}
+
+// Qué puntos de entrega toca una ruta (una ruta puede pasar por varios
+// pueblos camino a su destino final) y en qué orden — el orden se guarda
+// desde ahora aunque todavía no haya una pantalla que lo muestre como
+// secuencia.
+model RutaPuntoEntrega {
+  id             Int          @id @default(autoincrement())
+  rutaEnvioId    Int          @map("ruta_envio_id")
+  rutaEnvio      RutaEnvio    @relation(fields: [rutaEnvioId], references: [id])
+  puntoEntregaId Int          @map("punto_entrega_id")
+  puntoEntrega   PuntoEntrega @relation(fields: [puntoEntregaId], references: [id])
+  orden          Int          @default(0)
+  activo         Boolean      @default(true)
+
+  @@unique([rutaEnvioId, puntoEntregaId])
+  @@map("rutas_puntos_entrega")
+}
+
+// La ubicación del cliente que queremos atender — NO asume dónde termina
+// físicamente el transporte (eso lo dice CoberturaEnvio/TipoEntrega). En v1
+// este modelo mezclaba "dónde vive el cliente" con "cómo lo atendemos"
+// (transportistaSugeridoId/entregaDomicilio/puntoEntregaTexto); esa
+// responsabilidad se mudó completa a CoberturaEnvio.
+model DestinoEnvio {
+  id           Int      @id @default(autoincrement())
+  nombre       String
+  estadoMx     String?  @map("estado_mx")
+  municipio    String
+  localidad    String?
+  codigoPostal String?  @map("codigo_postal")
+  notas        String?
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  coberturas CoberturaEnvio[]
+  pedidos    Pedido[]
 
   @@unique([nombre, municipio])
   @@map("destinos_envio")
 }
 
-// Precio conocido de un transportista hacia un destino, por tamaño de
-// paquete. Igual que los catálogos de mercancía, el precio vigente se edita
-// en el mismo renglón (no se versiona por fecha) — lo que sí se congela es
-// el monto realmente cobrado en cada pedido (Pedido.costoEnvio, ya
-// existente, sin cambios).
-model TarifaEnvio {
-  id              Int           @id @default(autoincrement())
-  transportistaId Int           @map("transportista_id")
-  transportista   Transportista @relation(fields: [transportistaId], references: [id])
-  destinoId       Int           @map("destino_id")
-  destino         DestinoEnvio  @relation(fields: [destinoId], references: [id])
-  tamano          TamanoPaquete
-  precio          Decimal       @db.Decimal(10, 2)
-  notas           String?
-  activo          Boolean       @default(true)
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
+// Una forma válida de atender un destino: por esta ruta, con este tipo de
+// entrega y (si aplica) este punto de recolección. Un mismo DestinoEnvio
+// puede tener varias CoberturaEnvio activas al mismo tiempo (Aragal a la
+// terminal vs. autobús a otra terminal vs. taxi a domicilio) — es lo que le
+// permite al motor de cotización devolver varias opciones (ver sección 11
+// del diseño acordado) en vez de un único precio. "prioridad" es solo una
+// sugerencia de orden para mostrarlas (menor = se muestra primero); no
+// oculta las demás.
+model CoberturaEnvio {
+  id             Int          @id @default(autoincrement())
+  destinoEnvioId Int          @map("destino_envio_id")
+  destinoEnvio   DestinoEnvio @relation(fields: [destinoEnvioId], references: [id])
+  rutaEnvioId    Int          @map("ruta_envio_id")
+  rutaEnvio      RutaEnvio    @relation(fields: [rutaEnvioId], references: [id])
+  tipoEntrega    TipoEntrega  @default(PUNTO_RECOLECCION) @map("tipo_entrega")
+  // Requerido cuando tipoEntrega = PUNTO_RECOLECCION; null en DOMICILIO y en
+  // COTIZACION_MANUAL (no se valida a nivel de base de datos, se valida en
+  // la ruta del backend — ver routes/envios.js).
+  puntoEntregaId Int?          @map("punto_entrega_id")
+  puntoEntrega   PuntoEntrega? @relation(fields: [puntoEntregaId], references: [id])
+  prioridad      Int          @default(0)
+  activo         Boolean      @default(true)
+  notas          String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
-  @@unique([transportistaId, destinoId, tamano])
+  tarifas TarifaEnvio[]
+  pedidos Pedido[]
+
+  @@unique([destinoEnvioId, rutaEnvioId])
+  @@map("coberturas_envio")
+}
+
+// Precio de una CoberturaEnvio por tamaño de paquete. v1 dependía
+// directamente de transportista+destino+tamaño; ahora depende de
+// coberturaEnvioId (que ya trae ruta, transportista, tipo de entrega y
+// punto de entrega) + tamaño, para no duplicar esa información en cada
+// renglón de tarifa. costoReal es lo que le cuesta al negocio,
+// precioCliente es lo que se le cobra — la diferencia es el margen (no se
+// guarda una columna aparte, se calcula: precioCliente - costoReal). El
+// precio vigente se edita en el mismo renglón (no se versiona por fecha);
+// lo que sí se congela por pedido es el monto realmente cobrado/costeado
+// (ver Pedido.costoEnvio/costoEnvioReal).
+model TarifaEnvio {
+  id               Int            @id @default(autoincrement())
+  coberturaEnvioId Int            @map("cobertura_envio_id")
+  coberturaEnvio   CoberturaEnvio @relation(fields: [coberturaEnvioId], references: [id])
+  tamano           TamanoPaquete
+  costoReal        Decimal        @map("costo_real") @db.Decimal(10, 2)
+  precioCliente    Decimal        @map("precio_cliente") @db.Decimal(10, 2)
+  notas            String?
+  activo           Boolean        @default(true)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  pedidos Pedido[]
+
+  @@unique([coberturaEnvioId, tamano])
   @@map("tarifas_envio")
 }
 
@@ -1223,6 +1364,30 @@ model Pedido {
   tamanoPaquete     TamanoPaquete? @map("tamano_paquete")
   puntoEntregaTexto String?        @map("punto_entrega_texto")
 
+  // Envíos v2 (ver comentario junto a CoberturaEnvio arriba) — snapshot de
+  // la opción de envío elegida al marcar el pedido como enviado. Los ids se
+  // guardan para trazabilidad/reportes (qué ruta o cobertura se usó), pero
+  // el dinero real cobrado/costeado vive en costoEnvio (ya existente, lo
+  // que paga el cliente) y costoEnvioReal (nuevo, lo que le cuesta al
+  // negocio) como VALORES congelados — así, si la tarifa cambia después,
+  // este pedido conserva con qué se cotizó realmente. sucursalDespachoId es
+  // independiente de PedidoItem.sucursalStockId a propósito (D1): hoy un
+  // mismo pedido puede tener artículos saliendo de sucursales distintas por
+  // renglón, así que la sucursal de despacho del ENVÍO se elige aparte, a
+  // mano, al armar el envío — no se deriva automáticamente del inventario.
+  sucursalDespachoId Int?            @map("sucursal_despacho_id")
+  sucursalDespacho   Sucursal?       @relation("PedidoDespacho", fields: [sucursalDespachoId], references: [id])
+  coberturaEnvioId   Int?            @map("cobertura_envio_id")
+  coberturaEnvio     CoberturaEnvio? @relation(fields: [coberturaEnvioId], references: [id])
+  rutaEnvioId        Int?            @map("ruta_envio_id")
+  rutaEnvio          RutaEnvio?      @relation(fields: [rutaEnvioId], references: [id])
+  puntoEntregaId     Int?            @map("punto_entrega_id")
+  puntoEntrega       PuntoEntrega?   @relation(fields: [puntoEntregaId], references: [id])
+  tarifaEnvioId      Int?            @map("tarifa_envio_id")
+  tarifaEnvio        TarifaEnvio?    @relation(fields: [tarifaEnvioId], references: [id])
+  tipoEntrega        TipoEntrega?    @map("tipo_entrega")
+  costoEnvioReal     Decimal?        @db.Decimal(10, 2) @map("costo_envio_real")
+
   notas String?
 
   items       PedidoItem[]
@@ -1371,6 +1536,14 @@ model ConfiguracionTienda {
   // Pedido.costoEnvio). v1: un solo monto para toda la tienda; a futuro se
   // piensa volver dinámico (por zona, peso, etc.).
   costoEnvio     Decimal  @default(0) @db.Decimal(10, 2) @map("costo_envio")
+  // "Botón" para pasar de tarifa fija (costoEnvio de arriba, comportamiento
+  // de hasta hoy) al motor de cotización dinámico (CoberturaEnvio/
+  // TarifaEnvio) una vez que esté probado. v1: un solo interruptor global
+  // para toda la tienda — si más adelante hace falta decidirlo por
+  // sucursal, se puede agregar un override opcional en Sucursal que
+  // sobreescriba este valor global cuando no sea null, sin cambiar el
+  // significado de este campo.
+  envioDinamicoActivo Boolean @default(false) @map("envio_dinamico_activo")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("configuracion_tienda")
