@@ -170,12 +170,15 @@ interface VentaItemDetalle {
   cantidad: number;
   precioUnitario: string;
   subtotal?: string;
+  // Null cuando el renglón es un producto NO registrado en el catálogo — no
+  // tiene ProductoVariante detrás, así que nunca pertenece al historial de
+  // ESTE producto (se filtra junto con los demás).
   variante: {
     id: number;
     color: string | null;
     talla: { valor: string } | null;
     producto: { id: number };
-  };
+  } | null;
 }
 interface VentaDetalle {
   id: number;
@@ -372,7 +375,7 @@ function ProductoDetalleContenido() {
     setCargandoVentas(true);
     try {
       const todas = await api<VentaDetalle[]>('/ventas');
-      setVentasProducto(todas.filter((v) => v.items.some((it) => it.variante.producto.id === productoId)));
+      setVentasProducto(todas.filter((v) => v.items.some((it) => it.variante?.producto.id === productoId)));
     } catch (err) {
       toast({ title: 'No se pudieron cargar las ventas', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
     } finally {
@@ -1189,13 +1192,13 @@ function ProductoDetalleContenido() {
                 <tbody>
                   {ventasProducto.map((v) =>
                     v.items
-                      .filter((it) => it.variante.producto.id === productoId)
+                      .filter((it) => it.variante?.producto.id === productoId)
                       .map((it) => (
                         <tr key={`${v.id}-${it.id}`}>
                           <td className="font-medium">{v.folio}</td>
                           <td className="text-muted-foreground">{formatearFecha(v.createdAt)}</td>
                           <td>{v.sucursal?.nombre ?? '—'}</td>
-                          <td>{[it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' · ') || '—'}</td>
+                          <td>{[it.variante?.talla?.valor, it.variante?.color].filter(Boolean).join(' · ') || '—'}</td>
                           <td className="tabular-nums">{it.cantidad}</td>
                           <td className="tabular-nums font-medium">${it.subtotal ?? (Number(it.precioUnitario) * it.cantidad).toFixed(2)}</td>
                           <td>

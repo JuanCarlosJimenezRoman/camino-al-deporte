@@ -47,7 +47,10 @@ interface ProductoResumen {
 interface VentaItemResumen {
   cantidad: number;
   subtotal: string;
-  variante: { producto: ProductoResumen };
+  // Null cuando el renglón es un producto NO registrado en el catálogo (ver
+  // descripcionLibre) — no tiene ProductoVariante detrás.
+  variante: { producto: ProductoResumen } | null;
+  descripcionLibre?: string | null;
 }
 
 interface VentaResumen {
@@ -149,6 +152,10 @@ function calcularTopProductos(ventas: VentaResumen[]) {
   const mapa = new Map<string, { nombre: string; imagen: string | null; cantidad: number; ingresos: number }>();
   ventas.forEach((v) =>
     v.items.forEach((it) => {
+      // Un producto no registrado en el catálogo no tiene variante — se
+      // deja fuera del top de productos (no hay foto ni id de producto que
+      // agrupar de forma consistente entre ventas).
+      if (!it.variante) return;
       const nombre = it.variante.producto.nombre;
       const actual = mapa.get(nombre) ?? {
         nombre,
@@ -180,7 +187,7 @@ function construirActividad(ventas: VentaResumen[], apartados: ApartadoResumen[]
   const eventos: (ActivityItem & { fechaOrden: number })[] = [];
 
   ventas.slice(0, 8).forEach((v) => {
-    const primerItem = v.items[0]?.variante.producto.nombre;
+    const primerItem = v.items[0]?.variante?.producto.nombre ?? v.items[0]?.descripcionLibre;
     eventos.push({
       id: `venta-${v.id}`,
       icon: ShoppingCart,

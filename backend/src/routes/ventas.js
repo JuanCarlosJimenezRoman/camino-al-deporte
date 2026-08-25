@@ -148,13 +148,19 @@ function calcularProductosVendidos(ventas) {
     for (const item of venta.items) {
       const producto = item.variante?.producto;
       const proveedorId = item.proveedorId ?? null;
+      // La misma talla puede tener stock repartido entre proveedores, y el
+      // mismo producto se vende en varias tallas — se agrupa por las tres
+      // para que la tabla "Productos vendidos" muestre un renglón por talla
+      // en vez de mezclar cantidades de tallas distintas en una sola fila.
+      const talla = item.variante?.talla?.valor ?? null;
       let clave;
       let base;
       if (producto) {
-        clave = `${producto.id}-${proveedorId ?? 'sin-proveedor'}`;
+        clave = `${producto.id}-${talla ?? 'sin-talla'}-${proveedorId ?? 'sin-proveedor'}`;
         base = {
           productoId: producto.id,
           nombre: producto.nombre,
+          talla,
           imagenUrl: producto.imagenes?.[0]?.url || null,
           esLibre: false,
           proveedorId,
@@ -164,13 +170,15 @@ function calcularProductosVendidos(ventas) {
         };
       } else if (item.descripcionLibre) {
         // Producto no registrado en el catálogo (ver migración
-        // 20260901100000_venta_items_libres): se agrupa por su descripción
-        // + proveedor, igual criterio que un producto real, para que se vea
-        // en el corte del día en vez de perderse silenciosamente.
+        // 20260901100000_venta_items_libres): no tiene variante/talla, se
+        // agrupa por su descripción + proveedor, igual criterio que un
+        // producto real, para que se vea en el corte del día en vez de
+        // perderse silenciosamente.
         clave = `libre-${item.descripcionLibre}-${proveedorId ?? 'sin-proveedor'}`;
         base = {
           productoId: null,
           nombre: item.descripcionLibre,
+          talla: null,
           imagenUrl: null,
           esLibre: true,
           proveedorId,
@@ -258,6 +266,7 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
             proveedor: { select: { id: true, nombre: true } },
             variante: {
               select: {
+                talla: { select: { valor: true } },
                 producto: {
                   select: {
                     id: true,

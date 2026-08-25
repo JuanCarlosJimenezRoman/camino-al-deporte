@@ -38,6 +38,9 @@ interface ProductoVendido {
   // esLibre) — se agrupa por su descripción en vez de por un id real.
   productoId: number | null;
   nombre: string;
+  // Null en un producto sin variante por talla (ej. libre) o en variantes
+  // sin talla asignada.
+  talla: string | null;
   imagenUrl: string | null;
   esLibre?: boolean;
   proveedorId: number | null;
@@ -239,6 +242,7 @@ export default function CorteDelDiaPage() {
                       <tr>
                         <th></th>
                         <th>Producto</th>
+                        <th>Talla</th>
                         <th>Proveedor</th>
                         <th>Cantidad</th>
                         <th>Total</th>
@@ -246,7 +250,9 @@ export default function CorteDelDiaPage() {
                     </thead>
                     <tbody>
                       {corte.productosVendidos.map((p) => (
-                        <tr key={`${p.productoId ?? `libre-${p.nombre}`}-${p.proveedorId ?? 'sin-proveedor'}`}>
+                        <tr
+                          key={`${p.productoId ?? `libre-${p.nombre}`}-${p.talla ?? 'sin-talla'}-${p.proveedorId ?? 'sin-proveedor'}`}
+                        >
                           <td>
                             <ProductoThumb url={imagenMiniatura(p.imagenUrl ?? undefined)} alt={p.nombre} size={36} />
                           </td>
@@ -258,6 +264,7 @@ export default function CorteDelDiaPage() {
                               </StatusBadge>
                             )}
                           </td>
+                          <td className="text-sm">{p.talla ?? '—'}</td>
                           <td className="text-sm">{p.proveedorNombre}</td>
                           <td className="tabular-nums">{p.cantidad}</td>
                           <td className="tabular-nums font-medium">{formatoMonedaExacto(p.total)}</td>
