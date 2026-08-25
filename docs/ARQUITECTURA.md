@@ -656,68 +656,113 @@ ADMIN_PRINCIPAL, DESARROLLO, VENTAS.
 
 ## Envíos: paquetería nacional y transporte local (Oaxaca)
 
-Un pedido se manda de dos formas muy distintas, y el sistema modela cada
-una por separado (ver modelos `Transportista`/`DestinoEnvio`/`TarifaEnvio`
-en `schema.prisma`, junto a `Pedido`):
+Un pedido se manda de dos formas muy distintas. Paquetería nacional
+(Estafeta, DHL, FedEx) sigue su camino simple: la guía se genera a mano en
+Skydrop, fuera de este sistema, y aquí solo se registra qué paquetería y
+número de guía (`Pedido.paqueteria` / `numeroGuia`, sin cambios desde el
+diseño original). El transporte local dentro de Oaxaca (autobuses,
+Suburban, taxis, líneas de transporte como "Aragal") es lo que necesitó un
+modelo en capas — no hay tarifa fija ni API, cobran por tamaño de paquete y
+distancia, un mismo camino puede tocar varios pueblos con distintos puntos
+de recolección, y muchos destinos no tienen entrega a domicilio.
 
-- **Paquetería nacional** (Estafeta, DHL, FedEx): la guía se sigue
-  generando a mano en Skydrop, fuera de este sistema — aquí solo se
-  registra qué paquetería y número de guía (`Pedido.paqueteria` /
-  `numeroGuia`, como hasta ahora, sin cambios).
-- **Transporte local dentro de Oaxaca** (autobuses, Suburban, taxis,
-  líneas de transporte como "Aragal"): no hay tarifa fija ni API, cobran
-  por tamaño de paquete y distancia, y muchos destinos no tienen entrega a
-  domicilio — el paquete se manda al punto más cercano (una terminal, una
-  encomienda) y el cliente pasa a recogerlo.
-
-Para el transporte local existen tres catálogos nuevos, pensados para que
-el conocimiento de "cuánto cobra tal camión a tal pueblo" se capture una
-vez y quede disponible para la siguiente cotización, en vez de vivir solo
-en la memoria de quien atiende WhatsApp:
+**Modelo v2 (capas, sin acoplar "dónde vive el cliente" con "cómo lo
+atendemos"):**
 
 - **Transportista**: paqueterías nacionales y transportistas locales
   (`tipo`: PAQUETERIA, AUTOBUS, SUBURBAN, TAXI, LINEA_TRANSPORTE, OTRO).
-- **DestinoEnvio**: un lugar dentro de Oaxaca al que ya se sabe cómo
-  enviar — municipio, región, transportista sugerido y, si nadie llega a
-  domicilio (`entregaDomicilio: false`), el punto de entrega
-  (`puntoEntregaTexto`) donde el cliente debe recogerlo.
-- **TarifaEnvio**: precio conocido de un transportista hacia un destino,
-  por tamaño de paquete (CHICO/MEDIANO/GRANDE/EXTRA_GRANDE).
+  Sin cambios respecto al diseño original.
+- **RutaEnvio**: un transportista saliendo de una `Sucursal` de origen —
+  p. ej. "Aragal desde Centro". Reutiliza el modelo `Sucursal` existente
+  (no se duplicó); es la unidad que después cubre uno o varios destinos.
+- **PuntoEntrega**: un lugar físico reutilizable (terminal, agencia,
+  encomienda) donde el cliente puede recoger su pedido. Una ruta puede
+  tener varios puntos de entrega en su trayecto (`RutaPuntoEntrega`, con
+  `orden`); un mismo punto de entrega puede ser usado por varias rutas.
+- **DestinoEnvio**: ahora representa *solo* dónde vive el cliente
+  (municipio, estado, localidad, código postal) — ya no carga
+  transportista sugerido ni forma de entrega, eso se resolvió acoplando
+  demasiado "el cliente" con "cómo lo atendemos hoy".
+- **CoberturaEnvio**: la pieza que une todo — una forma válida de atender
+  un destino: qué ruta lo cubre, con qué tipo de entrega (`tipoEntrega`:
+  DOMICILIO, PUNTO_RECOLECCION o COTIZACION_MANUAL) y, si es recolección,
+  en qué `PuntoEntrega`. Un destino puede tener varias coberturas activas
+  (varias formas de llegar), ordenadas por `prioridad` — la de menor
+  número se ofrece primero al cotizar.
+- **TarifaEnvio**: ahora depende de `CoberturaEnvio` + `TamanoPaquete` (ya
+  no de transportista + destino sueltos), con `costoReal` (lo que en
+  verdad cuesta) y `precioCliente` (lo que se cobra) por separado.
 
-Estos catálogos son **opcionales** en `Pedido` (`tipoEnvio`,
-`transportistaId`, `destinoEnvioId`, `tamanoPaquete`,
-`puntoEntregaTexto`): un pedido de paquetería nacional (`tipoEnvio`
-PAQUETERIA_NACIONAL, el default de todos los pedidos existentes) sigue sin
-usarlos igual que hasta hoy. Al marcar un pedido de transporte local como
-enviado (`POST /pedidos-online/:id/marcar-enviado`), si se manda
-`destinoEnvioId` y ese destino no tiene entrega a domicilio, su
-`puntoEntregaTexto` se "congela" en el pedido — mismo criterio que
-`Pedido.costoEnvio` con `ConfiguracionTienda.costoEnvio` — para conservar
-con qué se avisó al cliente aunque el destino cambie de punto de entrega
-después.
+**Motor de cotización** (`GET /envios/cotizar?destinoId=&tamano=`, en
+`routes/envios.js`): dado un destino y opcionalmente un tamaño, busca sus
+coberturas activas con tarifa activa y arma una lista de opciones — cada
+una con ruta, transportista, tipo de entrega, punto de entrega y precio,
+ordenadas por prioridad y luego por precio. Si no hay ninguna opción
+conocida, responde `estado: 'COTIZACION_MANUAL'` en vez de una lista
+vacía silenciosa, para que quien está capturando el envío sepa que hay que
+cotizarlo a mano y cargar la cobertura/tarifa para la próxima vez. Esta es
+la forma de respuesta ("ShippingOption") que en el futuro también debería
+poder devolver una cotización nacional si se integra una paquetería por
+API (ver "Qué falta" abajo) — hoy paquetería nacional sigue su camino
+simple y no pasa por aquí.
+
+Todos estos catálogos son **opcionales** en `Pedido`: un pedido de
+paquetería nacional (`tipoEnvio` PAQUETERIA_NACIONAL, el default) sigue
+sin usarlos igual que siempre. Al marcar un pedido de transporte local
+como enviado (`POST /pedidos-online/:id/marcar-enviado`) se manda un
+`tarifaEnvioId` (uno de los que devolvió `/envios/cotizar` — no se arma la
+combinación a mano) y el backend congela toda la cadena resuelta en ese
+momento (destino, cobertura, ruta, transportista, sucursal de despacho,
+punto de entrega, tipo de entrega, tamaño, tarifa y `costoEnvioReal`) en
+el pedido — mismo criterio de "instantánea congelada" que ya se usaba con
+`Pedido.costoEnvio` y `ConfiguracionTienda.costoEnvio`, para que el
+historial no cambie si el catálogo se corrige después. `Pedido.costoEnvio`
+(lo que ya pagó el cliente) no se toca al marcar como enviado — se fija al
+crear el pedido, no al despacharlo; `costoEnvioReal` es solo para
+referencia interna de cuánto costó de verdad.
+
+`Pedido.sucursalDespachoId` (de qué sucursal sale físicamente el paquete)
+es independiente del algoritmo de inventario por artículo
+(`PedidoItem.sucursalStockId`, ver sección de multi-sucursal) — por
+default toma la sucursal de origen de la ruta elegida, pero se puede
+corregir a mano si el paquete se manda desde otra sucursal.
 
 **Rutas** (`routes/envios.js`, montado en `/envios`): CRUD de
-`/transportistas`, `/destinos` y `/tarifas`, más `GET /envios/cotizar?
-destinoId=&tamano=` para consultar las tarifas conocidas de un destino (y
-su punto de entrega si no llega a domicilio) sin tener que preguntar de
-nuevo.
+`/transportistas`, `/rutas` (+ `/rutas/:id/puntos` para agregar/quitar
+puntos de entrega de una ruta), `/puntos-entrega`, `/destinos`,
+`/coberturas` y `/tarifas`, más `GET /envios/cotizar`.
+
+**Frontend** (`/dashboard/envios`, `frontend/src/app/(admin)/dashboard/
+envios/page.tsx`): seis pestañas — Transportistas, Rutas (con gestión de
+sus puntos de entrega), Puntos de entrega, Destinos, Cobertura y Tarifas.
+El flujo de "marcar como enviado" de transporte local
+(`/dashboard/pedidos-online/[id]`) ahora cotiza contra `/envios/cotizar` y
+el usuario elige una opción de la lista (ya resuelta) en vez de capturar
+destino/transportista/tamaño por separado.
 
 **Roles.** Igual que quien opera pedidos manuales (ver sección de tienda en
 línea): ADMIN_PRINCIPAL, DESARROLLO, VENTAS. A diferencia de los catálogos
 de mercancía (`routes/catalogos.js`), esto no pasa por una solicitud de
-aprobación — VENTAS puede dar de alta o corregir un transportista, destino
-o tarifa directo, porque normalmente es quien se entera del dato mientras
-cotiza con un cliente.
+aprobación — VENTAS puede dar de alta o corregir una ruta, un punto de
+entrega, una cobertura o una tarifa directo, porque normalmente es quien
+se entera del dato mientras cotiza con un cliente.
+
+**Toggle tarifas dinámicas vs. fija.** `ConfiguracionTienda.
+envioDinamicoActivo` (booleano, default `false`) existe desde ya para
+poder alternar entre el costo de envío fijo actual y este motor de
+cotización dinámico una vez que el catálogo de rutas/cobertura/tarifas
+esté suficientemente cargado — hoy nada lo lee todavía, el checkout de la
+tienda en línea sigue usando el costo fijo de `ConfiguracionTienda` sin
+cambios.
 
 **Qué falta (ver también "Próximos pasos" al final de este documento):** el
-tarifario y los destinos empiezan vacíos salvo un puñado de transportistas
-base (`prisma/seed.js`) — hay que cargar los destinos y precios reales
-conforme se van conociendo. El checkout de la tienda en línea sigue usando
-el costo de envío fijo de `ConfiguracionTienda` sin cambios; conectar estos
-catálogos ahí (para que un pedido de transporte local cotice
-automáticamente en vez de usar el monto fijo) queda pendiente, igual que
-una pantalla en el frontend para administrar transportistas/destinos/
-tarifas y elegirlos al marcar un pedido como enviado.
+catálogo de rutas, puntos de entrega, destinos y tarifas empieza vacío
+salvo un puñado de transportistas base (`prisma/seed.js`) — hay que
+cargar la cobertura y los precios reales conforme se van conociendo.
+Conectar `envioDinamicoActivo` al checkout de la tienda en línea, integrar
+una paquetería nacional por API (Skydropx u otra) para que también pase
+por el motor de cotización, y resolver el tamaño de paquete
+automáticamente a partir de los artículos del pedido, quedan pendientes.
 
 ## SKU de fábrica vs. código interno
 

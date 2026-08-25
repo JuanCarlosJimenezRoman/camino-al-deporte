@@ -47,6 +47,28 @@ interface PedidoItem {
   proveedor: ProveedorInfo | null;
 }
 
+// Transporte local dentro de Oaxaca (ver modelos RutaEnvio/PuntoEntrega/
+// CoberturaEnvio/TarifaEnvio en schema.prisma y /dashboard/envios donde se
+// administran) — todo esto queda congelado en el pedido al marcarlo como
+// enviado (ver comentario junto a estos campos en Pedido, schema.prisma).
+interface RutaEnvioResumen {
+  id: number;
+  nombre: string;
+  transportista: { id: number; nombre: string };
+  sucursalOrigen: { id: number; nombre: string };
+}
+interface PuntoEntregaResumen {
+  id: number;
+  nombre: string;
+  direccion: string | null;
+}
+interface TarifaEnvioResumen {
+  id: number;
+  tamano: string;
+  costoReal: string;
+  precioCliente: string;
+}
+
 interface Pedido {
   id: number;
   folio: string;
@@ -79,14 +101,17 @@ interface Pedido {
   proveedorPagoConfirmado: ProveedorInfo | null;
   paqueteria: string | null;
   numeroGuia: string | null;
-  // Transporte local dentro de Oaxaca (ver modelos Transportista/
-  // DestinoEnvio en schema.prisma) — opcional, solo se llena si el pedido
-  // se envió así en vez de por paquetería nacional.
   tipoEnvio: 'PAQUETERIA_NACIONAL' | 'TRANSPORTE_LOCAL' | 'OTRO';
   transportista: { id: number; nombre: string } | null;
-  destinoEnvio: { id: number; nombre: string; municipio: string; puntoEntregaTexto: string | null } | null;
+  destinoEnvio: { id: number; nombre: string; municipio: string } | null;
+  sucursalDespacho: { id: number; nombre: string } | null;
+  rutaEnvio: RutaEnvioResumen | null;
+  puntoEntrega: PuntoEntregaResumen | null;
+  tarifaEnvio: TarifaEnvioResumen | null;
+  tipoEntrega: 'DOMICILIO' | 'PUNTO_RECOLECCION' | 'COTIZACION_MANUAL' | null;
   tamanoPaquete: 'CHICO' | 'MEDIANO' | 'GRANDE' | 'EXTRA_GRANDE' | null;
   puntoEntregaTexto: string | null;
+  costoEnvioReal: string | null;
   // Cupón de código aplicado por el cliente al armar el pedido.
   cuponCodigo: string | null;
   cuponDescuento: string;
@@ -135,23 +160,32 @@ const METODO_PAGO_LABEL: Record<string, string> = {
 // Transporte local dentro de Oaxaca (ver /dashboard/envios donde se
 // administran estos catálogos) — se cargan aparte, solo cuando el pedido
 // está PAGADO y puede marcarse como enviado.
-interface TransportistaOpcion {
-  id: number;
-  nombre: string;
-  esNacional: boolean;
-}
 interface DestinoEnvioOpcion {
   id: number;
   nombre: string;
   municipio: string;
-  entregaDomicilio: boolean;
-  puntoEntregaTexto: string | null;
 }
-interface TarifaCotizada {
-  id: number;
+// Una opción devuelta por el motor de cotización (GET /envios/cotizar) —
+// ya trae resuelta la ruta/transportista/tipo de entrega/punto de entrega,
+// así que marcar como enviado solo necesita mandar el tarifaId elegido
+// (ver POST /pedidos-online/:id/marcar-enviado en routes/pedidosOnline.js).
+interface OpcionCotizacion {
+  coberturaId: number;
+  rutaId: number;
+  rutaNombre: string;
+  sucursalOrigen: { id: number; nombre: string };
+  transportista: { id: number; nombre: string };
+  tipoEntrega: 'DOMICILIO' | 'PUNTO_RECOLECCION' | 'COTIZACION_MANUAL';
+  puntoEntrega: { id: number; nombre: string; direccion: string | null } | null;
   tamano: string;
-  precio: string;
-  transportista: { nombre: string };
+  tarifaId: number;
+  precioCliente: string;
+  costoReal: string;
+}
+interface CotizacionRespuesta {
+  estado: 'DISPONIBLE' | 'COTIZACION_MANUAL';
+  destino: DestinoEnvioOpcion;
+  opciones: OpcionCotizacion[];
 }
 
 const TAMANO_PAQUETE_LABEL: Record<string, string> = {
@@ -159,6 +193,12 @@ const TAMANO_PAQUETE_LABEL: Record<string, string> = {
   MEDIANO: 'Mediano',
   GRANDE: 'Grande',
   EXTRA_GRANDE: 'Extra grande / bulto',
+};
+
+const TIPO_ENTREGA_LABEL: Record<string, string> = {
+  DOMICILIO: 'A domicilio',
+  PUNTO_RECOLECCION: 'Punto de recolección',
+  COTIZACION_MANUAL: 'Cotización manual',
 };
 
 export default function PedidoOnlineDetallePage() {
@@ -172,12 +212,12 @@ export default function PedidoOnlineDetallePage() {
   // nacional de arriba al marcar el pedido como enviado. No obligatorio:
   // paquetería nacional sigue funcionando exactamente igual que antes.
   const [tipoEnvio, setTipoEnvio] = useState<'PAQUETERIA_NACIONAL' | 'TRANSPORTE_LOCAL'>('PAQUETERIA_NACIONAL');
-  const [transportistasEnvio, setTransportistasEnvio] = useState<TransportistaOpcion[]>([]);
   const [destinosEnvio, setDestinosEnvio] = useState<DestinoEnvioOpcion[]>([]);
   const [destinoEnvioId, setDestinoEnvioId] = useState('');
-  const [transportistaEnvioId, setTransportistaEnvioId] = useState('');
   const [tamanoPaqueteEnvio, setTamanoPaqueteEnvio] = useState<'CHICO' | 'MEDIANO' | 'GRANDE' | 'EXTRA_GRANDE'>('CHICO');
-  const [cotizacion, setCotizacion] = useState<{ destino: DestinoEnvioOpcion; tarifas: TarifaCotizada[] } | null>(null);
+  const [cotizacion, setCotizacion] = useState<CotizacionRespuesta | null>(null);
+  const [cotizando, setCotizando] = useState(false);
+  const [tarifaEnvioId, setTarifaEnvioId] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [cuentaReceptora, setCuentaReceptora] = useState(''); // '' = cuenta de la tienda
 
@@ -211,27 +251,31 @@ export default function PedidoOnlineDetallePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
-  // Catálogo de transporte local (ver /dashboard/envios) — solo hace falta
-  // cargarlo mientras el pedido está PAGADO (cuando aparece la tarjeta de
-  // "Marcar como enviado"); no tiene sentido pedirlo antes.
+  // Catálogo de destinos de transporte local (ver /dashboard/envios) —
+  // solo hace falta cargarlo mientras el pedido está PAGADO (cuando
+  // aparece la tarjeta de "Marcar como enviado"); no tiene sentido
+  // pedirlo antes.
   useEffect(() => {
     if (pedido?.estado !== 'PAGADO') return;
-    api<TransportistaOpcion[]>('/envios/transportistas').then(setTransportistasEnvio).catch(() => {});
     api<DestinoEnvioOpcion[]>('/envios/destinos').then(setDestinosEnvio).catch(() => {});
   }, [pedido?.estado]);
 
-  // Al elegir un destino (y su tamaño de paquete), consulta las tarifas ya
-  // conocidas hacia ahí, solo como referencia para quien está capturando el
-  // envío — no se aplica nada automáticamente.
+  // Al elegir un destino (y su tamaño de paquete), consulta las opciones
+  // de envío ya conocidas hacia ahí (ruta, transportista, tipo de entrega,
+  // punto de entrega y precio) — quien captura el envío elige una de esas
+  // opciones en vez de armar la combinación a mano.
   useEffect(() => {
+    setTarifaEnvioId('');
     if (!destinoEnvioId) {
       setCotizacion(null);
       return;
     }
+    setCotizando(true);
     const qs = new URLSearchParams({ destinoId: destinoEnvioId, tamano: tamanoPaqueteEnvio });
-    api<{ destino: DestinoEnvioOpcion; tarifas: TarifaCotizada[] }>(`/envios/cotizar?${qs.toString()}`)
+    api<CotizacionRespuesta>(`/envios/cotizar?${qs.toString()}`)
       .then(setCotizacion)
-      .catch(() => setCotizacion(null));
+      .catch(() => setCotizacion(null))
+      .finally(() => setCotizando(false));
   }, [destinoEnvioId, tamanoPaqueteEnvio]);
 
   if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
@@ -660,7 +704,7 @@ export default function PedidoOnlineDetallePage() {
                     </div>
 
                     <label style={{ fontSize: 13 }}>Tamaño de paquete</label>
-                    <div style={{ marginBottom: 8, marginTop: 4 }}>
+                    <div style={{ marginBottom: 12, marginTop: 4 }}>
                       <select
                         value={tamanoPaqueteEnvio}
                         onChange={(e) => setTamanoPaqueteEnvio(e.target.value as typeof tamanoPaqueteEnvio)}
@@ -673,46 +717,63 @@ export default function PedidoOnlineDetallePage() {
                       </select>
                     </div>
 
-                    <label style={{ fontSize: 13 }}>Transportista</label>
-                    <div style={{ marginBottom: 8, marginTop: 4 }}>
-                      <select value={transportistaEnvioId} onChange={(e) => setTransportistaEnvioId(e.target.value)}>
-                        <option value="">Selecciona un transportista</option>
-                        {transportistasEnvio.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {cotizacion && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--color-muted)',
-                          marginBottom: 12,
-                          padding: 8,
-                          borderRadius: 6,
-                          background: 'var(--color-bg-secondary, rgba(0,0,0,0.03))',
-                        }}
-                      >
-                        {cotizacion.tarifas.length > 0 ? (
-                          <div>
-                            Tarifas conocidas:{' '}
-                            {cotizacion.tarifas
-                              .map((t) => `${t.transportista.nombre} $${t.precio}`)
-                              .join(' · ')}
-                          </div>
+                    {destinoEnvioId && (
+                      <div style={{ marginBottom: 12 }}>
+                        {cotizando ? (
+                          <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Buscando opciones conocidas…</p>
+                        ) : !cotizacion || cotizacion.opciones.length === 0 ? (
+                          <p
+                            style={{
+                              fontSize: 13,
+                              color: 'var(--color-muted)',
+                              padding: 8,
+                              borderRadius: 6,
+                              background: 'var(--color-bg-secondary, rgba(0,0,0,0.03))',
+                            }}
+                          >
+                            No hay ninguna opción de envío conocida hacia este destino en este tamaño — cotízalo a
+                            mano con el transportista y captura la ruta/tarifa en Envíos para que la próxima vez
+                            aparezca aquí.
+                          </p>
                         ) : (
-                          <div>Sin tarifa capturada todavía para este destino y tamaño.</div>
-                        )}
-                        {!cotizacion.destino.entregaDomicilio && (
-                          <div style={{ marginTop: 4 }}>
-                            Este destino no tiene entrega a domicilio
-                            {cotizacion.destino.puntoEntregaTexto
-                              ? ` — el cliente recoge en: ${cotizacion.destino.puntoEntregaTexto}`
-                              : ''}
-                            .
+                          <div>
+                            <label style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>Opción de envío</label>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {cotizacion.opciones.map((op) => (
+                                <label
+                                  key={op.tarifaId}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 8,
+                                    fontSize: 13,
+                                    padding: 8,
+                                    borderRadius: 6,
+                                    border: '1px solid var(--color-border)',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <input
+                                    type="radio"
+                                    name="tarifaEnvio"
+                                    style={{ marginTop: 3 }}
+                                    checked={tarifaEnvioId === String(op.tarifaId)}
+                                    onChange={() => setTarifaEnvioId(String(op.tarifaId))}
+                                  />
+                                  <span>
+                                    <strong>{op.transportista.nombre}</strong> — {op.rutaNombre} ·{' '}
+                                    {TIPO_ENTREGA_LABEL[op.tipoEntrega]}
+                                    {op.puntoEntrega ? ` en ${op.puntoEntrega.nombre}` : ''} —{' '}
+                                    <strong>${op.precioCliente}</strong>
+                                    <br />
+                                    <span style={{ color: 'var(--color-muted)' }}>
+                                      Sale de {op.sucursalOrigen.nombre}
+                                      {op.puntoEntrega?.direccion ? ` · ${op.puntoEntrega.direccion}` : ''}
+                                    </span>
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -720,13 +781,11 @@ export default function PedidoOnlineDetallePage() {
 
                     <button
                       className="btn"
-                      disabled={procesando || !destinoEnvioId || !transportistaEnvioId}
+                      disabled={procesando || !tarifaEnvioId}
                       onClick={() =>
                         accion('marcar-enviado', {
                           tipoEnvio: 'TRANSPORTE_LOCAL',
-                          destinoEnvioId: Number(destinoEnvioId),
-                          transportistaId: Number(transportistaEnvioId),
-                          tamanoPaquete: tamanoPaqueteEnvio,
+                          tarifaEnvioId: Number(tarifaEnvioId),
                         })
                       }
                     >
@@ -744,8 +803,9 @@ export default function PedidoOnlineDetallePage() {
             <p style={{ fontSize: 14, marginBottom: 12 }}>
               {pedido.tipoEnvio === 'TRANSPORTE_LOCAL' ? (
                 <>
-                  {pedido.transportista ? `Transportista: ${pedido.transportista.nombre}. ` : ''}
+                  {pedido.rutaEnvio ? `Ruta: ${pedido.rutaEnvio.nombre} (${pedido.rutaEnvio.transportista.nombre}), sale de ${pedido.rutaEnvio.sucursalOrigen.nombre}. ` : ''}
                   {pedido.destinoEnvio ? `Destino: ${pedido.destinoEnvio.nombre} (${pedido.destinoEnvio.municipio}). ` : ''}
+                  {pedido.tipoEntrega ? `Entrega: ${TIPO_ENTREGA_LABEL[pedido.tipoEntrega]}. ` : ''}
                   {pedido.tamanoPaquete ? `Tamaño: ${TAMANO_PAQUETE_LABEL[pedido.tamanoPaquete]}. ` : ''}
                   {pedido.puntoEntregaTexto ? `El cliente recoge en: ${pedido.puntoEntregaTexto}.` : ''}
                 </>
