@@ -24,6 +24,7 @@ import {
   BarChart3,
   SlidersHorizontal,
   Wallet,
+  Send,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
 import { NavItem } from './NavItem';
@@ -109,6 +110,11 @@ export function AppSidebar({
           href: '/dashboard/gastos',
           label: 'Gastos',
           icon: Wallet,
+        },
+        puedeVer('envios', rol) && {
+          href: '/dashboard/envios',
+          label: 'Envíos',
+          icon: Send,
         },
       ].filter(Boolean) as NavLink[],
     },

@@ -79,6 +79,14 @@ interface Pedido {
   proveedorPagoConfirmado: ProveedorInfo | null;
   paqueteria: string | null;
   numeroGuia: string | null;
+  // Transporte local dentro de Oaxaca (ver modelos Transportista/
+  // DestinoEnvio en schema.prisma) — opcional, solo se llena si el pedido
+  // se envió así en vez de por paquetería nacional.
+  tipoEnvio: 'PAQUETERIA_NACIONAL' | 'TRANSPORTE_LOCAL' | 'OTRO';
+  transportista: { id: number; nombre: string } | null;
+  destinoEnvio: { id: number; nombre: string; municipio: string; puntoEntregaTexto: string | null } | null;
+  tamanoPaquete: 'CHICO' | 'MEDIANO' | 'GRANDE' | 'EXTRA_GRANDE' | null;
+  puntoEntregaTexto: string | null;
   // Cupón de código aplicado por el cliente al armar el pedido.
   cuponCodigo: string | null;
   cuponDescuento: string;
@@ -124,6 +132,35 @@ const METODO_PAGO_LABEL: Record<string, string> = {
   TRANSFERENCIA: 'Transferencia',
 };
 
+// Transporte local dentro de Oaxaca (ver /dashboard/envios donde se
+// administran estos catálogos) — se cargan aparte, solo cuando el pedido
+// está PAGADO y puede marcarse como enviado.
+interface TransportistaOpcion {
+  id: number;
+  nombre: string;
+  esNacional: boolean;
+}
+interface DestinoEnvioOpcion {
+  id: number;
+  nombre: string;
+  municipio: string;
+  entregaDomicilio: boolean;
+  puntoEntregaTexto: string | null;
+}
+interface TarifaCotizada {
+  id: number;
+  tamano: string;
+  precio: string;
+  transportista: { nombre: string };
+}
+
+const TAMANO_PAQUETE_LABEL: Record<string, string> = {
+  CHICO: 'Chico',
+  MEDIANO: 'Mediano',
+  GRANDE: 'Grande',
+  EXTRA_GRANDE: 'Extra grande / bulto',
+};
+
 export default function PedidoOnlineDetallePage() {
   const params = useParams<{ id: string }>();
   const [pedido, setPedido] = useState<Pedido | null>(null);
@@ -131,6 +168,16 @@ export default function PedidoOnlineDetallePage() {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [paqueteria, setPaqueteria] = useState('');
   const [numeroGuia, setNumeroGuia] = useState('');
+  // Transporte local (ver /dashboard/envios) — alterna con paquetería
+  // nacional de arriba al marcar el pedido como enviado. No obligatorio:
+  // paquetería nacional sigue funcionando exactamente igual que antes.
+  const [tipoEnvio, setTipoEnvio] = useState<'PAQUETERIA_NACIONAL' | 'TRANSPORTE_LOCAL'>('PAQUETERIA_NACIONAL');
+  const [transportistasEnvio, setTransportistasEnvio] = useState<TransportistaOpcion[]>([]);
+  const [destinosEnvio, setDestinosEnvio] = useState<DestinoEnvioOpcion[]>([]);
+  const [destinoEnvioId, setDestinoEnvioId] = useState('');
+  const [transportistaEnvioId, setTransportistaEnvioId] = useState('');
+  const [tamanoPaqueteEnvio, setTamanoPaqueteEnvio] = useState<'CHICO' | 'MEDIANO' | 'GRANDE' | 'EXTRA_GRANDE'>('CHICO');
+  const [cotizacion, setCotizacion] = useState<{ destino: DestinoEnvioOpcion; tarifas: TarifaCotizada[] } | null>(null);
   const [procesando, setProcesando] = useState(false);
   const [cuentaReceptora, setCuentaReceptora] = useState(''); // '' = cuenta de la tienda
 
@@ -163,6 +210,29 @@ export default function PedidoOnlineDetallePage() {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  // Catálogo de transporte local (ver /dashboard/envios) — solo hace falta
+  // cargarlo mientras el pedido está PAGADO (cuando aparece la tarjeta de
+  // "Marcar como enviado"); no tiene sentido pedirlo antes.
+  useEffect(() => {
+    if (pedido?.estado !== 'PAGADO') return;
+    api<TransportistaOpcion[]>('/envios/transportistas').then(setTransportistasEnvio).catch(() => {});
+    api<DestinoEnvioOpcion[]>('/envios/destinos').then(setDestinosEnvio).catch(() => {});
+  }, [pedido?.estado]);
+
+  // Al elegir un destino (y su tamaño de paquete), consulta las tarifas ya
+  // conocidas hacia ahí, solo como referencia para quien está capturando el
+  // envío — no se aplica nada automáticamente.
+  useEffect(() => {
+    if (!destinoEnvioId) {
+      setCotizacion(null);
+      return;
+    }
+    const qs = new URLSearchParams({ destinoId: destinoEnvioId, tamano: tamanoPaqueteEnvio });
+    api<{ destino: DestinoEnvioOpcion; tarifas: TarifaCotizada[] }>(`/envios/cotizar?${qs.toString()}`)
+      .then(setCotizacion)
+      .catch(() => setCotizacion(null));
+  }, [destinoEnvioId, tamanoPaqueteEnvio]);
 
   if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
   if (!pedido) return <p style={{ color: 'var(--color-muted)' }}>Cargando...</p>;
@@ -529,31 +599,162 @@ export default function PedidoOnlineDetallePage() {
         {pedido.estado === 'PAGADO' && (
           <div className="card" style={{ marginBottom: 16 }}>
             <h2 style={{ fontSize: 15, marginBottom: 8 }}>Marcar como enviado</h2>
-            <label style={{ fontSize: 13 }}>Paquetería (opcional)</label>
-            <div style={{ marginBottom: 8, marginTop: 4 }}>
-              <input value={paqueteria} onChange={(e) => setPaqueteria(e.target.value)} placeholder="Ej. Estafeta" />
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button
+                className={tipoEnvio === 'PAQUETERIA_NACIONAL' ? 'btn' : 'btn-secondary btn'}
+                onClick={() => setTipoEnvio('PAQUETERIA_NACIONAL')}
+              >
+                Paquetería nacional
+              </button>
+              <button
+                className={tipoEnvio === 'TRANSPORTE_LOCAL' ? 'btn' : 'btn-secondary btn'}
+                onClick={() => setTipoEnvio('TRANSPORTE_LOCAL')}
+              >
+                Transporte local (Oaxaca)
+              </button>
             </div>
-            <label style={{ fontSize: 13 }}>Número de guía (opcional)</label>
-            <div style={{ marginBottom: 12, marginTop: 4 }}>
-              <input value={numeroGuia} onChange={(e) => setNumeroGuia(e.target.value)} />
-            </div>
-            <button
-              className="btn"
-              disabled={procesando}
-              onClick={() =>
-                accion('marcar-enviado', { paqueteria: paqueteria || undefined, numeroGuia: numeroGuia || undefined })
-              }
-            >
-              Marcar como enviado
-            </button>
+
+            {tipoEnvio === 'PAQUETERIA_NACIONAL' ? (
+              <>
+                <label style={{ fontSize: 13 }}>Paquetería (opcional)</label>
+                <div style={{ marginBottom: 8, marginTop: 4 }}>
+                  <input value={paqueteria} onChange={(e) => setPaqueteria(e.target.value)} placeholder="Ej. Estafeta" />
+                </div>
+                <label style={{ fontSize: 13 }}>Número de guía (opcional)</label>
+                <div style={{ marginBottom: 12, marginTop: 4 }}>
+                  <input value={numeroGuia} onChange={(e) => setNumeroGuia(e.target.value)} />
+                </div>
+                <button
+                  className="btn"
+                  disabled={procesando}
+                  onClick={() =>
+                    accion('marcar-enviado', {
+                      tipoEnvio: 'PAQUETERIA_NACIONAL',
+                      paqueteria: paqueteria || undefined,
+                      numeroGuia: numeroGuia || undefined,
+                    })
+                  }
+                >
+                  Marcar como enviado
+                </button>
+              </>
+            ) : (
+              <>
+                {destinosEnvio.length === 0 ? (
+                  <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 12 }}>
+                    Todavía no hay destinos dados de alta. Agrégalos en Envíos → Destinos.
+                  </p>
+                ) : (
+                  <>
+                    <label style={{ fontSize: 13 }}>Destino</label>
+                    <div style={{ marginBottom: 8, marginTop: 4 }}>
+                      <select value={destinoEnvioId} onChange={(e) => setDestinoEnvioId(e.target.value)}>
+                        <option value="">Selecciona un destino</option>
+                        {destinosEnvio.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.nombre} ({d.municipio})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <label style={{ fontSize: 13 }}>Tamaño de paquete</label>
+                    <div style={{ marginBottom: 8, marginTop: 4 }}>
+                      <select
+                        value={tamanoPaqueteEnvio}
+                        onChange={(e) => setTamanoPaqueteEnvio(e.target.value as typeof tamanoPaqueteEnvio)}
+                      >
+                        {Object.entries(TAMANO_PAQUETE_LABEL).map(([valor, etiqueta]) => (
+                          <option key={valor} value={valor}>
+                            {etiqueta}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <label style={{ fontSize: 13 }}>Transportista</label>
+                    <div style={{ marginBottom: 8, marginTop: 4 }}>
+                      <select value={transportistaEnvioId} onChange={(e) => setTransportistaEnvioId(e.target.value)}>
+                        <option value="">Selecciona un transportista</option>
+                        {transportistasEnvio.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {cotizacion && (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--color-muted)',
+                          marginBottom: 12,
+                          padding: 8,
+                          borderRadius: 6,
+                          background: 'var(--color-bg-secondary, rgba(0,0,0,0.03))',
+                        }}
+                      >
+                        {cotizacion.tarifas.length > 0 ? (
+                          <div>
+                            Tarifas conocidas:{' '}
+                            {cotizacion.tarifas
+                              .map((t) => `${t.transportista.nombre} $${t.precio}`)
+                              .join(' · ')}
+                          </div>
+                        ) : (
+                          <div>Sin tarifa capturada todavía para este destino y tamaño.</div>
+                        )}
+                        {!cotizacion.destino.entregaDomicilio && (
+                          <div style={{ marginTop: 4 }}>
+                            Este destino no tiene entrega a domicilio
+                            {cotizacion.destino.puntoEntregaTexto
+                              ? ` — el cliente recoge en: ${cotizacion.destino.puntoEntregaTexto}`
+                              : ''}
+                            .
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      className="btn"
+                      disabled={procesando || !destinoEnvioId || !transportistaEnvioId}
+                      onClick={() =>
+                        accion('marcar-enviado', {
+                          tipoEnvio: 'TRANSPORTE_LOCAL',
+                          destinoEnvioId: Number(destinoEnvioId),
+                          transportistaId: Number(transportistaEnvioId),
+                          tamanoPaquete: tamanoPaqueteEnvio,
+                        })
+                      }
+                    >
+                      Marcar como enviado
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </div>
         )}
 
         {pedido.estado === 'ENVIADO' && (
           <div className="card" style={{ marginBottom: 16 }}>
             <p style={{ fontSize: 14, marginBottom: 12 }}>
-              {pedido.paqueteria ? `Paquetería: ${pedido.paqueteria}. ` : ''}
-              {pedido.numeroGuia ? `Guía: ${pedido.numeroGuia}.` : ''}
+              {pedido.tipoEnvio === 'TRANSPORTE_LOCAL' ? (
+                <>
+                  {pedido.transportista ? `Transportista: ${pedido.transportista.nombre}. ` : ''}
+                  {pedido.destinoEnvio ? `Destino: ${pedido.destinoEnvio.nombre} (${pedido.destinoEnvio.municipio}). ` : ''}
+                  {pedido.tamanoPaquete ? `Tamaño: ${TAMANO_PAQUETE_LABEL[pedido.tamanoPaquete]}. ` : ''}
+                  {pedido.puntoEntregaTexto ? `El cliente recoge en: ${pedido.puntoEntregaTexto}.` : ''}
+                </>
+              ) : (
+                <>
+                  {pedido.paqueteria ? `Paquetería: ${pedido.paqueteria}. ` : ''}
+                  {pedido.numeroGuia ? `Guía: ${pedido.numeroGuia}.` : ''}
+                </>
+              )}
             </p>
             <button className="btn" disabled={procesando} onClick={() => accion('marcar-recibido')}>
               Marcar como recibido

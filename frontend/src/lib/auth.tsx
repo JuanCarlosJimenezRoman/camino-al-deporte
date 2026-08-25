@@ -127,6 +127,11 @@ export const PERMISOS = {
   // (ver ROLES_GASTOS en el backend, routes/gastos.js) — VENTAS solo ve/
   // registra los de su propia sucursal.
   gastos: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  // Catálogo de transportistas/destinos/tarifas de envío (ver ROLES_ENVIOS
+  // en el backend, routes/envios.js) — mismos roles que operan pedidos
+  // manuales, porque normalmente es quien se entera del dato cotizando con
+  // un cliente.
+  envios: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {
