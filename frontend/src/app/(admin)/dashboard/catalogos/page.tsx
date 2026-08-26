@@ -429,6 +429,8 @@ function ModelosCard() {
   const [marcaId, setMarcaId] = useState('');
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [nombre, setNombre] = useState('');
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [editandoNombre, setEditandoNombre] = useState('');
   const [mensaje, setMensaje] = useState<string | null>(null);
 
   useEffect(() => {
@@ -459,6 +461,16 @@ function ModelosCard() {
       cargarModelos();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al crear el modelo.');
+    }
+  }
+
+  async function guardarEdicion(id: number) {
+    try {
+      await api(`/catalogos/modelos/${id}`, { method: 'PUT', body: JSON.stringify({ nombre: editandoNombre }) });
+      setEditandoId(null);
+      cargarModelos();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al editar el modelo.');
     }
   }
 
@@ -520,10 +532,37 @@ function ModelosCard() {
               opacity: m.activo ? 1 : 0.5,
             }}
           >
-            <span style={{ flex: 1, fontSize: 14 }}>{m.nombre}</span>
-            <button className="btn-secondary btn" onClick={() => toggleActivo(m)}>
-              {m.activo ? 'Desactivar' : 'Activar'}
-            </button>
+            {editandoId === m.id ? (
+              <>
+                <input
+                  value={editandoNombre}
+                  onChange={(e) => setEditandoNombre(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button className="btn" onClick={() => guardarEdicion(m.id)}>
+                  Guardar
+                </button>
+                <button className="btn-secondary btn" onClick={() => setEditandoId(null)}>
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <span style={{ flex: 1, fontSize: 14 }}>{m.nombre}</span>
+                <button
+                  className="btn-secondary btn"
+                  onClick={() => {
+                    setEditandoId(m.id);
+                    setEditandoNombre(m.nombre);
+                  }}
+                >
+                  Editar
+                </button>
+                <button className="btn-secondary btn" onClick={() => toggleActivo(m)}>
+                  {m.activo ? 'Desactivar' : 'Activar'}
+                </button>
+              </>
+            )}
           </div>
         ))}
         {modelos.length === 0 && (

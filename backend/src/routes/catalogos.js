@@ -133,8 +133,13 @@ router.put('/modelos/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHand
     return res.status(202).json(resultado);
   }
 
-  const modelo = await prisma.modelo.update({ where: { id: Number(req.params.id) }, data: parsed.data });
-  res.json(modelo);
+  try {
+    const modelo = await prisma.modelo.update({ where: { id: Number(req.params.id) }, data: parsed.data });
+    res.json(modelo);
+  } catch (err) {
+    if (err.code === 'P2002') return res.status(409).json({ error: 'Ya existe ese modelo para esta marca.' });
+    throw err;
+  }
 }));
 
 // ---- Categorías ----------------------------------------------------------
