@@ -9,7 +9,7 @@ function requireAuth(req, res, next) {
   const [scheme, token] = header.split(' ');
 
   if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ error: 'No autenticado. Falta el token.' });
+    return res.status(401).json({ error: 'No autenticado. Falta el token.', code: 'AUTH_REQUIRED' });
   }
 
   try {
@@ -17,7 +17,7 @@ function requireAuth(req, res, next) {
     req.usuario = payload; // { id, email, rol }
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Token inválido o expirado.' });
+    return res.status(401).json({ error: 'Token inválido o expirado.', code: 'AUTH_REQUIRED' });
   }
 }
 

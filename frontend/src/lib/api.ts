@@ -13,6 +13,22 @@ function getToken(): string | null {
   return localStorage.getItem('token');
 }
 
+// Nombre del evento global que se dispara cuando el backend responde 401 con
+// code: 'AUTH_REQUIRED' (ver middleware/auth.js y middleware/roles.js): el
+// token no vino, es inválido o expiró. AuthProvider (lib/auth.tsx) escucha
+// este evento para cerrar la sesión en memoria y mandar al usuario a
+// /login, incluso si ya estaba "adentro" del dashboard cuando el token
+// venció (antes se quedaba viendo el error sin que nada lo desconectara).
+export const SESION_EXPIRADA_EVENT = 'sesion-expirada';
+
+function manejarPosibleSesionExpirada(status: number, body: any) {
+  if (typeof window === 'undefined') return;
+  if (status === 401 && body?.code === 'AUTH_REQUIRED') {
+    localStorage.removeItem('token');
+    window.dispatchEvent(new Event(SESION_EXPIRADA_EVENT));
+  }
+}
+
 export async function api<T = unknown>(
   path: string,
   options: RequestInit = {}
@@ -30,6 +46,7 @@ export async function api<T = unknown>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    manejarPosibleSesionExpirada(res.status, body);
     const base = body.error || `Error ${res.status}`;
     // Algunas rutas (ej. KicksDB en catalogoExterno.js) mandan un campo
     // "detalle" aparte con el mensaje de la causa real (útil para pantallas
@@ -56,6 +73,7 @@ export async function apiUpload<T = unknown>(path: string, formData: FormData): 
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    manejarPosibleSesionExpirada(res.status, body);
     throw new ApiError(body.error || `Error ${res.status}`, res.status);
   }
 
@@ -74,6 +92,7 @@ export async function apiDownload(path: string, nombreArchivo: string): Promise<
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    manejarPosibleSesionExpirada(res.status, body);
     throw new ApiError(body.error || `Error ${res.status}`, res.status);
   }
 

@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from './api';
+import { api, SESION_EXPIRADA_EVENT } from './api';
+import { toast } from '@/components/ui/use-toast';
 
 export type Rol = 'ADMIN_PRINCIPAL' | 'DESARROLLO' | 'INVENTARIO' | 'VENTAS' | 'CONSULTA';
 
@@ -40,6 +41,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(setUsuario)
       .catch(() => localStorage.removeItem('token'))
       .finally(() => setCargando(false));
+  }, []);
+
+  // Si cualquier petición a la API recibe un 401 con code: 'AUTH_REQUIRED'
+  // (token faltante, inválido o expirado — ver lib/api.ts), cerramos la
+  // sesión en memoria aunque el usuario ya estuviera "adentro" del
+  // dashboard. Esto hace que el guard de DashboardLayout (que redirige a
+  // /login cuando usuario es null) se dispare de inmediato, en vez de
+  // dejar al usuario viendo el dashboard con una sesión muerta.
+  useEffect(() => {
+    function onSesionExpirada() {
+      setUsuario((actual) => {
+        if (actual) {
+          toast({
+            title: 'Tu sesión expiró',
+            description: 'Vuelve a iniciar sesión para continuar.',
+            variant: 'warning',
+          });
+        }
+        return null;
+      });
+    }
+    window.addEventListener(SESION_EXPIRADA_EVENT, onSesionExpirada);
+    return () => window.removeEventListener(SESION_EXPIRADA_EVENT, onSesionExpirada);
   }, []);
 
   async function login(email: string, password: string) {
