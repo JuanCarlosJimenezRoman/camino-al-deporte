@@ -140,9 +140,33 @@ router.post('/rutas/:id/puntos', requireAuth, requireRole(...ROLES_ENVIOS), asyn
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
+  const rutaEnvioId = Number(req.params.id);
+  const { puntoEntregaId, orden } = parsed.data;
+
+  // La restricción única (rutaEnvioId, puntoEntregaId) no distingue activo de
+  // inactivo: si este punto ya se agregó antes a esta ruta y luego se quitó
+  // (soft delete, activo:false), el renglón sigue existiendo. Reactivarlo en
+  // vez de crear uno nuevo evita el 409 "ya está en esta ruta" al reintentar
+  // agregar un punto que la lista ya no muestra.
+  const existente = await prisma.rutaPuntoEntrega.findUnique({
+    where: { rutaEnvioId_puntoEntregaId: { rutaEnvioId, puntoEntregaId } },
+  });
+
+  if (existente) {
+    if (existente.activo) {
+      return res.status(409).json({ error: 'Ese punto de entrega ya está en esta ruta.' });
+    }
+    const rutaPunto = await prisma.rutaPuntoEntrega.update({
+      where: { id: existente.id },
+      data: { activo: true, ...(orden !== undefined ? { orden } : {}) },
+      include: { puntoEntrega: true },
+    });
+    return res.status(201).json(rutaPunto);
+  }
+
   try {
     const rutaPunto = await prisma.rutaPuntoEntrega.create({
-      data: { rutaEnvioId: Number(req.params.id), ...parsed.data },
+      data: { rutaEnvioId, puntoEntregaId, orden },
       include: { puntoEntrega: true },
     });
     res.status(201).json(rutaPunto);
