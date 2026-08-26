@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiTienda } from './apiTienda';
+import { apiTienda, SESION_CLIENTE_EXPIRADA_EVENT } from './apiTienda';
+import { toast } from '@/components/ui/use-toast';
 
 export interface Cliente {
   id: number;
@@ -46,6 +47,29 @@ export function AuthClienteProvider({ children }: { children: ReactNode }) {
       .then(setCliente)
       .catch(() => localStorage.removeItem('cliente_token'))
       .finally(() => setCargando(false));
+  }, []);
+
+  // Igual que en lib/auth.tsx (panel de administración): si cualquier
+  // petición recibe un 401 con code: 'AUTH_REQUIRED', cerramos la sesión del
+  // cliente en memoria aunque ya estuviera navegando la tienda cuando el
+  // token expiró. Cada página protegida (perfil, pedidos, etc.) ya redirige
+  // a /tienda/login cuando `cliente` es null, así que esto basta para que
+  // el cliente no se quede "adentro" con una sesión muerta.
+  useEffect(() => {
+    function onSesionExpirada() {
+      setCliente((actual) => {
+        if (actual) {
+          toast({
+            title: 'Tu sesión expiró',
+            description: 'Vuelve a iniciar sesión para continuar.',
+            variant: 'warning',
+          });
+        }
+        return null;
+      });
+    }
+    window.addEventListener(SESION_CLIENTE_EXPIRADA_EVENT, onSesionExpirada);
+    return () => window.removeEventListener(SESION_CLIENTE_EXPIRADA_EVENT, onSesionExpirada);
   }, []);
 
   async function login(email: string, password: string, redirectTo = '/tienda') {

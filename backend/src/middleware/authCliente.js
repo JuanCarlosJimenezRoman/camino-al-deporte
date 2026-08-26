@@ -15,18 +15,18 @@ function requireClienteAuth(req, res, next) {
   const [scheme, token] = header.split(' ');
 
   if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ error: 'No autenticado. Falta el token.' });
+    return res.status(401).json({ error: 'No autenticado. Falta el token.', code: 'AUTH_REQUIRED' });
   }
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     if (payload.tipo !== 'cliente') {
-      return res.status(401).json({ error: 'Token inválido para esta sección.' });
+      return res.status(401).json({ error: 'Token inválido para esta sección.', code: 'AUTH_REQUIRED' });
     }
     req.cliente = payload; // { id, email, nombre, tipo: 'cliente' }
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Token inválido o expirado.' });
+    return res.status(401).json({ error: 'Token inválido o expirado.', code: 'AUTH_REQUIRED' });
   }
 }
 

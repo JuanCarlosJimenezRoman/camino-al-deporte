@@ -18,6 +18,23 @@ function getToken(): string | null {
   return localStorage.getItem('cliente_token');
 }
 
+// Igual que SESION_EXPIRADA_EVENT en lib/api.ts, pero para la sesión de
+// clientes de la tienda en línea: se dispara cuando el backend responde 401
+// con code: 'AUTH_REQUIRED' (ver middleware/authCliente.js). AuthClienteProvider
+// (lib/authCliente.tsx) escucha este evento para cerrar la sesión en memoria,
+// lo que a su vez hace que cada página protegida (perfil, pedidos, etc.)
+// redirija a /tienda/login en vez de dejar al cliente viendo el error sin
+// que nada lo desconecte.
+export const SESION_CLIENTE_EXPIRADA_EVENT = 'sesion-cliente-expirada';
+
+function manejarPosibleSesionExpirada(status: number, body: any) {
+  if (typeof window === 'undefined') return;
+  if (status === 401 && body?.code === 'AUTH_REQUIRED') {
+    localStorage.removeItem('cliente_token');
+    window.dispatchEvent(new Event(SESION_CLIENTE_EXPIRADA_EVENT));
+  }
+}
+
 export async function apiTienda<T = unknown>(
   path: string,
   options: RequestInit = {}
@@ -35,6 +52,7 @@ export async function apiTienda<T = unknown>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    manejarPosibleSesionExpirada(res.status, body);
     throw new ApiError(body.error || `Error ${res.status}`, res.status);
   }
 
@@ -56,6 +74,7 @@ export async function apiTiendaUpload<T = unknown>(path: string, formData: FormD
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    manejarPosibleSesionExpirada(res.status, body);
     throw new ApiError(body.error || `Error ${res.status}`, res.status);
   }
 
