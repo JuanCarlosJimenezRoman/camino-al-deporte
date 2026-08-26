@@ -260,10 +260,29 @@ export default function PedidoOnlineDetallePage() {
     api<DestinoEnvioOpcion[]>('/envios/destinos').then(setDestinosEnvio).catch(() => {});
   }, [pedido?.estado]);
 
+  // Si el cliente ya eligió un envío local en el checkout (ver
+  // ConfiguracionTienda.envioDinamicoActivo), se precarga esa elección aquí
+  // en vez de que el staff tenga que capturarla de nuevo desde cero — sigue
+  // pudiendo cambiarla si el paquete real requiere otra cosa. Solo se hace
+  // una vez (con "prellenado") para no pisar lo que el staff ya esté
+  // editando si el pedido se vuelve a cargar.
+  const [prellenado, setPrellenado] = useState(false);
+  useEffect(() => {
+    if (pedido?.estado !== 'PAGADO' || prellenado) return;
+    if (pedido.tipoEnvio === 'TRANSPORTE_LOCAL' && pedido.destinoEnvio && pedido.tamanoPaquete) {
+      setTipoEnvio('TRANSPORTE_LOCAL');
+      setDestinoEnvioId(String(pedido.destinoEnvio.id));
+      setTamanoPaqueteEnvio(pedido.tamanoPaquete);
+    }
+    setPrellenado(true);
+  }, [pedido, prellenado]);
+
   // Al elegir un destino (y su tamaño de paquete), consulta las opciones
   // de envío ya conocidas hacia ahí (ruta, transportista, tipo de entrega,
   // punto de entrega y precio) — quien captura el envío elige una de esas
-  // opciones en vez de armar la combinación a mano.
+  // opciones en vez de armar la combinación a mano. Si esta cotización
+  // corresponde a la misma que el cliente ya eligió en el checkout (mismo
+  // tarifaEnvioId ya guardado en el pedido), se preselecciona sola.
   useEffect(() => {
     setTarifaEnvioId('');
     if (!destinoEnvioId) {
@@ -273,9 +292,15 @@ export default function PedidoOnlineDetallePage() {
     setCotizando(true);
     const qs = new URLSearchParams({ destinoId: destinoEnvioId, tamano: tamanoPaqueteEnvio });
     api<CotizacionRespuesta>(`/envios/cotizar?${qs.toString()}`)
-      .then(setCotizacion)
+      .then((data) => {
+        setCotizacion(data);
+        if (pedido?.tarifaEnvio && data.opciones.some((o) => o.tarifaId === pedido.tarifaEnvio!.id)) {
+          setTarifaEnvioId(String(pedido.tarifaEnvio.id));
+        }
+      })
       .catch(() => setCotizacion(null))
       .finally(() => setCotizando(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destinoEnvioId, tamanoPaqueteEnvio]);
 
   if (error) return <p style={{ color: 'var(--color-danger)' }}>{error}</p>;
@@ -400,6 +425,35 @@ export default function PedidoOnlineDetallePage() {
           {pedido.referencias && <div style={{ fontSize: 13, marginTop: 4 }}>Referencias: {pedido.referencias}</div>}
           {pedido.notas && <div style={{ fontSize: 13, marginTop: 4 }}>Notas: {pedido.notas}</div>}
         </div>
+
+        {pedido.tipoEnvio === 'TRANSPORTE_LOCAL' && pedido.destinoEnvio && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h2 style={{ fontSize: 15, marginBottom: 8 }}>Envío local dentro de Oaxaca</h2>
+            <p style={{ fontSize: 12, color: 'var(--color-muted)', marginBottom: 8 }}>
+              {pedido.estado === 'ENVIADO' || pedido.estado === 'RECIBIDO'
+                ? 'Así se despachó este pedido.'
+                : 'El cliente eligió esto en el checkout — puedes confirmarlo o cambiarlo al marcar el pedido como enviado.'}
+            </p>
+            <div style={{ fontSize: 14 }}>
+              {pedido.rutaEnvio ? `${pedido.rutaEnvio.transportista.nombre} — ${pedido.rutaEnvio.nombre}` : ''}
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--color-muted)' }}>
+              Destino: {pedido.destinoEnvio.nombre} ({pedido.destinoEnvio.municipio})
+            </div>
+            {pedido.tipoEntrega && (
+              <div style={{ fontSize: 14, color: 'var(--color-muted)' }}>
+                Entrega: {TIPO_ENTREGA_LABEL[pedido.tipoEntrega]}
+                {pedido.tamanoPaquete ? ` · Tamaño: ${TAMANO_PAQUETE_LABEL[pedido.tamanoPaquete]}` : ''}
+              </div>
+            )}
+            {pedido.puntoEntregaTexto && (
+              <div style={{ fontSize: 13, color: '#a15c00', marginTop: 4 }}>
+                No se entrega a domicilio — el cliente recoge en: {pedido.puntoEntregaTexto}
+              </div>
+            )}
+            <div style={{ fontSize: 14, marginTop: 4 }}>Costo de envío cobrado: ${pedido.costoEnvio}</div>
+          </div>
+        )}
 
         {proveedoresPedido.length > 0 && (
           <div className="card" style={{ marginBottom: 16 }}>
