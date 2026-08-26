@@ -100,6 +100,13 @@ const pedidoSchema = z.object({
   // producto del carrito, está vencido, agotado, etc., todo el pedido se
   // rechaza con un mensaje claro en vez de crearse sin el descuento.
   cuponCodigo: z.string().optional(),
+  // Envío dinámico dentro de Oaxaca (opcional — ver
+  // ConfiguracionTienda.envioDinamicoActivo y GET /tienda/envios/cotizar):
+  // uno de los tarifaId que devolvió esa cotización, elegido por el cliente
+  // en el checkout. Si no se manda (o el flag está apagado), el pedido usa
+  // el costo de envío fijo de siempre — nunca se bloquea la compra por
+  // esto.
+  tarifaEnvioId: z.number().int().optional(),
 });
 
 // POST /tienda/pedidos - crea el pedido desde el carrito y reserva el stock
@@ -114,7 +121,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { items, cuponCodigo, ...direccion } = parsed.data;
+  const { items, cuponCodigo, tarifaEnvioId, ...direccion } = parsed.data;
 
   // La sucursal de la que sale el stock de cada artículo se elige AUTOMÁTICO
   // dentro de la transacción (ver comentario del modelo Pedido en
@@ -132,11 +139,55 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
       });
       if (!cuenta) throw new Error('SIN_CUENTA_ONLINE');
 
-      // Costo de envío fijo (v1): se copia tal cual esté configurado en este
-      // momento, para que si el negocio lo cambia después, este pedido
-      // conserve el monto con el que se cobró.
+      // Costo de envío: fijo por default (se copia tal cual esté configurado
+      // en este momento, para que si el negocio lo cambia después, este
+      // pedido conserve el monto con el que se cobró) — o, si
+      // envioDinamicoActivo está prendido y el cliente eligió una opción de
+      // envío local dentro de Oaxaca (ver GET /tienda/envios/cotizar), el
+      // precio de esa tarifa. Nunca se confía en un precio mandado por el
+      // cliente: siempre se vuelve a leer la tarifa de la base de datos por
+      // su id. Si el flag está apagado, o no se mandó tarifaEnvioId, o la
+      // tarifa ya no existe/está inactiva, cae de vuelta al costo fijo —
+      // igual que el criterio ya aprobado para cuando un destino no tiene
+      // cobertura: nunca se bloquea la compra por esto.
       const config = await tx.configuracionTienda.findFirst();
-      const costoEnvio = Number(config?.costoEnvio || 0);
+      let costoEnvio = Number(config?.costoEnvio || 0);
+      let envioV2 = {};
+
+      if (config?.envioDinamicoActivo && tarifaEnvioId) {
+        const tarifa = await tx.tarifaEnvio.findUnique({
+          where: { id: tarifaEnvioId },
+          include: {
+            coberturaEnvio: {
+              include: {
+                rutaEnvio: { include: { sucursalOrigen: true, transportista: true } },
+                puntoEntrega: true,
+              },
+            },
+          },
+        });
+        if (tarifa?.activo && tarifa.coberturaEnvio.activo) {
+          const cobertura = tarifa.coberturaEnvio;
+          const ruta = cobertura.rutaEnvio;
+          costoEnvio = Number(tarifa.precioCliente);
+          envioV2 = {
+            tipoEnvio: 'TRANSPORTE_LOCAL',
+            destinoEnvioId: cobertura.destinoEnvioId,
+            coberturaEnvioId: cobertura.id,
+            rutaEnvioId: ruta.id,
+            transportistaId: ruta.transportistaId,
+            sucursalDespachoId: ruta.sucursalOrigenId,
+            puntoEntregaId: cobertura.puntoEntregaId,
+            tipoEntrega: cobertura.tipoEntrega,
+            tamanoPaquete: tarifa.tamano,
+            tarifaEnvioId: tarifa.id,
+            costoEnvioReal: tarifa.costoReal,
+            puntoEntregaTexto: cobertura.puntoEntrega
+              ? `${cobertura.puntoEntrega.nombre}${cobertura.puntoEntrega.direccion ? ` — ${cobertura.puntoEntrega.direccion}` : ''}`
+              : null,
+          };
+        }
+      }
 
       let total = 0;
       const itemsData = [];
@@ -227,6 +278,7 @@ router.post('/', requireClienteAuth, asyncHandler(async (req, res) => {
           total,
           costoEnvio,
           ...direccion,
+          ...envioV2,
           cuentaTransferenciaId: cuenta.id,
           referenciaPago,
           items: { create: itemsData },

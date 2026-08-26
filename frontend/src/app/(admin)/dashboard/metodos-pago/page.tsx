@@ -146,16 +146,27 @@ function WhatsappTiendaCard() {
   const [phoneNumberIdGuardado, setPhoneNumberIdGuardado] = useState('');
   const [costoEnvio, setCostoEnvio] = useState('0');
   const [costoEnvioGuardado, setCostoEnvioGuardado] = useState('0');
+  // Botón fijo/dinámico (ver ConfiguracionTienda.envioDinamicoActivo en
+  // schema.prisma y /dashboard/envios donde se carga el catálogo que usa
+  // cuando está prendido) — mientras esté apagado, el checkout de la
+  // tienda en línea sigue cobrando el costo fijo de arriba exactamente
+  // igual que siempre.
+  const [envioDinamico, setEnvioDinamico] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [guardandoNumero, setGuardandoNumero] = useState(false);
   const [guardandoEnvio, setGuardandoEnvio] = useState(false);
+  const [guardandoEnvioDinamico, setGuardandoEnvioDinamico] = useState(false);
   const [mensajeNumero, setMensajeNumero] = useState<string | null>(null);
   const [mensajeEnvio, setMensajeEnvio] = useState<string | null>(null);
+  const [mensajeEnvioDinamico, setMensajeEnvioDinamico] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ whatsappTienda: string | null; whatsappPhoneNumberId: string | null; costoEnvio: string | number }>(
-      '/configuracion-tienda'
-    )
+    api<{
+      whatsappTienda: string | null;
+      whatsappPhoneNumberId: string | null;
+      costoEnvio: string | number;
+      envioDinamicoActivo?: boolean;
+    }>('/configuracion-tienda')
       .then((data) => {
         setNumero(data.whatsappTienda || '');
         setNumeroGuardado(data.whatsappTienda || '');
@@ -163,6 +174,7 @@ function WhatsappTiendaCard() {
         setPhoneNumberIdGuardado(data.whatsappPhoneNumberId || '');
         setCostoEnvio(String(data.costoEnvio ?? '0'));
         setCostoEnvioGuardado(String(data.costoEnvio ?? '0'));
+        setEnvioDinamico(Boolean(data.envioDinamicoActivo));
       })
       .finally(() => setCargando(false));
   }, []);
@@ -201,6 +213,19 @@ function WhatsappTiendaCard() {
       setMensajeEnvio(err instanceof ApiError ? err.message : 'Error al guardar.');
     } finally {
       setGuardandoEnvio(false);
+    }
+  }
+
+  async function guardarEnvioDinamico(valor: boolean) {
+    setGuardandoEnvioDinamico(true);
+    setMensajeEnvioDinamico(null);
+    try {
+      await api('/configuracion-tienda', { method: 'PUT', body: JSON.stringify({ envioDinamicoActivo: valor }) });
+      setEnvioDinamico(valor);
+    } catch (err) {
+      setMensajeEnvioDinamico(err instanceof ApiError ? err.message : 'Error al guardar.');
+    } finally {
+      setGuardandoEnvioDinamico(false);
     }
   }
 
@@ -267,6 +292,27 @@ function WhatsappTiendaCard() {
               {guardandoEnvio ? 'Guardando...' : 'Guardar'}
             </button>
             {mensajeEnvio && <span style={{ fontSize: 13 }}>{mensajeEnvio}</span>}
+          </div>
+
+          <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 8, borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
+            <strong>Envío dinámico dentro de Oaxaca</strong> — con esto prendido, el checkout le ofrece al cliente
+            elegir su destino dentro de Oaxaca y cotiza contra el catálogo de rutas/cobertura/tarifas (ver{' '}
+            <a href="/dashboard/envios">Envíos</a>) en vez de cobrar siempre el monto fijo de arriba. Si el destino
+            todavía no tiene cobertura cargada, cae de vuelta al monto fijo automáticamente — nunca bloquea la
+            compra.
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={envioDinamico}
+                onChange={(e) => guardarEnvioDinamico(e.target.checked)}
+                disabled={guardandoEnvioDinamico}
+              />
+              {envioDinamico ? 'Activado' : 'Desactivado'}
+            </label>
+            {guardandoEnvioDinamico && <span style={{ fontSize: 13, color: 'var(--color-muted)' }}>Guardando...</span>}
+            {mensajeEnvioDinamico && <span style={{ fontSize: 13, color: 'var(--color-danger)' }}>{mensajeEnvioDinamico}</span>}
           </div>
         </>
       )}

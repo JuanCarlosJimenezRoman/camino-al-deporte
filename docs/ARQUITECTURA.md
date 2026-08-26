@@ -747,22 +747,42 @@ aprobación — VENTAS puede dar de alta o corregir una ruta, un punto de
 entrega, una cobertura o una tarifa directo, porque normalmente es quien
 se entera del dato mientras cotiza con un cliente.
 
-**Toggle tarifas dinámicas vs. fija.** `ConfiguracionTienda.
-envioDinamicoActivo` (booleano, default `false`) existe desde ya para
-poder alternar entre el costo de envío fijo actual y este motor de
-cotización dinámico una vez que el catálogo de rutas/cobertura/tarifas
-esté suficientemente cargado — hoy nada lo lee todavía, el checkout de la
-tienda en línea sigue usando el costo fijo de `ConfiguracionTienda` sin
-cambios.
+**Toggle tarifas dinámicas vs. fija — ya conectado.**
+`ConfiguracionTienda.envioDinamicoActivo` (booleano, default `false`, editable
+en `/dashboard/metodos-pago`) prende/apaga el envío dinámico en el checkout
+de la tienda en línea. Con el flag apagado, el checkout es exactamente el
+de siempre. Con el flag prendido:
+
+- Si el cliente escribe "Oaxaca" como estado, el checkout le muestra un
+  selector de `DestinoEnvio` (`GET /tienda/envios/destinos`) y, al elegir
+  uno, cotiza contra el catálogo (`GET /tienda/envios/cotizar` —
+  `routes/tienda/envios.js`, la versión para clientes de `GET /envios/
+  cotizar`: nunca expone `costoReal`, y cotiza con un tamaño de paquete fijo
+  (`MEDIANO`) porque calcular el tamaño real a partir de los artículos del
+  carrito sigue sin resolverse, ver "Qué falta" abajo).
+- El cliente elige una opción antes de pagar; si es de tipo
+  `PUNTO_RECOLECCION`, el checkout se lo advierte ahí mismo (no hasta
+  después de pagar).
+- `POST /tienda/pedidos` (`routes/tienda/pedidos.js`) recibe ese
+  `tarifaEnvioId` opcional y, si el flag está prendido, vuelve a leer la
+  tarifa de la base de datos (nunca confía en un precio mandado por el
+  cliente) y congela la misma cadena que `marcar-enviado` (destino,
+  cobertura, ruta, transportista, sucursal de despacho, punto de entrega,
+  tipo de entrega, tamaño, tarifa, `costoEnvioReal`) directamente en el
+  pedido nuevo.
+- Si el destino no tiene cobertura conocida (`COTIZACION_MANUAL`), o no se
+  eligió ninguna opción, o la tarifa ya no existe/está inactiva: el pedido
+  cae de vuelta al costo de envío fijo de siempre — nunca se bloquea la
+  compra por esto (decisión de negocio confirmada explícitamente).
 
 **Qué falta (ver también "Próximos pasos" al final de este documento):** el
 catálogo de rutas, puntos de entrega, destinos y tarifas empieza vacío
 salvo un puñado de transportistas base (`prisma/seed.js`) — hay que
 cargar la cobertura y los precios reales conforme se van conociendo.
-Conectar `envioDinamicoActivo` al checkout de la tienda en línea, integrar
-una paquetería nacional por API (Skydropx u otra) para que también pase
-por el motor de cotización, y resolver el tamaño de paquete
-automáticamente a partir de los artículos del pedido, quedan pendientes.
+Integrar una paquetería nacional por API (Skydropx u otra) para que
+también pase por el motor de cotización, y resolver el tamaño de paquete
+automáticamente a partir de los artículos del pedido (el checkout cotiza
+con `MEDIANO` fijo mientras tanto), quedan pendientes.
 
 ## SKU de fábrica vs. código interno
 

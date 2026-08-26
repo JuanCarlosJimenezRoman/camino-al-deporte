@@ -17,6 +17,27 @@ interface CuponValidado {
   montoDescuento: number;
 }
 
+// Envío dinámico dentro de Oaxaca (opcional — ver
+// ConfiguracionTienda.envioDinamicoActivo, /dashboard/metodos-pago y
+// routes/tienda/envios.js). Con el flag apagado (el default) nada de esto
+// se usa y el checkout se comporta exactamente igual que siempre.
+interface DestinoEnvioOpcion {
+  id: number;
+  nombre: string;
+  municipio: string;
+}
+interface OpcionEnvioLocal {
+  tarifaId: number;
+  transportista: { nombre: string };
+  tipoEntrega: 'DOMICILIO' | 'PUNTO_RECOLECCION' | 'COTIZACION_MANUAL';
+  puntoEntrega: { nombre: string; direccion: string | null } | null;
+  precioCliente: string;
+}
+interface CotizacionEnvioLocal {
+  estado: 'DISPONIBLE' | 'COTIZACION_MANUAL';
+  opciones: OpcionEnvioLocal[];
+}
+
 const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
 const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
@@ -40,6 +61,15 @@ export default function CheckoutPage() {
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [costoEnvio, setCostoEnvio] = useState(0);
+  // Envío dinámico dentro de Oaxaca — se activa solo cuando el flag está
+  // prendido y el cliente escribe "Oaxaca" como estado; en cualquier otro
+  // caso el checkout sigue mostrando el costo fijo de siempre.
+  const [envioDinamicoActivo, setEnvioDinamicoActivo] = useState(false);
+  const [destinosEnvio, setDestinosEnvio] = useState<DestinoEnvioOpcion[]>([]);
+  const [destinoEnvioId, setDestinoEnvioId] = useState('');
+  const [cotizacionLocal, setCotizacionLocal] = useState<CotizacionEnvioLocal | null>(null);
+  const [cotizandoLocal, setCotizandoLocal] = useState(false);
+  const [tarifaEnvioId, setTarifaEnvioId] = useState('');
   // Al crear el pedido vaciamos el carrito, lo que hace que items.length caiga
   // a 0 mientras el router.push todavía está resolviendo la navegación. Sin
   // este flag, el efecto de abajo alcanza a mandar de vuelta a /tienda/carrito
@@ -57,10 +87,56 @@ export default function CheckoutPage() {
   const [validandoCupon, setValidandoCupon] = useState(false);
 
   useEffect(() => {
-    apiTienda<{ costoEnvio: number }>('/tienda/configuracion')
-      .then((data) => setCostoEnvio(Number(data.costoEnvio) || 0))
+    apiTienda<{ costoEnvio: number; envioDinamicoActivo?: boolean }>('/tienda/configuracion')
+      .then((data) => {
+        setCostoEnvio(Number(data.costoEnvio) || 0);
+        setEnvioDinamicoActivo(Boolean(data.envioDinamicoActivo));
+      })
       .catch(() => setCostoEnvio(0));
   }, []);
+
+  // Catálogo de destinos dentro de Oaxaca — solo hace falta pedirlo si el
+  // flag está prendido; si no, ni se llama.
+  useEffect(() => {
+    if (!envioDinamicoActivo) return;
+    apiTienda<DestinoEnvioOpcion[]>('/tienda/envios/destinos')
+      .then(setDestinosEnvio)
+      .catch(() => setDestinosEnvio([]));
+  }, [envioDinamicoActivo]);
+
+  // Si el cliente cambia de estado (o borra el destino elegido), se limpia
+  // la selección de envío local para no mandar un tarifaEnvioId que ya no
+  // corresponde a lo que escribió.
+  const dentroDeOaxaca = envioDinamicoActivo && estadoMx.trim().toLowerCase().includes('oaxaca');
+  useEffect(() => {
+    if (!dentroDeOaxaca) {
+      setDestinoEnvioId('');
+      setCotizacionLocal(null);
+      setTarifaEnvioId('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dentroDeOaxaca]);
+
+  // Al elegir un destino, cotiza las opciones de envío local conocidas
+  // hacia ahí (ver GET /tienda/envios/cotizar) — el cliente elige una antes
+  // de pagar.
+  useEffect(() => {
+    setTarifaEnvioId('');
+    if (!destinoEnvioId) {
+      setCotizacionLocal(null);
+      return;
+    }
+    setCotizandoLocal(true);
+    apiTienda<CotizacionEnvioLocal>(`/tienda/envios/cotizar?destinoId=${destinoEnvioId}`)
+      .then(setCotizacionLocal)
+      .catch(() => setCotizacionLocal(null))
+      .finally(() => setCotizandoLocal(false));
+  }, [destinoEnvioId]);
+
+  // Costo de envío que se le muestra al cliente: el de la opción de envío
+  // local elegida si hay una, o el fijo de siempre.
+  const opcionElegida = cotizacionLocal?.opciones.find((o) => String(o.tarifaId) === tarifaEnvioId) || null;
+  const costoEnvioMostrado = opcionElegida ? Number(opcionElegida.precioCliente) : costoEnvio;
 
   useEffect(() => {
     if (cargando || pedidoCreado) return;
@@ -123,6 +199,7 @@ export default function CheckoutPage() {
           notas: notas || undefined,
           items: items.map((i) => ({ varianteId: i.varianteId, cantidad: i.cantidad })),
           cuponCodigo: cuponAplicado ? cuponAplicado.codigo : undefined,
+          tarifaEnvioId: tarifaEnvioId ? Number(tarifaEnvioId) : undefined,
         }),
       });
       setPedidoCreado(true);
@@ -189,6 +266,63 @@ export default function CheckoutPage() {
               <input required value={codigoPostal} onChange={(e) => setCodigoPostal(e.target.value)} className={campoClase} />
             </div>
           </div>
+
+          {dentroDeOaxaca && (
+            <div className="rounded-lg border border-border p-4">
+              <label className={labelClase}>Destino de envío dentro de Oaxaca</label>
+              <select
+                value={destinoEnvioId}
+                onChange={(e) => setDestinoEnvioId(e.target.value)}
+                className={campoClase}
+              >
+                <option value="">Selecciona el destino más cercano a tu domicilio</option>
+                {destinosEnvio.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nombre} ({d.municipio})
+                  </option>
+                ))}
+              </select>
+
+              {destinoEnvioId && (
+                <div className="mt-3">
+                  {cotizandoLocal ? (
+                    <p className="text-xs text-muted-foreground">Buscando opciones de envío…</p>
+                  ) : !cotizacionLocal || cotizacionLocal.opciones.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Todavía no tenemos una tarifa conocida para ese destino — se te cobrará el envío estándar y
+                      te contactaremos para confirmar cómo hacértelo llegar.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {cotizacionLocal.opciones.map((op) => (
+                        <label
+                          key={op.tarifaId}
+                          className="flex cursor-pointer items-start gap-2 rounded-lg border border-border p-3 text-sm"
+                        >
+                          <input
+                            type="radio"
+                            name="tarifaEnvioLocal"
+                            className="mt-1"
+                            checked={tarifaEnvioId === String(op.tarifaId)}
+                            onChange={() => setTarifaEnvioId(String(op.tarifaId))}
+                          />
+                          <span>
+                            <strong>{op.transportista.nombre}</strong> — ${Number(op.precioCliente).toFixed(2)}
+                            {op.tipoEntrega === 'PUNTO_RECOLECCION' && op.puntoEntrega && (
+                              <span className="mt-1 block text-xs font-medium text-destructive">
+                                Este envío no llega a tu domicilio: lo recoges en {op.puntoEntrega.nombre}
+                                {op.puntoEntrega.direccion ? ` — ${op.puntoEntrega.direccion}` : ''}.
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <label className={labelClase}>Referencias (opcional)</label>
@@ -266,7 +400,7 @@ export default function CheckoutPage() {
           </div>
           <div className="flex justify-between text-muted-foreground">
             <span>Envío</span>
-            <span>{costoEnvio > 0 ? `$${costoEnvio.toFixed(2)}` : 'Gratis'}</span>
+            <span>{costoEnvioMostrado > 0 ? `$${costoEnvioMostrado.toFixed(2)}` : 'Gratis'}</span>
           </div>
           {cuponAplicado && cuponAplicado.montoDescuento > 0 && (
             <div className="flex justify-between text-muted-foreground">
@@ -276,7 +410,7 @@ export default function CheckoutPage() {
           )}
           <div className="flex justify-between pt-1.5 text-base font-bold text-foreground">
             <span>Total</span>
-            <span>${(total + costoEnvio - (cuponAplicado?.montoDescuento || 0)).toFixed(2)}</span>
+            <span>${(total + costoEnvioMostrado - (cuponAplicado?.montoDescuento || 0)).toFixed(2)}</span>
           </div>
         </div>
       </div>

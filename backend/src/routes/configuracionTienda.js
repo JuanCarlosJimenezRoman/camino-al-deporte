@@ -31,6 +31,12 @@ const schema = z.object({
   // Sucursal.whatsappPhoneNumberId y config/whatsapp.js.
   whatsappPhoneNumberId: z.string().optional().nullable(),
   costoEnvio: z.coerce.number().min(0).optional(),
+  // Botón fijo/dinámico (ver comentario junto a este campo en schema.prisma,
+  // modelo ConfiguracionTienda) — mientras esté en false, el checkout de la
+  // tienda en línea se comporta exactamente igual que siempre (costoEnvio
+  // fijo); en true, cotiza contra el catálogo de envíos v2 cuando el
+  // cliente elige un destino dentro de Oaxaca.
+  envioDinamicoActivo: z.boolean().optional(),
 });
 
 // PUT /configuracion-tienda
@@ -49,6 +55,9 @@ router.put('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (
         ? { whatsappPhoneNumberId: parsed.data.whatsappPhoneNumberId || null }
         : {}),
       ...(('costoEnvio' in req.body) ? { costoEnvio: parsed.data.costoEnvio ?? 0 } : {}),
+      ...(('envioDinamicoActivo' in req.body)
+        ? { envioDinamicoActivo: parsed.data.envioDinamicoActivo ?? false }
+        : {}),
     },
   });
   res.json(actualizada);

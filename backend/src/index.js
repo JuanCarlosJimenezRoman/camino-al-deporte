@@ -31,6 +31,7 @@ const tiendaConfiguracionRoutes = require('./routes/tienda/configuracion');
 const tiendaCuponesRoutes = require('./routes/tienda/cupones');
 const tiendaFavoritosRoutes = require('./routes/tienda/favoritos');
 const enviosRoutes = require('./routes/envios');
+const tiendaEnviosRoutes = require('./routes/tienda/envios');
 
 const app = express();
 
@@ -92,6 +93,7 @@ app.use('/tienda/resenas', tiendaResenasRoutes);
 app.use('/tienda/configuracion', tiendaConfiguracionRoutes);
 app.use('/tienda/cupones', tiendaCuponesRoutes);
 app.use('/tienda/favoritos', tiendaFavoritosRoutes);
+app.use('/tienda/envios', tiendaEnviosRoutes);
 
 // Manejador de errores centralizado
 app.use((err, req, res, next) => {
