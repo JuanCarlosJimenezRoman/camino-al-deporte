@@ -13,10 +13,13 @@ import {
   History,
   ShoppingBag,
   Plus,
+  Minus,
   Wallet,
+  ChevronRight,
+  User,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
-import { formatearFechaHora } from '@/lib/utils';
+import { formatearFechaHora, formatearHora, formatoMonedaExacto } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
@@ -126,6 +129,60 @@ interface Existencia {
 // como key/value, ya que un mismo varianteId puede repetirse.
 function claveExistencia(e: Existencia) {
   return `${e.variante.id}:${e.proveedorId ?? 'null'}:${e.sucursalId}`;
+}
+
+// Botones +/- para cambiar cantidad sin tener que borrar y volver a teclear
+// un número — más rápido de tocar en tablet/pantalla táctil que el input
+// numérico solo, y sigue permitiendo llegar directo al mínimo/máximo cuando
+// están deshabilitados.
+function SelectorCantidad({
+  cantidad,
+  onCambiar,
+  min = 1,
+  max,
+}: {
+  cantidad: number;
+  onCambiar: (nueva: number) => void;
+  min?: number;
+  max?: number;
+}) {
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <button
+        type="button"
+        onClick={() => onCambiar(cantidad - 1)}
+        disabled={cantidad <= min}
+        aria-label="Quitar uno"
+        className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+      >
+        <Minus className="w-3.5 h-3.5" />
+      </button>
+      <span className="w-6 text-center text-sm font-semibold tabular-nums">{cantidad}</span>
+      <button
+        type="button"
+        onClick={() => onCambiar(cantidad + 1)}
+        disabled={max !== undefined && cantidad >= max}
+        aria-label="Agregar uno"
+        className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-40"
+      >
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// Billetes que tiene sentido ofrecer como atajo para "Efectivo recibido",
+// según el total a cobrar: no tiene caso mostrar el botón de $50 si la
+// cuenta ya va en $600. Si el total supera el billete más grande (raro,
+// pero pasa con compras grandes), se sugiere el siguiente múltiplo de $500
+// arriba del total en vez de no mostrar nada.
+function billetesSugeridos(total: number): number[] {
+  const denominaciones = [20, 50, 100, 200, 500, 1000];
+  const sugeridos = denominaciones.filter((d) => d >= total);
+  if (sugeridos.length === 0 && total > 0) {
+    sugeridos.push(Math.ceil(total / 500) * 500);
+  }
+  return sugeridos.slice(0, 4);
 }
 
 // Un renglón del carrito de la venta actual: la misma existencia (variante +
@@ -280,6 +337,10 @@ export default function VentasPage() {
   const [mostrarResultados, setMostrarResultados] = useState(false);
   const [seleccion, setSeleccion] = useState<Existencia | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Referencia al campo de búsqueda: se le regresa el foco después de
+  // agregar cada artículo (clic, Enter o lector de código de barras) para
+  // poder seguir agregando sin volver a tocar el mouse.
+  const busquedaInputRef = useRef<HTMLInputElement | null>(null);
 
   const [cantidad, setCantidad] = useState(1);
 
@@ -304,6 +365,11 @@ export default function VentasPage() {
   // Opcional: solo se pide para poder mandar el ticket digital por WhatsApp
   // al terminar la venta. Sin él, la venta se registra igual.
   const [clienteTelefono, setClienteTelefono] = useState('');
+  // Cliente/teléfono empiezan ocultos: la mayoría de las ventas no los
+  // captura, así que no vale la pena que ocupen espacio siempre — se abren
+  // con "+ Agregar datos del cliente" (ver limpiarSeleccion, que también
+  // los vuelve a colapsar en cada venta nueva).
+  const [mostrarDatosCliente, setMostrarDatosCliente] = useState(false);
   const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
   const [efectivoRecibido, setEfectivoRecibido] = useState('');
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
@@ -380,6 +446,15 @@ export default function VentasPage() {
   // Si ya hay una selección hecha (el texto es solo el nombre que se puso al
   // elegir un resultado, no algo que el usuario esté escribiendo), no vuelve
   // a buscar — si no, el buscador se reabriría solo justo después de elegir.
+  // Consulta cruda de existencias por texto (nombre o SKU), ya filtrada a
+  // solo lo que tiene stock — la usan tanto el debounce normal de abajo
+  // como Enter (ver manejarEnterBusqueda), que a veces necesita saltarse la
+  // espera de 300ms.
+  async function buscarExistencias(termino: string): Promise<Existencia[]> {
+    const data = await api<Existencia[]>(`/inventario/existencias?skuOProducto=${encodeURIComponent(termino)}`);
+    return data.filter((e) => e.stockActual > 0);
+  }
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (seleccion || busqueda.trim().length < 2) {
@@ -389,10 +464,7 @@ export default function VentasPage() {
     debounceRef.current = setTimeout(async () => {
       setBuscando(true);
       try {
-        const data = await api<Existencia[]>(
-          `/inventario/existencias?skuOProducto=${encodeURIComponent(busqueda.trim())}`
-        );
-        setResultados(data.filter((e) => e.stockActual > 0));
+        setResultados(await buscarExistencias(busqueda.trim()));
         setMostrarResultados(true);
       } finally {
         setBuscando(false);
@@ -402,6 +474,39 @@ export default function VentasPage() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [busqueda, seleccion]);
+
+  // Enter en el buscador: agrega directo si hay un solo resultado (o uno
+  // cuyo SKU coincide exacto, el caso típico de un lector de código de
+  // barras) en vez de obligar a hacer clic en el dropdown. Si el debounce
+  // de 300ms todavía no alcanzó a correr —el lector escribe y manda Enter
+  // muy rápido— se salta la espera y busca de inmediato.
+  async function manejarEnterBusqueda() {
+    const termino = busqueda.trim();
+    if (!termino || seleccion) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    let candidatos = resultados;
+    if (candidatos.length === 0) {
+      setBuscando(true);
+      try {
+        candidatos = await buscarExistencias(termino);
+        setResultados(candidatos);
+      } finally {
+        setBuscando(false);
+      }
+    }
+    if (candidatos.length === 0) {
+      setMensaje(`Sin existencias para "${termino}".`);
+      return;
+    }
+    const exacto = candidatos.find((c) => c.variante.sku.toLowerCase() === termino.toLowerCase());
+    if (exacto) {
+      elegirResultado(exacto);
+    } else if (candidatos.length === 1) {
+      elegirResultado(candidatos[0]);
+    } else {
+      setMostrarResultados(true);
+    }
+  }
 
   // Elegir un resultado de la búsqueda tiene dos caminos distintos:
   //  - Si el producto SÍ está en la sucursal propia, se agrega directo al
@@ -419,6 +524,9 @@ export default function VentasPage() {
       setSeleccion(null);
       setBusqueda('');
       setResultados([]);
+      // Regresa el foco al buscador para poder escanear/teclear el
+      // siguiente artículo sin tocar el mouse.
+      busquedaInputRef.current?.focus();
     } else {
       setSeleccion(e);
       setBusqueda(`${e.variante.producto.nombre}${e.variante.talla ? ` (${e.variante.talla.valor})` : ''}`);
@@ -522,6 +630,7 @@ export default function VentasPage() {
     setLibrePrecio('');
     setLibreCantidad('1');
     setErrorLibre('');
+    setMostrarDatosCliente(false);
   }
 
   // El vendedor (VENTAS o admin probando con esa sucursal) nunca vende
@@ -662,6 +771,9 @@ export default function VentasPage() {
       setCuentaTransferenciaId('');
       setComprobante(null);
       cargar();
+      // Listo para la siguiente venta sin tener que volver a hacer clic en
+      // el buscador.
+      busquedaInputRef.current?.focus();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar la venta.');
     } finally {
@@ -720,6 +832,18 @@ export default function VentasPage() {
     ? imagenPrincipal(seleccion.variante.producto, seleccion.variante.color)
     : null;
 
+  // Solo las ventas de HOY (hora de México, ver ZONA_HORARIA_NEGOCIO) — esta
+  // pantalla es donde se cobra todo el día, no donde se consulta el
+  // histórico completo (para eso ya está /ventas/historial). GET /ventas
+  // sigue trayendo todo el histórico del backend (no tiene filtro de
+  // fecha todavía), así que este filtro es solo para no pintar cientos de
+  // renglones aquí — no evita la descarga completa; si el catálogo de
+  // ventas crece mucho valdría la pena agregar ?fecha= en el backend.
+  const hoyISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+  const ventasHoy = ventas.filter(
+    (v) => new Date(v.createdAt).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' }) === hoyISO
+  );
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -762,524 +886,596 @@ export default function VentasPage() {
         }
       />
 
-      <div className="card max-w-3xl">
-        <h2 className="text-base font-semibold mb-4">Registrar venta rápida</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
+        {/* Columna izquierda: elegir qué se vende — sucursal, buscador y
+            "producto no registrado". El carrito y el cobro viven en el
+            panel de la derecha (ver más abajo), que se queda fijo en
+            pantalla mientras se sigue buscando aquí — así nunca hay que
+            bajar hasta el fondo para dar clic en "Registrar venta". */}
+        <div className="card space-y-4">
+          <h2 className="text-base font-semibold">Buscar artículos</h2>
 
-        <div className="flex flex-wrap gap-6">
-          <div className="flex-1 min-w-[280px] space-y-3">
-            <div>
-              <label>Sucursal</label>
-              {sucursalBloqueada ? (
-                <div className="text-sm py-2">{sucursales.find((s) => String(s.id) === sucursalId)?.nombre || usuario?.sucursal?.nombre || '—'}</div>
-              ) : (
-                <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
-                  {sucursales.map((s) => (
-                    <option key={s.id} value={s.id}>{s.nombre}</option>
-                  ))}
-                </Select>
-              )}
-            </div>
+          <div>
+            <label>Sucursal</label>
+            {sucursalBloqueada ? (
+              <div className="text-sm py-2">{sucursales.find((s) => String(s.id) === sucursalId)?.nombre || usuario?.sucursal?.nombre || '—'}</div>
+            ) : (
+              <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
+                {sucursales.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </Select>
+            )}
+          </div>
 
+          <div className="relative">
+            <label>Buscar producto (nombre o SKU)</label>
             <div className="relative">
-              <label>Buscar producto (nombre o SKU)</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={busqueda}
-                  onChange={(e) => {
-                    setBusqueda(e.target.value);
-                    setSeleccion(null);
-                  }}
-                  onFocus={() => resultados.length > 0 && setMostrarResultados(true)}
-                  onBlur={() => {
-                    // Retraso corto para que el click en un resultado alcance a
-                    // registrarse antes de que el blur cierre la lista.
-                    setTimeout(() => setMostrarResultados(false), 150);
-                  }}
-                  placeholder="Ej. Tenis Runner Pro, o el SKU..."
-                  className="pl-9"
-                />
-              </div>
-              {buscando && <p className="text-xs text-muted-foreground mt-1">Buscando…</p>}
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                ref={busquedaInputRef}
+                value={busqueda}
+                onChange={(e) => {
+                  setBusqueda(e.target.value);
+                  setSeleccion(null);
+                }}
+                onKeyDown={(e) => {
+                  // Enter agrega directo (ver manejarEnterBusqueda) — así un
+                  // lector de código de barras (que "teclea" el SKU y manda
+                  // Enter solo) agrega el artículo sin necesitar mouse.
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    manejarEnterBusqueda();
+                  }
+                }}
+                onFocus={() => resultados.length > 0 && setMostrarResultados(true)}
+                onBlur={() => {
+                  // Retraso corto para que el click en un resultado alcance a
+                  // registrarse antes de que el blur cierre la lista.
+                  setTimeout(() => setMostrarResultados(false), 150);
+                }}
+                placeholder="Escanea o escribe el nombre / SKU y Enter..."
+                className="pl-9 text-base h-11"
+                autoFocus
+              />
+            </div>
+            {buscando && <p className="text-xs text-muted-foreground mt-1">Buscando…</p>}
 
-              {mostrarResultados && resultados.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-elevated">
-                  {resultados.map((r) => {
-                    const local = r.sucursalId === Number(sucursalId);
+            {mostrarResultados && resultados.length > 0 && (
+              <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-elevated">
+                {resultados.map((r) => {
+                  const local = r.sucursalId === Number(sucursalId);
+                  return (
+                    <button
+                      key={claveExistencia(r)}
+                      onClick={() => elegirResultado(r)}
+                      className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary transition-colors"
+                    >
+                      <ProductoThumb url={imagenPrincipal(r.variante.producto, r.variante.color)} alt="" size={32} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {r.variante.producto.nombre}
+                          {r.variante.talla ? ` (${r.variante.talla.valor})` : ''}
+                          {r.variante.color ? ` — ${r.variante.color}` : ''}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          SKU {r.variante.sku} · stock: {r.stockActual}
+                        </div>
+                      </div>
+                      <StatusBadge tono={local ? 'success' : 'warning'} withDot={false} className="shrink-0">
+                        {local ? 'Tu sucursal' : r.sucursal?.nombre ?? 'Otra sucursal'}
+                      </StatusBadge>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {seleccion && !esLocal && (
+            <div className="flex items-center gap-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-border bg-secondary/40 p-1.5">
+                <ProductoThumb url={previewUrl} alt={seleccion.variante.producto.nombre} size={48} fit="contain" />
+              </div>
+              <p className="text-xs text-warning">
+                <strong>{seleccion.variante.producto.nombre}</strong> no está en tu sucursal — hay {seleccion.stockActual} en{' '}
+                {seleccion.sucursal?.nombre ?? 'otra sucursal'}. No se puede vender directamente desde aquí; completa el panel de la
+                derecha para apartarlo.
+              </p>
+            </div>
+          )}
+
+          {/* Vender algo que no está dado de alta en el catálogo: no
+              depende de la búsqueda de arriba ni de tener una sucursal
+              "local" seleccionada — es un renglón de cobro aparte que
+              nunca toca inventario (ver POST /ventas → descripcionLibre). */}
+          <div>
+            {!mostrarFormLibre ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setMostrarFormLibre(true)} className="gap-1.5">
+                <Plus className="w-3.5 h-3.5" />
+                Producto no registrado
+              </Button>
+            ) : (
+              <div className="rounded-lg border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Producto no registrado en el catálogo</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setMostrarFormLibre(false)}
+                    aria-label="Cancelar"
+                    className="shrink-0"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Descripción (obligatoria)</label>
+                  <Input
+                    value={libreDescripcion}
+                    onChange={(e) => setLibreDescripcion(e.target.value)}
+                    placeholder="Ej. Calcetas sueltas sin marca"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs text-muted-foreground">Proveedor (opcional)</label>
+                    <Select value={libreProveedorId} onChange={(e) => setLibreProveedorId(e.target.value)}>
+                      <option value="">Sin proveedor</option>
+                      {proveedores.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="w-24">
+                    <label className="text-xs text-muted-foreground">Precio</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={librePrecio}
+                      onChange={(e) => setLibrePrecio(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-20">
+                    <label className="text-xs text-muted-foreground">Cantidad</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={libreCantidad}
+                      onChange={(e) => setLibreCantidad(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {errorLibre && <p className="text-xs text-destructive">{errorLibre}</p>}
+                <Button type="button" size="sm" onClick={agregarLibreAlCarrito}>
+                  Agregar a la venta
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Columna derecha: el "ticket" — carrito (o el apartado en curso) y
+            el cobro. En pantallas grandes se queda fija (sticky) mientras se
+            sigue buscando en la columna izquierda. */}
+        <div className="lg:sticky lg:top-4 card space-y-4">
+          {esLocal ? (
+            <>
+              <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
+
+              {carrito.length > 0 ? (
+                <div className="rounded-lg border border-border divide-y divide-border max-h-[38vh] overflow-y-auto">
+                  {carrito.map((it) => {
+                    if (it.tipo === 'libre') {
+                      return (
+                        <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary">
+                            <Plus className="w-4 h-4 text-muted-foreground" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate">{it.descripcion}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {formatoMonedaExacto(it.precioUnitario)} c/u · No registrado
+                              {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
+                            </div>
+                          </div>
+                          <SelectorCantidad cantidad={it.cantidad} onCambiar={(n) => cambiarCantidadCarrito(it.key, n)} />
+                          <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
+                            {formatoMonedaExacto(it.precioUnitario * it.cantidad)}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => quitarDelCarrito(it.key)}
+                            aria-label="Quitar de la venta"
+                            className="shrink-0 text-destructive"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      );
+                    }
+                    const p = it.existencia.variante.producto;
+                    const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
+                      .filter(Boolean)
+                      .join(' / ');
+                    const precio = Number(p.precioVenta);
                     return (
-                      <button
-                        key={claveExistencia(r)}
-                        onClick={() => elegirResultado(r)}
-                        className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary transition-colors"
-                      >
-                        <ProductoThumb url={imagenPrincipal(r.variante.producto, r.variante.color)} alt="" size={32} />
+                      <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
+                        <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={32} />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium truncate">
-                            {r.variante.producto.nombre}
-                            {r.variante.talla ? ` (${r.variante.talla.valor})` : ''}
-                            {r.variante.color ? ` — ${r.variante.color}` : ''}
+                            {p.nombre}
+                            {detalle ? ` (${detalle})` : ''}
                           </div>
                           <div className="text-xs text-muted-foreground truncate">
-                            SKU {r.variante.sku} · stock: {r.stockActual}
+                            {formatoMonedaExacto(precio)} c/u · SKU {it.existencia.variante.sku}
                           </div>
                         </div>
-                        <StatusBadge tono={local ? 'success' : 'warning'} withDot={false} className="shrink-0">
-                          {local ? 'Tu sucursal' : r.sucursal?.nombre ?? 'Otra sucursal'}
-                        </StatusBadge>
-                      </button>
+                        <SelectorCantidad
+                          cantidad={it.cantidad}
+                          onCambiar={(n) => cambiarCantidadCarrito(it.key, n)}
+                          max={it.existencia.stockActual}
+                        />
+                        <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
+                          {formatoMonedaExacto(precio * it.cantidad)}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => quitarDelCarrito(it.key)}
+                          aria-label="Quitar de la venta"
+                          className="shrink-0 text-destructive"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
                     );
                   })}
                 </div>
-              )}
-            </div>
-
-            {/* Vender algo que no está dado de alta en el catálogo: no
-                depende de la búsqueda de arriba ni de tener una sucursal
-                "local" seleccionada — es un renglón de cobro aparte que
-                nunca toca inventario (ver POST /ventas → descripcionLibre). */}
-            <div>
-              {!mostrarFormLibre ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setMostrarFormLibre(true)} className="gap-1.5">
-                  <Plus className="w-3.5 h-3.5" />
-                  Producto no registrado
-                </Button>
               ) : (
-                <div className="rounded-lg border border-border p-3 space-y-2">
+                <p className="text-sm text-muted-foreground">Busca y agrega uno o más productos para armar la venta.</p>
+              )}
+
+              {carrito.length > 0 && (
+                <div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
+                    Aplicar descuento
+                  </label>
+                  {aplicarDescuento && (
+                    <div className="mt-2 space-y-2 pl-1">
+                      <div className="flex gap-2">
+                        <div className="w-20">
+                          <Select value={descuentoTipo} onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}>
+                            <option value="PORCENTAJE">%</option>
+                            <option value="MONTO">$</option>
+                          </Select>
+                        </div>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={descuentoValor}
+                          onChange={(e) => setDescuentoValor(e.target.value)}
+                          placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                        />
+                      </div>
+                      <Input
+                        value={descuentoMotivo}
+                        onChange={(e) => setDescuentoMotivo(e.target.value)}
+                        placeholder="Motivo del descuento (opcional)"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {carrito.length > 0 && (
+                <div className="rounded-lg bg-secondary/60 border border-border px-4 py-3">
+                  {descuentoMontoPreview > 0 && (
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums">{formatoMonedaExacto(subtotalVenta)}</span>
+                    </div>
+                  )}
+                  {descuentoMontoPreview > 0 && (
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Descuento</span>
+                      <span className="tabular-nums">-{formatoMonedaExacto(descuentoMontoPreview)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-sm font-medium text-muted-foreground">Total</span>
+                    <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(totalVenta)}</span>
+                  </div>
+                </div>
+              )}
+
+              {!mostrarDatosCliente ? (
+                <button
+                  type="button"
+                  onClick={() => setMostrarDatosCliente(true)}
+                  className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  <User className="w-3.5 h-3.5" />
+                  Agregar datos del cliente (opcional)
+                </button>
+              ) : (
+                <div className="space-y-3 rounded-lg border border-border p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Producto no registrado en el catálogo</span>
+                    <span className="text-sm font-medium">Datos del cliente (opcional)</span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => setMostrarFormLibre(false)}
-                      aria-label="Cancelar"
+                      onClick={() => setMostrarDatosCliente(false)}
+                      aria-label="Ocultar datos del cliente"
                       className="shrink-0"
                     >
-                      <X className="w-4 h-4" />
+                      <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
                   <div>
-                    <label className="text-xs text-muted-foreground">Descripción (obligatoria)</label>
+                    <label>Cliente</label>
+                    <Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
+                  </div>
+                  <div>
+                    <label>Teléfono</label>
                     <Input
-                      value={libreDescripcion}
-                      onChange={(e) => setLibreDescripcion(e.target.value)}
-                      placeholder="Ej. Calcetas sueltas sin marca"
+                      value={clienteTelefono}
+                      onChange={(e) => setClienteTelefono(e.target.value)}
+                      placeholder="10 dígitos, para mandarle el ticket por WhatsApp"
                     />
                   </div>
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="text-xs text-muted-foreground">Proveedor (opcional)</label>
-                      <Select value={libreProveedorId} onChange={(e) => setLibreProveedorId(e.target.value)}>
-                        <option value="">Sin proveedor</option>
-                        {proveedores.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.nombre}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    <div className="w-24">
-                      <label className="text-xs text-muted-foreground">Precio</label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={librePrecio}
-                        onChange={(e) => setLibrePrecio(e.target.value)}
-                      />
-                    </div>
-                    <div className="w-20">
-                      <label className="text-xs text-muted-foreground">Cantidad</label>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={libreCantidad}
-                        onChange={(e) => setLibreCantidad(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  {errorLibre && <p className="text-xs text-destructive">{errorLibre}</p>}
-                  <Button type="button" size="sm" onClick={agregarLibreAlCarrito}>
-                    Agregar a la venta
-                  </Button>
                 </div>
               )}
-            </div>
 
-            {seleccion && !esLocal && (
-              <p className="text-xs text-warning">
-                Este producto no está en tu sucursal — hay {seleccion.stockActual} en {seleccion.sucursal?.nombre ?? 'otra sucursal'}.
-                No se puede vender directamente desde aquí; puedes apartarlo para el cliente.
-              </p>
-            )}
-
-            {esLocal ? (
-              <>
-                {/* Carrito de la venta: cada búsqueda que coincide con la
-                    sucursal propia se agrega aquí en vez de reemplazar la
-                    selección anterior — así se pueden vender varios
-                    productos distintos en una sola venta. */}
-                {carrito.length > 0 ? (
-                  <div>
-                    <label>Artículos de la venta ({carrito.length})</label>
-                    <div className="rounded-lg border border-border divide-y divide-border">
-                      {carrito.map((it) => {
-                        if (it.tipo === 'libre') {
-                          return (
-                            <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
-                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary">
-                                <Plus className="w-4 h-4 text-muted-foreground" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="text-sm font-medium truncate">{it.descripcion}</div>
-                                <div className="text-xs text-muted-foreground truncate">
-                                  ${it.precioUnitario.toFixed(2)} c/u · No registrado
-                                  {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
-                                </div>
-                              </div>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={it.cantidad}
-                                onChange={(e) => cambiarCantidadCarrito(it.key, Number(e.target.value))}
-                                className="w-16 shrink-0"
-                              />
-                              <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
-                                ${(it.precioUnitario * it.cantidad).toFixed(2)}
-                              </div>
-                              <Button variant="ghost" size="icon" onClick={() => quitarDelCarrito(it.key)} aria-label="Quitar de la venta" className="shrink-0 text-destructive">
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          );
-                        }
-                        const p = it.existencia.variante.producto;
-                        const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
-                          .filter(Boolean)
-                          .join(' / ');
-                        const precio = Number(p.precioVenta);
-                        return (
-                          <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
-                            <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={32} />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-medium truncate">
-                                {p.nombre}
-                                {detalle ? ` (${detalle})` : ''}
-                              </div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                ${precio.toFixed(2)} c/u · SKU {it.existencia.variante.sku}
-                              </div>
-                            </div>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={it.existencia.stockActual}
-                              value={it.cantidad}
-                              onChange={(e) => cambiarCantidadCarrito(it.key, Number(e.target.value))}
-                              className="w-16 shrink-0"
-                            />
-                            <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
-                              ${(precio * it.cantidad).toFixed(2)}
-                            </div>
-                            <Button variant="ghost" size="icon" onClick={() => quitarDelCarrito(it.key)} aria-label="Quitar de la venta" className="shrink-0 text-destructive">
-                              <X className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Busca y agrega uno o más productos arriba para armar la venta.</p>
-                )}
-
-                {carrito.length > 0 && (
-                  <p className="text-sm font-semibold tabular-nums">
-                    {descuentoMontoPreview > 0 ? (
-                      <>
-                        Subtotal: ${subtotalVenta.toFixed(2)} — Descuento: -${descuentoMontoPreview.toFixed(2)}
-                        <br />
-                        Total: ${totalVenta.toFixed(2)}
-                      </>
-                    ) : (
-                      <>Total: ${totalVenta.toFixed(2)}</>
-                    )}
-                  </p>
-                )}
-
-                {carrito.length > 0 && (
-                  <div>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
-                      Aplicar descuento
-                    </label>
-                    {aplicarDescuento && (
-                      <div className="mt-2 space-y-2 pl-1">
-                        <div className="flex gap-2">
-                          <div className="w-20">
-                            <Select value={descuentoTipo} onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}>
-                              <option value="PORCENTAJE">%</option>
-                              <option value="MONTO">$</option>
-                            </Select>
-                          </div>
-                          <Input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={descuentoValor}
-                            onChange={(e) => setDescuentoValor(e.target.value)}
-                            placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
-                          />
-                        </div>
-                        <Input value={descuentoMotivo} onChange={(e) => setDescuentoMotivo(e.target.value)} placeholder="Motivo del descuento (opcional)" />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div>
-                  <label>Cliente (opcional)</label>
-                  <Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
-                </div>
-
-                <div>
-                  <label>Teléfono del cliente (opcional)</label>
-                  <Input value={clienteTelefono} onChange={(e) => setClienteTelefono(e.target.value)} placeholder="10 dígitos, para mandarle el ticket por WhatsApp" />
-                </div>
-
-                <div>
-                  <label>Método de pago</label>
-                  <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
-                    {METODOS_PAGO.map((m) => (
-                      <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
-                    ))}
-                  </Select>
-                </div>
-
-                {metodoPago === 'EFECTIVO' && (
-                  <div>
-                    <label>Efectivo recibido</label>
-                    <Input type="number" min={0} step="0.01" value={efectivoRecibido} onChange={(e) => setEfectivoRecibido(e.target.value)} placeholder="$0.00" />
-                    {efectivoRecibido.trim() && cambio !== null && (
-                      <p className={`text-sm font-semibold mt-1.5 ${cambio < 0 ? 'text-destructive' : 'text-success'}`}>
-                        {cambio < 0 ? `Falta efectivo: $${Math.abs(cambio).toFixed(2)}` : `Cambio a dar: $${cambio.toFixed(2)}`}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {metodoPago === 'TRANSFERENCIA' && (
-                  <>
-                    <div>
-                      <label>Cuenta que recibió el pago</label>
-                      <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
-                        <option value="">Selecciona...</option>
-                        {cuentas.map((c) => (
-                          <option key={c.id} value={c.id}>{c.nombre} {c.banco ? `(${c.banco})` : ''}</option>
-                        ))}
-                      </Select>
-                    </div>
-                    <div>
-                      <label>Foto del comprobante</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => setComprobante(e.target.files?.[0] || null)}
-                        className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-secondary/70"
-                      />
-                    </div>
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <div>
-                  <label>Cantidad</label>
-                  <Input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
-                </div>
-                <p className="text-sm font-semibold tabular-nums">Total: ${subtotalApartado.toFixed(2)}</p>
-
-                <div>
-                  <label>Nombre del cliente</label>
-                  <Input value={clienteNombreApartado} onChange={(e) => setClienteNombreApartado(e.target.value)} placeholder="Nombre completo" />
-                </div>
-                <div>
-                  <label>Teléfono del cliente</label>
-                  <Input value={clienteTelefonoApartado} onChange={(e) => setClienteTelefonoApartado(e.target.value)} placeholder="10 dígitos" />
-                </div>
-              </>
-            )}
-
-            {mensaje && <p className="rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm">{mensaje}</p>}
-
-            {(ticketLink || ticketPdfUrl) && (
-              <div className="flex flex-wrap gap-2">
-                {ticketLink && (
-                  <Button size="sm" asChild>
-                    <a href={ticketLink} target="_blank" rel="noreferrer">
-                      <Send className="w-3.5 h-3.5" />
-                      Enviar ticket por WhatsApp
-                    </a>
-                  </Button>
-                )}
-                {ticketPdfUrl && (
-                  <Button variant="outline" size="sm" asChild>
-                    <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
-                      <FileText className="w-3.5 h-3.5" />
-                      Ver ticket (PDF)
-                    </a>
-                  </Button>
-                )}
-                {ticketPdfUrl && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    asChild
-                    title="Descarga el PDF a tu dispositivo para adjuntarlo a mano en WhatsApp si el envío automático no llegó"
-                  >
-                    <a href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}>
-                      <Download className="w-3.5 h-3.5" />
-                      Descargar PDF
-                    </a>
-                  </Button>
-                )}
+              <div>
+                <label>Método de pago</label>
+                <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
+                  {METODOS_PAGO.map((m) => (
+                    <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
+                  ))}
+                </Select>
               </div>
-            )}
 
-            {esLocal ? (
-              <Button onClick={registrarVenta} disabled={carrito.length === 0 || guardando}>
-                {guardando ? 'Guardando…' : 'Registrar venta'}
-              </Button>
-            ) : (
-              <Button onClick={crearApartado} disabled={!seleccion || guardando}>
-                {guardando ? 'Guardando…' : 'Apartar para el cliente'}
-              </Button>
-            )}
-          </div>
+              {metodoPago === 'EFECTIVO' && (
+                <div>
+                  <label>Efectivo recibido</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={efectivoRecibido}
+                    onChange={(e) => setEfectivoRecibido(e.target.value)}
+                    placeholder="$0.00"
+                  />
+                  {carrito.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(totalVenta.toFixed(2))}>
+                        Exacto
+                      </Button>
+                      {billetesSugeridos(totalVenta).map((b) => (
+                        <Button key={b} type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(String(b))}>
+                          ${b}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                  {efectivoRecibido.trim() && cambio !== null && (
+                    <p className={`text-sm font-semibold mt-1.5 ${cambio < 0 ? 'text-destructive' : 'text-success'}`}>
+                      {cambio < 0
+                        ? `Falta efectivo: ${formatoMonedaExacto(Math.abs(cambio))}`
+                        : `Cambio a dar: ${formatoMonedaExacto(cambio)}`}
+                    </p>
+                  )}
+                </div>
+              )}
 
-          {/* Imagen grande del producto elegido, a la derecha del formulario
-              — solo aplica al flujo de apartado (un artículo de otra
-              sucursal); en el carrito de la venta directa cada renglón ya
-              trae su propia miniatura en la lista de arriba.
-              object-fit: contain (vía fit="contain") para que se vea la foto
-              completa sin recortarla, aunque no sea cuadrada. */}
-          {seleccion && (
-            <div className="flex flex-col items-center gap-2 text-center shrink-0 w-[220px]">
-              <div className="flex h-[220px] w-[220px] items-center justify-center rounded-card border border-border bg-secondary/40 p-3">
-                <ProductoThumb url={previewUrl} alt={seleccion?.variante.producto.nombre || ''} size={196} fit="contain" />
+              {metodoPago === 'TRANSFERENCIA' && (
+                <>
+                  <div>
+                    <label>Cuenta que recibió el pago</label>
+                    <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
+                      <option value="">Selecciona...</option>
+                      {cuentas.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nombre} {c.banco ? `(${c.banco})` : ''}</option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <label>Foto del comprobante</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+                      className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-secondary/70"
+                    />
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <h2 className="text-base font-semibold">Apartar para el cliente</h2>
+
+              {seleccion && (
+                <div className="flex items-center gap-3">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-card border border-border bg-secondary/40 p-2">
+                    <ProductoThumb url={previewUrl} alt={seleccion?.variante.producto.nombre || ''} size={56} fit="contain" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold truncate">{seleccion.variante.producto.nombre}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {seleccion.variante.talla ? `Talla ${seleccion.variante.talla.valor}` : ''}
+                      {seleccion.variante.color ? ` · ${seleccion.variante.color}` : ''}
+                    </div>
+                    <div className="text-xs text-muted-foreground">SKU {seleccion.variante.sku}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
+                <label>Cantidad</label>
+                <SelectorCantidad cantidad={cantidad} onCambiar={(n) => setCantidad(n)} max={seleccion?.stockActual} />
+              </div>
+
+              <div className="rounded-lg bg-secondary/60 border border-border px-4 py-3 flex justify-between items-baseline">
+                <span className="text-sm font-medium text-muted-foreground">Total</span>
+                <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(subtotalApartado)}</span>
+              </div>
+
+              <div>
+                <label>Nombre del cliente</label>
+                <Input
+                  value={clienteNombreApartado}
+                  onChange={(e) => setClienteNombreApartado(e.target.value)}
+                  placeholder="Nombre completo"
+                />
               </div>
               <div>
-                <div className="text-sm font-semibold">{seleccion.variante.producto.nombre}</div>
-                <div className="text-xs text-muted-foreground">
-                  {seleccion.variante.talla ? `Talla ${seleccion.variante.talla.valor}` : ''}
-                  {seleccion.variante.color ? ` · ${seleccion.variante.color}` : ''}
-                </div>
-                <div className="text-xs text-muted-foreground">SKU {seleccion.variante.sku}</div>
+                <label>Teléfono del cliente</label>
+                <Input
+                  value={clienteTelefonoApartado}
+                  onChange={(e) => setClienteTelefonoApartado(e.target.value)}
+                  placeholder="10 dígitos"
+                />
               </div>
+            </>
+          )}
+
+          {mensaje && <p className="rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm">{mensaje}</p>}
+
+          {(ticketLink || ticketPdfUrl) && (
+            <div className="flex flex-wrap gap-2">
+              {ticketLink && (
+                <Button size="sm" asChild>
+                  <a href={ticketLink} target="_blank" rel="noreferrer">
+                    <Send className="w-3.5 h-3.5" />
+                    Enviar ticket por WhatsApp
+                  </a>
+                </Button>
+              )}
+              {ticketPdfUrl && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                    <FileText className="w-3.5 h-3.5" />
+                    Ver ticket (PDF)
+                  </a>
+                </Button>
+              )}
+              {ticketPdfUrl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  title="Descarga el PDF a tu dispositivo para adjuntarlo a mano en WhatsApp si el envío automático no llegó"
+                >
+                  <a href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}>
+                    <Download className="w-3.5 h-3.5" />
+                    Descargar PDF
+                  </a>
+                </Button>
+              )}
             </div>
+          )}
+
+          {esLocal ? (
+            <Button size="lg" className="w-full" onClick={registrarVenta} disabled={carrito.length === 0 || guardando}>
+              {guardando
+                ? 'Guardando…'
+                : carrito.length > 0
+                  ? `Registrar venta — ${formatoMonedaExacto(totalVenta)}`
+                  : 'Registrar venta'}
+            </Button>
+          ) : (
+            <Button size="lg" className="w-full" onClick={crearApartado} disabled={!seleccion || guardando}>
+              {guardando ? 'Guardando…' : 'Apartar para el cliente'}
+            </Button>
           )}
         </div>
       </div>
 
-      {cargandoVentas ? (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
+      {/* Ventas de hoy: antes aquí se pintaba la tabla de TODAS las ventas
+          (sin paginar), compitiendo por espacio y scroll justo en la
+          pantalla que se usa para cobrar todo el día. El histórico completo,
+          con filtros de fecha, ya vive en /ventas/historial — aquí solo se
+          deja un resumen compacto de lo vendido hoy, útil para el cajero sin
+          estorbar el flujo de venta. */}
+      <div className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold">Ventas de hoy {ventasHoy.length > 0 ? `(${ventasHoy.length})` : ''}</h2>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/dashboard/ventas/corte-dia">
+              <Receipt className="w-3.5 h-3.5" />
+              Corte del día
+            </Link>
+          </Button>
         </div>
-      ) : ventas.length === 0 ? (
-        <EmptyState icon={ShoppingBag} title="Sin ventas todavía" description="Las ventas que registres aparecerán aquí." />
-      ) : (
-        <div className="overflow-x-auto">
-        <table>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Folio</th>
-              <th>Producto</th>
-              <th>Sucursal</th>
-              <th>Cliente</th>
-              <th>Total</th>
-              <th>Pago</th>
-              <th>Estado</th>
-              <th>Vendedor</th>
-              <th>Fecha</th>
-              <th>Ticket</th>
-              <th>PDF</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ventas.map((v) => {
+
+        {cargandoVentas ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        ) : ventasHoy.length === 0 ? (
+          <EmptyState icon={ShoppingBag} title="Sin ventas todavía hoy" description="Las ventas que registres aparecerán aquí." />
+        ) : (
+          <div className="rounded-lg border border-border divide-y divide-border">
+            {ventasHoy.map((v) => {
               const primerItem = v.items?.[0];
               const linkTicket = construirLinkTicket(v);
               return (
-                <tr key={v.id}>
-                  <td>
-                    <ProductoThumb
-                      url={imagenPrincipal(primerItem?.variante?.producto, primerItem?.variante?.color)}
-                      alt={primerItem?.variante?.producto.nombre || primerItem?.descripcionLibre || ''}
-                    />
-                  </td>
-                  <td className="font-medium">{v.folio}</td>
-                  <td>
-                    {primerItem
-                      ? primerItem.variante
-                        ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
-                        : `${primerItem.descripcionLibre || 'Producto no registrado'} (no registrado)`
-                      : '—'}
-                    {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
-                  </td>
-                  <td>{v.sucursal?.nombre}</td>
-                  <td>{v.cliente || '—'}</td>
-                  <td className="font-medium tabular-nums">${v.total}</td>
-                  <td className="text-xs">
-                    {etiquetaMetodoPago(v.metodoPago)}
-                    {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
-                    {v.comprobanteUrl && (
-                      <>
-                        {' · '}
-                        <a href={v.comprobanteUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                          ver comprobante
-                        </a>
-                      </>
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge tono={ESTADO_TONO[v.estado] ?? 'neutral'}>{v.estado}</StatusBadge>
-                  </td>
-                  <td>{v.usuario?.nombre}</td>
-                  <td className="text-xs text-muted-foreground">{formatearFechaHora(v.createdAt)}</td>
-                  <td>
-                    {linkTicket ? (
-                      <a href={linkTicket} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
-                        Enviar
+                <div key={v.id} className="flex items-center gap-2.5 px-3 py-2.5">
+                  <ProductoThumb
+                    url={imagenPrincipal(primerItem?.variante?.producto, primerItem?.variante?.color)}
+                    alt={primerItem?.variante?.producto.nombre || primerItem?.descripcionLibre || ''}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate">
+                      {primerItem
+                        ? primerItem.variante
+                          ? `${primerItem.variante.producto.nombre}${primerItem.variante.talla ? ` (${primerItem.variante.talla.valor})` : ''}`
+                          : `${primerItem.descripcionLibre || 'Producto no registrado'} (no registrado)`
+                        : '—'}
+                      {v.items && v.items.length > 1 ? ` +${v.items.length - 1}` : ''}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {v.folio} · {v.cliente || 'Sin cliente'} · {v.sucursal?.nombre} · {formatearHora(v.createdAt)}
+                    </div>
+                  </div>
+                  <StatusBadge tono={ESTADO_TONO[v.estado] ?? 'neutral'} className="shrink-0">
+                    {v.estado}
+                  </StatusBadge>
+                  <div className="w-24 shrink-0 text-right">
+                    <div className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(v.total)}</div>
+                    <div className="text-xs text-muted-foreground">{etiquetaMetodoPago(v.metodoPago)}</div>
+                  </div>
+                  <div className="w-16 shrink-0 text-right text-xs">
+                    {linkTicket && (
+                      <a href={linkTicket} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                        Ticket
                       </a>
-                    ) : (
-                      '—'
                     )}
-                  </td>
-                  <td className="text-xs whitespace-nowrap">
-                    {v.ticketPdfUrl ? (
-                      <>
-                        <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                          Ver
-                        </a>
-                        {' · '}
-                        <a href={construirLinkDescargaTicket(v.ticketPdfUrl, v.folio)} className="text-primary hover:underline" title="Descargar para adjuntar a mano en WhatsApp">
-                          Descargar
-                        </a>
-                      </>
-                    ) : (
-                      '—'
+                    {linkTicket && v.ticketPdfUrl && ' · '}
+                    {v.ticketPdfUrl && (
+                      <a href={v.ticketPdfUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                        PDF
+                      </a>
                     )}
-                  </td>
-                </tr>
+                  </div>
+                </div>
               );
             })}
-          </tbody>
-        </table>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
