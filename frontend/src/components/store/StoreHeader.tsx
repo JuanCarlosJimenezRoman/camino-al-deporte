@@ -137,6 +137,7 @@ export function StoreHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
+        <div className="h-[3px] w-full bg-primary" aria-hidden="true" />
         <TrustBar />
 
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6 lg:px-8">

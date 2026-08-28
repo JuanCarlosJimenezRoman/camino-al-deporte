@@ -140,6 +140,34 @@
   --sidebar-border: 46 46 52;
 }
 
+/* -----------------------------------------------------------------------
+   Paleta de la tienda en línea — colores tomados de
+   docs/AdobeColor-Camino al deporte.jpeg (#F2BA52 / #8C6C30 / #593F1E /
+   #F2F2F2 / #0D0D0D). Se aplica solo dentro de `.tienda-theme` (ver
+   (store)/tienda/(shop)/layout.tsx y checkout/layout.tsx) para no tocar el
+   naranja de marca (--primary de :root/.dark) que usa el panel
+   administrativo — mismo mecanismo de tokens, alcance distinto.
+   ----------------------------------------------------------------------- */
+.tienda-theme {
+  --primary: 140 108 48; /* #8C6C30 */
+  --primary-foreground: 255 255 255;
+  --secondary: 242 236 226; /* F2F2F2 con un tinte cálido del dorado */
+  --secondary-foreground: 13 13 13; /* #0D0D0D */
+  --accent: 254 248 238; /* tinte MUY claro de #F2BA52, para fondos de estado activo */
+  --accent-foreground: 13 13 13;
+  --ring: 242 186 82; /* #F2BA52 */
+}
+
+.dark .tienda-theme {
+  --primary: 140 108 48; /* mismo dorado que en claro — la marca no cambia entre temas */
+  --primary-foreground: 255 255 255;
+  --secondary: 25 20 13; /* fondo oscuro con tinte cálido de #593F1E */
+  --secondary-foreground: 250 250 250;
+  --accent: 35 29 17; /* tinte oscuro de #F2BA52, equivalente al cream claro de arriba */
+  --accent-foreground: 250 250 250;
+  --ring: 242 186 82; /* #F2BA52 — ámbar brillante, visible sobre fondo oscuro */
+}
+
 * {
   box-sizing: border-box;
   border-color: rgb(var(--border));

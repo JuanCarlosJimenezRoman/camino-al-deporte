@@ -8,7 +8,7 @@ import { ReactNode } from 'react';
 // propósito (sección 73: la estructura del checkout no incluye uno).
 export default function CheckoutLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    <div className="tienda-theme flex min-h-screen flex-col bg-background text-foreground">
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/tienda" className="flex items-center gap-2">
