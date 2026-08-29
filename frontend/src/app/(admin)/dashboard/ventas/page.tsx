@@ -30,13 +30,13 @@ import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearHora, formatoMonedaExacto } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
+import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge } from '@/components/ui/status-badge';
-import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface Sucursal {
   id: number;
@@ -264,9 +264,13 @@ function TarjetaProductoGrid({
           <div className="truncate text-xs text-muted-foreground">{producto.skuRef}</div>
         </div>
       </button>
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-bold tabular-nums text-primary">{formatoMonedaExacto(producto.precio)}</span>
-        <span className="text-xs text-muted-foreground">Stock: {producto.stockTotal}</span>
+      {/* Apilados (no en la misma fila): en tarjetas angostas de 3-4
+          columnas (tablet) el precio + "Stock: N" lado a lado no siempre
+          caben y el texto se envuelve encima uno del otro — en dos líneas
+          nunca se aprietan, sin importar qué tan angosta quede la tarjeta. */}
+      <div className="space-y-0.5">
+        <div className="truncate text-sm font-bold tabular-nums text-primary">{formatoMonedaExacto(producto.precio)}</div>
+        <div className="truncate text-xs text-muted-foreground">Stock: {producto.stockTotal}</div>
       </div>
       {multiple &&
         (expandido ? (
@@ -996,7 +1000,47 @@ export default function VentasPage() {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px_auto] gap-5 items-start">
+      <PageHeader
+        title="Ventas"
+        subtitle="Punto de venta"
+        breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Ventas' }]}
+        actions={
+          <>
+            {puedeVer('apartados', usuario?.rol) && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/apartados">
+                  <CalendarClock className="w-4 h-4" />
+                  Apartados
+                </Link>
+              </Button>
+            )}
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/dashboard/ventas/corte-dia">
+                <Receipt className="w-4 h-4" />
+                Corte del día
+              </Link>
+            </Button>
+            {puedeVer('historialVentas', usuario?.rol) && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/ventas/historial">
+                  <History className="w-4 h-4" />
+                  Historial
+                </Link>
+              </Button>
+            )}
+            {puedeVer('gastos', usuario?.rol) && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/dashboard/gastos">
+                  <Wallet className="w-4 h-4" />
+                  Gastos
+                </Link>
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
         {/* Columna izquierda: elegir qué se vende — sucursal, buscador,
             categorías y el catálogo visual (tarjetas con foto, como en
             tienda). El carrito y el cobro viven en el panel de la derecha
@@ -1281,7 +1325,7 @@ export default function VentasPage() {
         {/* Columna derecha: el "ticket" — carrito (o el apartado en curso) y
             el cobro. En pantallas grandes se queda fija (sticky) mientras se
             sigue buscando en la columna izquierda. */}
-        <div className="lg:sticky lg:top-0 card space-y-4">
+        <div className="lg:sticky lg:top-4 card space-y-4">
           {esLocal ? (
             <>
               <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
@@ -1669,57 +1713,6 @@ export default function VentasPage() {
             <Button size="lg" className="w-full" onClick={crearApartado} disabled={!seleccion || guardando}>
               {guardando ? 'Guardando…' : 'Apartar para el cliente'}
             </Button>
-          )}
-        </div>
-
-        {/* Accesos rápidos, en vertical junto al ticket para no robarle
-            ancho a la sección de ventas (antes vivían en el PageHeader). */}
-        <div className="flex flex-row lg:flex-col gap-1.5 lg:sticky lg:top-0">
-          {puedeVer('apartados', usuario?.rol) && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" asChild>
-                  <Link href="/dashboard/apartados">
-                    <CalendarClock className="w-4 h-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">Apartados</TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="icon" asChild>
-                <Link href="/dashboard/ventas/corte-dia">
-                  <Receipt className="w-4 h-4" />
-                </Link>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Corte del día</TooltipContent>
-          </Tooltip>
-          {puedeVer('historialVentas', usuario?.rol) && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" asChild>
-                  <Link href="/dashboard/ventas/historial">
-                    <History className="w-4 h-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">Historial</TooltipContent>
-            </Tooltip>
-          )}
-          {puedeVer('gastos', usuario?.rol) && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" asChild>
-                  <Link href="/dashboard/gastos">
-                    <Wallet className="w-4 h-4" />
-                  </Link>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">Gastos</TooltipContent>
-            </Tooltip>
           )}
         </div>
       </div>
