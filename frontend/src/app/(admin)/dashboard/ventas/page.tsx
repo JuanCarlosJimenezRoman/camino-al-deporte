@@ -1281,7 +1281,7 @@ export default function VentasPage() {
         {/* Columna derecha: el "ticket" — carrito (o el apartado en curso) y
             el cobro. En pantallas grandes se queda fija (sticky) mientras se
             sigue buscando en la columna izquierda. */}
-        <div className="lg:sticky lg:top-4 card space-y-4">
+        <div className="lg:sticky lg:top-0 card space-y-4">
           {esLocal ? (
             <>
               <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
@@ -1674,7 +1674,7 @@ export default function VentasPage() {
 
         {/* Accesos rápidos, en vertical junto al ticket para no robarle
             ancho a la sección de ventas (antes vivían en el PageHeader). */}
-        <div className="flex flex-row lg:flex-col gap-1.5 lg:sticky lg:top-4">
+        <div className="flex flex-row lg:flex-col gap-1.5 lg:sticky lg:top-0">
           {puedeVer('apartados', usuario?.rol) && (
             <Tooltip>
               <TooltipTrigger asChild>
