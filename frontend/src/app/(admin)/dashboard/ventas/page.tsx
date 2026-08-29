@@ -996,45 +996,7 @@ export default function VentasPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Ventas"
-        subtitle="Punto de venta"
-        breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Ventas' }]}
-        actions={
-          <>
-            {puedeVer('apartados', usuario?.rol) && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/apartados">
-                  <CalendarClock className="w-4 h-4" />
-                  Apartados
-                </Link>
-              </Button>
-            )}
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/ventas/corte-dia">
-                <Receipt className="w-4 h-4" />
-                Corte del día
-              </Link>
-            </Button>
-            {puedeVer('historialVentas', usuario?.rol) && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/ventas/historial">
-                  <History className="w-4 h-4" />
-                  Historial
-                </Link>
-              </Button>
-            )}
-            {puedeVer('gastos', usuario?.rol) && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/gastos">
-                  <Wallet className="w-4 h-4" />
-                  Gastos
-                </Link>
-              </Button>
-            )}
-          </>
-        }
-      />
+      
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
         {/* Columna izquierda: elegir qué se vende — sucursal, buscador,
