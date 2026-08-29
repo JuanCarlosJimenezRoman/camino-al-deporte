@@ -30,13 +30,13 @@ import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearHora, formatoMonedaExacto } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
-import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 interface Sucursal {
   id: number;
@@ -999,46 +999,62 @@ export default function VentasPage() {
   );
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Ventas"
-        subtitle="Punto de venta"
-        breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Ventas' }]}
-        actions={
-          <>
-            {puedeVer('apartados', usuario?.rol) && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/apartados">
+    <div className="space-y-3">
+      {/* Sin PageHeader (título/breadcrumb) a propósito: en el punto de
+          venta se quiere el card de productos+ticket pegado hasta arriba,
+          no una franja de título ocupando espacio. Los accesos a
+          Apartados/Corte del día/Historial/Gastos se conservan, pero como
+          una barra angosta de solo-ícono alineada a la derecha — es su
+          propia fila (no una tercera columna), así nunca le quita ancho al
+          grid de abajo ni rompe las tarjetas de producto. */}
+      <div className="flex items-center justify-end gap-1.5">
+        {puedeVer('apartados', usuario?.rol) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" asChild>
+                <Link href="/dashboard/apartados" aria-label="Apartados">
                   <CalendarClock className="w-4 h-4" />
-                  Apartados
                 </Link>
               </Button>
-            )}
-            <Button variant="outline" size="sm" asChild>
-              <Link href="/dashboard/ventas/corte-dia">
+            </TooltipTrigger>
+            <TooltipContent>Apartados</TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon" asChild>
+              <Link href="/dashboard/ventas/corte-dia" aria-label="Corte del día">
                 <Receipt className="w-4 h-4" />
-                Corte del día
               </Link>
             </Button>
-            {puedeVer('historialVentas', usuario?.rol) && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/ventas/historial">
+          </TooltipTrigger>
+          <TooltipContent>Corte del día</TooltipContent>
+        </Tooltip>
+        {puedeVer('historialVentas', usuario?.rol) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" asChild>
+                <Link href="/dashboard/ventas/historial" aria-label="Historial de ventas">
                   <History className="w-4 h-4" />
-                  Historial
                 </Link>
               </Button>
-            )}
-            {puedeVer('gastos', usuario?.rol) && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/gastos">
+            </TooltipTrigger>
+            <TooltipContent>Historial de ventas</TooltipContent>
+          </Tooltip>
+        )}
+        {puedeVer('gastos', usuario?.rol) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" asChild>
+                <Link href="/dashboard/gastos" aria-label="Gastos">
                   <Wallet className="w-4 h-4" />
-                  Gastos
                 </Link>
               </Button>
-            )}
-          </>
-        }
-      />
+            </TooltipTrigger>
+            <TooltipContent>Gastos</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
         {/* Columna izquierda: elegir qué se vende — sucursal, buscador,
