@@ -17,6 +17,14 @@ import {
   Wallet,
   ChevronRight,
   User,
+  Barcode,
+  Tag,
+  Trash2,
+  Banknote,
+  CreditCard,
+  Landmark,
+  MessageSquarePlus,
+  LayoutGrid,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearHora, formatoMonedaExacto } from '@/lib/utils';
@@ -42,6 +50,11 @@ interface CuentaTransferencia {
 }
 
 interface Proveedor {
+  id: number;
+  nombre: string;
+}
+
+interface Categoria {
   id: number;
   nombre: string;
 }
@@ -118,8 +131,13 @@ interface Existencia {
     color: string | null;
     talla: { valor: string } | null;
     producto: {
+      // id/marca se usan para agrupar las existencias (una por talla) en
+      // una sola tarjeta por producto en la vista de catálogo — ver
+      // agruparPorProducto más abajo.
+      id: number;
       nombre: string;
       precioVenta: string;
+      marca?: { nombre: string } | null;
       imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[];
     };
   };
@@ -129,6 +147,48 @@ interface Existencia {
 // como key/value, ya que un mismo varianteId puede repetirse.
 function claveExistencia(e: Existencia) {
   return `${e.variante.id}:${e.proveedorId ?? 'null'}:${e.sucursalId}`;
+}
+
+// Una tarjeta del catálogo visual (grid tipo "Productos populares") es un
+// PRODUCTO, no una existencia — un mismo tenis con 5 tallas distintas ocupa
+// una sola tarjeta, no cinco. Esto agrupa la lista plana que regresa
+// /inventario/existencias (un renglón por variante+proveedor) en una
+// tarjeta por producto, sumando el stock de todas sus tallas/proveedores y
+// quedándose con el primer SKU/imagen que encuentra como referencia.
+interface ProductoAgrupado {
+  productoId: number;
+  nombre: string;
+  skuRef: string;
+  imagenUrl: string | null;
+  precio: number;
+  stockTotal: number;
+  // Todas las existencias (una por talla/color/proveedor) de este producto
+  // en la sucursal elegida — si son más de una, la tarjeta pide elegir
+  // talla antes de agregar (ver TarjetaProductoGrid).
+  variantes: Existencia[];
+}
+
+function agruparPorProducto(lista: Existencia[]): ProductoAgrupado[] {
+  const mapa = new Map<number, ProductoAgrupado>();
+  for (const e of lista) {
+    const p = e.variante.producto;
+    const existente = mapa.get(p.id);
+    if (existente) {
+      existente.stockTotal += e.stockActual;
+      existente.variantes.push(e);
+    } else {
+      mapa.set(p.id, {
+        productoId: p.id,
+        nombre: p.nombre,
+        skuRef: e.variante.sku,
+        imagenUrl: imagenPrincipal(p, e.variante.color),
+        precio: Number(p.precioVenta),
+        stockTotal: e.stockActual,
+        variantes: [e],
+      });
+    }
+  }
+  return Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
 }
 
 // Botones +/- para cambiar cantidad sin tener que borrar y volver a teclear
@@ -167,6 +227,64 @@ function SelectorCantidad({
       >
         <Plus className="w-3.5 h-3.5" />
       </button>
+    </div>
+  );
+}
+
+// Tarjeta de una tarjeta del catálogo visual. Si el producto tiene una sola
+// talla/variante, tocar la tarjeta la agrega directo al ticket; si tiene
+// varias, primero despliega los chips de talla para que el cajero elija
+// (no se puede adivinar cuál quiere) — igual que elegir talla en cualquier
+// tienda de tenis, pero pensado para tocarse con el dedo en una tablet.
+function TarjetaProductoGrid({
+  producto,
+  expandido,
+  onClic,
+  onElegirTalla,
+}: {
+  producto: ProductoAgrupado;
+  expandido: boolean;
+  onClic: () => void;
+  onElegirTalla: (e: Existencia) => void;
+}) {
+  const multiple = producto.variantes.length > 1;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/40">
+      <button type="button" onClick={onClic} className="flex flex-1 flex-col gap-2 text-left">
+        <div className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-md bg-secondary/50 p-2">
+          {producto.imagenUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={producto.imagenUrl} alt={producto.nombre} className="max-h-full max-w-full object-contain" />
+          ) : (
+            <div className="h-full w-full rounded bg-secondary" />
+          )}
+        </div>
+        <div>
+          <div className="line-clamp-2 text-sm font-medium leading-tight">{producto.nombre}</div>
+          <div className="truncate text-xs text-muted-foreground">{producto.skuRef}</div>
+        </div>
+      </button>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold tabular-nums text-primary">{formatoMonedaExacto(producto.precio)}</span>
+        <span className="text-xs text-muted-foreground">Stock: {producto.stockTotal}</span>
+      </div>
+      {multiple &&
+        (expandido ? (
+          <div className="flex flex-wrap gap-1.5 border-t border-border pt-2">
+            {producto.variantes.map((v) => (
+              <button
+                key={claveExistencia(v)}
+                type="button"
+                onClick={() => onElegirTalla(v)}
+                className="rounded-md border border-border px-2 py-1 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
+              >
+                {v.variante.talla?.valor ?? v.variante.color ?? 'Único'}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="text-[11px] text-muted-foreground">{producto.variantes.length} tallas · toca para elegir</div>
+        ))}
     </div>
   );
 }
@@ -240,7 +358,7 @@ function formatearTelefonoWhatsapp(telefono: string): string {
   return digitos;
 }
 
-function construirTicketTexto(venta: Venta): string {
+function construirTicketTexto(venta: Venta, notaExtra?: string): string {
   const articulos = venta.items
     .map((it) => {
       if (!it.variante) {
@@ -275,17 +393,22 @@ function construirTicketTexto(venta: Venta): string {
     `Método de pago: ${etiquetaPago}`,
     venta.efectivoRecibido != null ? `Efectivo recibido: $${Number(venta.efectivoRecibido).toFixed(2)}` : '',
     cambio !== null ? `Cambio: $${cambio.toFixed(2)}` : '',
+    // Observación libre que el cajero capturó al cobrar ("+ Agregar
+    // observaciones" en el ticket) — es solo texto que viaja en este
+    // mensaje de WhatsApp, no se guarda en la base de datos ni en el
+    // historial de ventas.
+    notaExtra?.trim() ? `Nota: ${notaExtra.trim()}` : '',
     '',
     '¡Gracias por tu compra!',
     venta.whatsappContacto ? `Dudas o cambios, contáctanos: ${venta.whatsappContacto}` : '',
   ].join('\n');
 }
 
-function construirLinkTicket(venta: Venta): string | null {
+function construirLinkTicket(venta: Venta, notaExtra?: string): string | null {
   if (!venta.clienteTelefono) return null;
   const numero = formatearTelefonoWhatsapp(venta.clienteTelefono);
   if (!numero) return null;
-  return `https://wa.me/${numero}?text=${encodeURIComponent(construirTicketTexto(venta))}`;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(construirTicketTexto(venta, notaExtra))}`;
 }
 
 // Fuerza la descarga del PDF (en vez de solo abrirlo en una pestaña) para
@@ -327,14 +450,12 @@ export default function VentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [cargandoVentas, setCargandoVentas] = useState(true);
 
-  // Búsqueda de producto: ya no es un <select> con todo el catálogo, es un
-  // campo de texto que busca (con un pequeño debounce) en TODAS las
-  // sucursales — así se puede ver de un vistazo si el producto que pide el
-  // cliente está en la sucursal propia o solo en otra.
+  // Búsqueda de producto: filtra en vivo (con un pequeño debounce) el
+  // catálogo visual de abajo (ver catalogoGrid) — ya no es un dropdown, es
+  // el mismo buscador el que decide qué tarjetas se muestran. También sigue
+  // sirviendo para el lector de código de barras: al mandar Enter se agrega
+  // directo sin esperar el debounce (ver manejarEnterBusqueda).
   const [busqueda, setBusqueda] = useState('');
-  const [resultados, setResultados] = useState<Existencia[]>([]);
-  const [buscando, setBuscando] = useState(false);
-  const [mostrarResultados, setMostrarResultados] = useState(false);
   const [seleccion, setSeleccion] = useState<Existencia | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Referencia al campo de búsqueda: se le regresa el foco después de
@@ -344,11 +465,33 @@ export default function VentasPage() {
 
   const [cantidad, setCantidad] = useState(1);
 
+  // Categorías (para las píldoras de filtro) y catálogo visual: el grid de
+  // tarjetas que reemplaza al dropdown de resultados de antes. Se agrupa
+  // por producto (ver agruparPorProducto) para que un mismo tenis con
+  // varias tallas ocupe una sola tarjeta.
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [categoriaId, setCategoriaId] = useState('');
+  const [categoriasExpandidas, setCategoriasExpandidas] = useState(false);
+  const [catalogoGrid, setCatalogoGrid] = useState<Existencia[]>([]);
+  const [cargandoGrid, setCargandoGrid] = useState(false);
+  // Por default solo se pintan las primeras tarjetas ("Productos
+  // populares", como en cualquier POS) — "Ver todos los productos" quita el
+  // límite. En cuanto se busca algo o se elige una categoría, el límite ya
+  // no aplica (si no, parecería que el filtro "no encontró" el resto).
+  const [mostrarTodosProductos, setMostrarTodosProductos] = useState(false);
+  // Qué tarjeta tiene sus chips de talla desplegados (solo una a la vez).
+  const [productoExpandidoId, setProductoExpandidoId] = useState<number | null>(null);
+
   // Carrito de la venta en curso: uno o más artículos disponibles en la
   // sucursal propia, cada uno con su cantidad. Los productos que solo están
   // en otra sucursal NO entran aquí — para esos sigue existiendo el flujo de
   // "Apartar para el cliente" de un solo artículo (ver seleccion más abajo).
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
+  // Observación libre y opcional del cajero (ej. "entregar en caja") — solo
+  // viaja como texto en el ticket que se manda por WhatsApp al cobrar (ver
+  // construirTicketTexto); no se guarda en la base de datos.
+  const [mostrarNota, setMostrarNota] = useState(false);
+  const [notaVenta, setNotaVenta] = useState('');
 
   // Formulario para agregar un renglón "producto no registrado" (fuera del
   // catálogo) al carrito — ver agregarLibreAlCarrito.
@@ -414,6 +557,8 @@ export default function VentasPage() {
     // Para el selector de proveedor del formulario "producto no registrado"
     // (?todas=1: incluye inactivos, igual criterio que en historial/edición).
     api<Proveedor[]>('/proveedores?todas=1').then(setProveedores);
+    // Para las píldoras de categoría del catálogo visual.
+    api<Categoria[]>('/catalogos/categorias').then(setCategorias);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -431,7 +576,6 @@ export default function VentasPage() {
     cargar();
     setSeleccion(null);
     setBusqueda('');
-    setResultados([]);
     // El carrito son existencias de una sucursal concreta — al cambiar de
     // sucursal ya no aplican (el stock disponible es otro), así que se
     // vacía en vez de arrastrar renglones que ya no son válidos.
@@ -439,97 +583,88 @@ export default function VentasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalId]);
 
-  // Búsqueda con debounce: espera 300ms sin teclear antes de consultar, para
-  // no mandar una petición por cada letra. Busca en todas las sucursales
-  // (sin ?sucursalId=) — así se ve de un vistazo si lo que pide el cliente
-  // está en la sucursal propia o solo en otra.
-  // Si ya hay una selección hecha (el texto es solo el nombre que se puso al
-  // elegir un resultado, no algo que el usuario esté escribiendo), no vuelve
-  // a buscar — si no, el buscador se reabriría solo justo después de elegir.
   // Consulta cruda de existencias por texto (nombre o SKU), ya filtrada a
-  // solo lo que tiene stock — la usan tanto el debounce normal de abajo
-  // como Enter (ver manejarEnterBusqueda), que a veces necesita saltarse la
-  // espera de 300ms.
+  // solo lo que tiene stock. Busca en TODAS las sucursales (sin
+  // ?sucursalId=) — así, al agregar (ver procesarExistencia), se puede
+  // saber de un vistazo si lo que pide el cliente está en la sucursal
+  // propia o solo en otra. La usa el Enter/lector de código de barras (ver
+  // manejarEnterBusqueda) — el catálogo visual de abajo tiene su propio
+  // efecto con debounce (ver catalogoGrid), que sí es siempre de la
+  // sucursal elegida.
   async function buscarExistencias(termino: string): Promise<Existencia[]> {
     const data = await api<Existencia[]>(`/inventario/existencias?skuOProducto=${encodeURIComponent(termino)}`);
     return data.filter((e) => e.stockActual > 0);
   }
 
+  // Catálogo visual (grid de tarjetas) de la sucursal elegida: se vuelve a
+  // pedir cada vez que cambia la sucursal, la categoría elegida o el texto
+  // de búsqueda (con debounce, para no mandar una petición por cada tecla).
+  // A diferencia del Enter/lector de código de barras, esto NUNCA agrega
+  // nada al carrito por sí solo — solo decide qué tarjetas se pintan.
   useEffect(() => {
+    if (!sucursalId) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (seleccion || busqueda.trim().length < 2) {
-      setResultados([]);
-      return;
-    }
     debounceRef.current = setTimeout(async () => {
-      setBuscando(true);
+      setCargandoGrid(true);
       try {
-        setResultados(await buscarExistencias(busqueda.trim()));
-        setMostrarResultados(true);
+        const params = new URLSearchParams({ sucursalId });
+        if (categoriaId) params.set('categoriaId', categoriaId);
+        if (busqueda.trim().length >= 2) params.set('skuOProducto', busqueda.trim());
+        const data = await api<Existencia[]>(`/inventario/existencias?${params.toString()}`);
+        setCatalogoGrid(data.filter((e) => e.stockActual > 0));
       } finally {
-        setBuscando(false);
+        setCargandoGrid(false);
       }
     }, 300);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [busqueda, seleccion]);
+  }, [sucursalId, categoriaId, busqueda]);
 
-  // Enter en el buscador: agrega directo si hay un solo resultado (o uno
-  // cuyo SKU coincide exacto, el caso típico de un lector de código de
-  // barras) en vez de obligar a hacer clic en el dropdown. Si el debounce
-  // de 300ms todavía no alcanzó a correr —el lector escribe y manda Enter
-  // muy rápido— se salta la espera y busca de inmediato.
+  // Punto de entrada único para "ya se eligió qué vender", venga de tocar
+  // una tarjeta/chip de talla en el grid o de escanear+Enter en el
+  // buscador. Si el producto SÍ está en la sucursal propia, se agrega
+  // directo al carrito (puede ser el primero de varios); si solo está en
+  // otra sucursal, no se puede vender de aquí — se guarda como "seleccion"
+  // para ofrecer apartarlo (ver el panel de la derecha).
+  function procesarExistencia(e: Existencia) {
+    setMensaje(null);
+    const esLocalResultado = e.sucursalId === Number(sucursalId);
+    if (esLocalResultado) {
+      agregarAlCarrito(e);
+      setSeleccion(null);
+    } else {
+      setSeleccion(e);
+      setBusqueda(`${e.variante.producto.nombre}${e.variante.talla ? ` (${e.variante.talla.valor})` : ''}`);
+      setCantidad(1);
+    }
+  }
+
+  // Enter en el buscador (o el lector de código de barras, que "teclea" el
+  // SKU y manda Enter solo): agrega directo si hay un solo resultado o uno
+  // cuyo SKU coincide exacto, sin esperar el debounce del grid. Si hay
+  // varias coincidencias y ninguna es un SKU exacto, no se adivina cuál
+  // quiso decir el cajero — se deja el texto tal cual, que ya está
+  // filtrando el grid de abajo, y ahí se toca la tarjeta correcta.
   async function manejarEnterBusqueda() {
     const termino = busqueda.trim();
-    if (!termino || seleccion) return;
+    if (!termino) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    let candidatos = resultados;
-    if (candidatos.length === 0) {
-      setBuscando(true);
-      try {
-        candidatos = await buscarExistencias(termino);
-        setResultados(candidatos);
-      } finally {
-        setBuscando(false);
-      }
-    }
+    const candidatos = await buscarExistencias(termino);
     if (candidatos.length === 0) {
       setMensaje(`Sin existencias para "${termino}".`);
       return;
     }
     const exacto = candidatos.find((c) => c.variante.sku.toLowerCase() === termino.toLowerCase());
-    if (exacto) {
-      elegirResultado(exacto);
-    } else if (candidatos.length === 1) {
-      elegirResultado(candidatos[0]);
-    } else {
-      setMostrarResultados(true);
-    }
-  }
-
-  // Elegir un resultado de la búsqueda tiene dos caminos distintos:
-  //  - Si el producto SÍ está en la sucursal propia, se agrega directo al
-  //    carrito (puede ser el primero de varios) y la búsqueda se limpia para
-  //    poder seguir agregando más artículos a la misma venta.
-  //  - Si solo está en otra sucursal, no se puede vender de aquí — se guarda
-  //    como "seleccion" para ofrecer apartarlo, igual que antes (eso sigue
-  //    siendo de un artículo a la vez).
-  function elegirResultado(e: Existencia) {
-    const esLocalResultado = e.sucursalId === Number(sucursalId);
-    setMostrarResultados(false);
-    setMensaje(null);
-    if (esLocalResultado) {
-      agregarAlCarrito(e);
-      setSeleccion(null);
-      setBusqueda('');
-      setResultados([]);
-      // Regresa el foco al buscador para poder escanear/teclear el
-      // siguiente artículo sin tocar el mouse.
-      busquedaInputRef.current?.focus();
-    } else {
-      setSeleccion(e);
-      setBusqueda(`${e.variante.producto.nombre}${e.variante.talla ? ` (${e.variante.talla.valor})` : ''}`);
+    const elegido = exacto ?? (candidatos.length === 1 ? candidatos[0] : null);
+    if (elegido) {
+      procesarExistencia(elegido);
+      if (elegido.sucursalId === Number(sucursalId)) {
+        setBusqueda('');
+        // Regresa el foco al buscador para poder escanear/teclear el
+        // siguiente artículo sin tocar el mouse.
+        busquedaInputRef.current?.focus();
+      }
     }
   }
 
@@ -594,6 +729,19 @@ export default function VentasPage() {
     setCarrito((actual) => actual.filter((it) => it.key !== key));
   }
 
+  // "Vaciar ticket": deja la venta en curso como si se acabara de entrar a
+  // la pantalla, sin perder la sucursal/categoría elegidas (a diferencia de
+  // limpiarSeleccion, que se llama después de cobrar y sí resetea todo).
+  function vaciarCarrito() {
+    setCarrito([]);
+    setAplicarDescuento(false);
+    setDescuentoValor('');
+    setDescuentoMotivo('');
+    setEfectivoRecibido('');
+    setMostrarNota(false);
+    setNotaVenta('');
+  }
+
   // Cambia la cantidad de un renglón del carrito. Para un renglón normal,
   // siempre entre 1 y el stock disponible de esa existencia (no se puede
   // vender más de lo que hay); un renglón libre no tiene stock que
@@ -616,7 +764,6 @@ export default function VentasPage() {
   function limpiarSeleccion() {
     setSeleccion(null);
     setBusqueda('');
-    setResultados([]);
     setCantidad(1);
     setCarrito([]);
     setEfectivoRecibido('');
@@ -631,6 +778,9 @@ export default function VentasPage() {
     setLibreCantidad('1');
     setErrorLibre('');
     setMostrarDatosCliente(false);
+    setMostrarNota(false);
+    setNotaVenta('');
+    setProductoExpandidoId(null);
   }
 
   // El vendedor (VENTAS o admin probando con esa sucursal) nunca vende
@@ -762,7 +912,7 @@ export default function VentasPage() {
         // que ir a revisar los logs del backend.
         const motivo = creada.clienteTelefono && creada.ticketDigital?.error ? ` (${creada.ticketDigital.error})` : '';
         setMensaje(`${baseMensaje}${motivo}`);
-        setTicketLink(construirLinkTicket(creada));
+        setTicketLink(construirLinkTicket(creada, notaVenta));
       }
       limpiarSeleccion();
       setCliente('');
@@ -887,30 +1037,32 @@ export default function VentasPage() {
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
-        {/* Columna izquierda: elegir qué se vende — sucursal, buscador y
-            "producto no registrado". El carrito y el cobro viven en el
-            panel de la derecha (ver más abajo), que se queda fijo en
-            pantalla mientras se sigue buscando aquí — así nunca hay que
-            bajar hasta el fondo para dar clic en "Registrar venta". */}
+        {/* Columna izquierda: elegir qué se vende — sucursal, buscador,
+            categorías y el catálogo visual (tarjetas con foto, como en
+            tienda). El carrito y el cobro viven en el panel de la derecha
+            (ver más abajo), que se queda fijo en pantalla mientras se sigue
+            buscando aquí — así nunca hay que bajar hasta el fondo para dar
+            clic en "Cobrar". */}
         <div className="card space-y-4">
-          <h2 className="text-base font-semibold">Buscar artículos</h2>
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <div className="sm:w-52 shrink-0">
+              {sucursalBloqueada ? (
+                <div className="flex h-11 items-center rounded-lg border border-border bg-secondary/40 px-3 text-sm font-medium truncate">
+                  {sucursales.find((s) => String(s.id) === sucursalId)?.nombre || usuario?.sucursal?.nombre || '—'}
+                </div>
+              ) : (
+                <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} className="h-11">
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </Select>
+              )}
+            </div>
 
-          <div>
-            <label>Sucursal</label>
-            {sucursalBloqueada ? (
-              <div className="text-sm py-2">{sucursales.find((s) => String(s.id) === sucursalId)?.nombre || usuario?.sucursal?.nombre || '—'}</div>
-            ) : (
-              <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
-                {sucursales.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </Select>
-            )}
-          </div>
-
-          <div className="relative">
-            <label>Buscar producto (nombre o SKU)</label>
-            <div className="relative">
+            {/* Buscador: filtra en vivo las tarjetas de abajo. También es
+                donde "escribe" el lector de código de barras — Enter agrega
+                directo (ver manejarEnterBusqueda), sin necesitar mouse. */}
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 ref={busquedaInputRef}
@@ -920,56 +1072,17 @@ export default function VentasPage() {
                   setSeleccion(null);
                 }}
                 onKeyDown={(e) => {
-                  // Enter agrega directo (ver manejarEnterBusqueda) — así un
-                  // lector de código de barras (que "teclea" el SKU y manda
-                  // Enter solo) agrega el artículo sin necesitar mouse.
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     manejarEnterBusqueda();
                   }
                 }}
-                onFocus={() => resultados.length > 0 && setMostrarResultados(true)}
-                onBlur={() => {
-                  // Retraso corto para que el click en un resultado alcance a
-                  // registrarse antes de que el blur cierre la lista.
-                  setTimeout(() => setMostrarResultados(false), 150);
-                }}
-                placeholder="Escanea o escribe el nombre / SKU y Enter..."
-                className="pl-9 text-base h-11"
+                placeholder="Escanea o busca un producto, SKU o código de barras"
+                className="pl-9 pr-10 h-11 text-base"
                 autoFocus
               />
+              <Barcode className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             </div>
-            {buscando && <p className="text-xs text-muted-foreground mt-1">Buscando…</p>}
-
-            {mostrarResultados && resultados.length > 0 && (
-              <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-elevated">
-                {resultados.map((r) => {
-                  const local = r.sucursalId === Number(sucursalId);
-                  return (
-                    <button
-                      key={claveExistencia(r)}
-                      onClick={() => elegirResultado(r)}
-                      className="flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-secondary transition-colors"
-                    >
-                      <ProductoThumb url={imagenPrincipal(r.variante.producto, r.variante.color)} alt="" size={32} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">
-                          {r.variante.producto.nombre}
-                          {r.variante.talla ? ` (${r.variante.talla.valor})` : ''}
-                          {r.variante.color ? ` — ${r.variante.color}` : ''}
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          SKU {r.variante.sku} · stock: {r.stockActual}
-                        </div>
-                      </div>
-                      <StatusBadge tono={local ? 'success' : 'warning'} withDot={false} className="shrink-0">
-                        {local ? 'Tu sucursal' : r.sucursal?.nombre ?? 'Otra sucursal'}
-                      </StatusBadge>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
           {seleccion && !esLocal && (
@@ -985,10 +1098,156 @@ export default function VentasPage() {
             </div>
           )}
 
+          {/* Categorías: píldoras generadas de Marcas y tallas → Categorías,
+              igual que en Productos — "Todos" siempre primero. Si hay más
+              de 6, el resto se esconde detrás de "Más" para no ocupar
+              varias líneas por default. */}
+          <div>
+            <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Categorías</h2>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setCategoriaId('')}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 h-9 text-sm font-medium transition-colors ${
+                  categoriaId === '' ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-foreground hover:bg-secondary'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Todos
+              </button>
+              {(categoriasExpandidas ? categorias : categorias.slice(0, 6)).map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setCategoriaId(String(c.id))}
+                  className={`rounded-lg border px-3 h-9 text-sm font-medium transition-colors ${
+                    categoriaId === String(c.id)
+                      ? 'border-primary bg-accent text-primary'
+                      : 'border-border bg-card text-foreground hover:bg-secondary'
+                  }`}
+                >
+                  {c.nombre}
+                </button>
+              ))}
+              {categorias.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setCategoriasExpandidas((v) => !v)}
+                  className="rounded-lg border border-border bg-card px-3 h-9 text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors"
+                >
+                  {categoriasExpandidas ? 'Menos' : 'Más'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Catálogo visual: una tarjeta por producto (agrupa tallas, ver
+              agruparPorProducto). Sin filtro activo solo se pintan las
+              primeras — "Ver todos los productos" quita el límite. */}
+          {(() => {
+            const productosAgrupados = agruparPorProducto(catalogoGrid);
+            const hayFiltro = busqueda.trim().length >= 2 || categoriaId !== '';
+            const productosVisibles = mostrarTodosProductos || hayFiltro ? productosAgrupados : productosAgrupados.slice(0, 8);
+            return (
+              <div>
+                <h2 className="mb-2 text-sm font-semibold text-muted-foreground">
+                  {hayFiltro ? `Resultados (${productosAgrupados.length})` : 'Productos populares'}
+                </h2>
+
+                {cargandoGrid ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <Skeleton key={i} className="aspect-[3/4] w-full rounded-lg" />
+                    ))}
+                  </div>
+                ) : productosAgrupados.length === 0 ? (
+                  <EmptyState
+                    icon={ShoppingBag}
+                    title="Sin existencias"
+                    description={hayFiltro ? 'No hay productos con stock que coincidan con este filtro.' : 'Todavía no hay stock cargado en esta sucursal.'}
+                  />
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {productosVisibles.map((p) => (
+                      <TarjetaProductoGrid
+                        key={p.productoId}
+                        producto={p}
+                        expandido={productoExpandidoId === p.productoId}
+                        onClic={() => {
+                          if (p.variantes.length === 1) {
+                            procesarExistencia(p.variantes[0]);
+                          } else {
+                            setProductoExpandidoId((actual) => (actual === p.productoId ? null : p.productoId));
+                          }
+                        }}
+                        onElegirTalla={(v) => {
+                          procesarExistencia(v);
+                          setProductoExpandidoId(null);
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {!hayFiltro && !mostrarTodosProductos && productosAgrupados.length > 8 && (
+                  <button
+                    type="button"
+                    onClick={() => setMostrarTodosProductos(true)}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-2.5 text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                    Ver todos los productos
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Acciones rápidas: escanear/buscar solo regresan el foco al
+              buscador de arriba (el lector de código de barras "escribe"
+              ahí); descuento y vaciar operan directo sobre el ticket de la
+              derecha. */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-border pt-3">
+            <button
+              type="button"
+              onClick={() => busquedaInputRef.current?.focus()}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              <Barcode className="w-4 h-4 shrink-0" />
+              Escanear código
+            </button>
+            <button
+              type="button"
+              onClick={() => busquedaInputRef.current?.focus()}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              <Search className="w-4 h-4 shrink-0" />
+              Buscar producto
+            </button>
+            <button
+              type="button"
+              disabled={carrito.length === 0}
+              onClick={() => setAplicarDescuento(true)}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Tag className="w-4 h-4 shrink-0" />
+              Aplicar descuento
+            </button>
+            <button
+              type="button"
+              disabled={carrito.length === 0}
+              onClick={vaciarCarrito}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Trash2 className="w-4 h-4 shrink-0" />
+              Vaciar ticket
+            </button>
+          </div>
+
           {/* Vender algo que no está dado de alta en el catálogo: no
-              depende de la búsqueda de arriba ni de tener una sucursal
-              "local" seleccionada — es un renglón de cobro aparte que
-              nunca toca inventario (ver POST /ventas → descripcionLibre). */}
+              depende de la búsqueda ni del catálogo visual de arriba — es
+              un renglón de cobro aparte que nunca toca inventario (ver
+              POST /ventas → descripcionLibre). */}
           <div>
             {!mostrarFormLibre ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setMostrarFormLibre(true)} className="gap-1.5">
@@ -1068,12 +1327,12 @@ export default function VentasPage() {
               <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
 
               {carrito.length > 0 ? (
-                <div className="rounded-lg border border-border divide-y divide-border max-h-[38vh] overflow-y-auto">
+                <div className="space-y-2 max-h-[38vh] overflow-y-auto p-0.5">
                   {carrito.map((it) => {
                     if (it.tipo === 'libre') {
                       return (
-                        <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-secondary">
+                        <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-secondary">
                             <Plus className="w-4 h-4 text-muted-foreground" />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1082,10 +1341,12 @@ export default function VentasPage() {
                               {formatoMonedaExacto(it.precioUnitario)} c/u · No registrado
                               {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
                             </div>
-                          </div>
-                          <SelectorCantidad cantidad={it.cantidad} onCambiar={(n) => cambiarCantidadCarrito(it.key, n)} />
-                          <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
-                            {formatoMonedaExacto(it.precioUnitario * it.cantidad)}
+                            <div className="mt-1 flex items-center justify-between">
+                              <SelectorCantidad cantidad={it.cantidad} onCambiar={(n) => cambiarCantidadCarrito(it.key, n)} />
+                              <span className="text-sm font-semibold tabular-nums">
+                                {formatoMonedaExacto(it.precioUnitario * it.cantidad)}
+                              </span>
+                            </div>
                           </div>
                           <Button
                             variant="ghost"
@@ -1105,24 +1366,21 @@ export default function VentasPage() {
                       .join(' / ');
                     const precio = Number(p.precioVenta);
                     return (
-                      <div key={it.key} className="flex items-center gap-2.5 px-3 py-2">
-                        <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={32} />
+                      <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
+                        <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={44} />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">
-                            {p.nombre}
-                            {detalle ? ` (${detalle})` : ''}
-                          </div>
+                          <div className="text-sm font-medium truncate">{p.nombre}</div>
                           <div className="text-xs text-muted-foreground truncate">
-                            {formatoMonedaExacto(precio)} c/u · SKU {it.existencia.variante.sku}
+                            {detalle || 'Único'} · {formatoMonedaExacto(precio)}
                           </div>
-                        </div>
-                        <SelectorCantidad
-                          cantidad={it.cantidad}
-                          onCambiar={(n) => cambiarCantidadCarrito(it.key, n)}
-                          max={it.existencia.stockActual}
-                        />
-                        <div className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums">
-                          {formatoMonedaExacto(precio * it.cantidad)}
+                          <div className="mt-1 flex items-center justify-between">
+                            <SelectorCantidad
+                              cantidad={it.cantidad}
+                              onCambiar={(n) => cambiarCantidadCarrito(it.key, n)}
+                              max={it.existencia.stockActual}
+                            />
+                            <span className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(precio * it.cantidad)}</span>
+                          </div>
                         </div>
                         <Button
                           variant="ghost"
@@ -1140,6 +1398,44 @@ export default function VentasPage() {
               ) : (
                 <p className="text-sm text-muted-foreground">Busca y agrega uno o más productos para armar la venta.</p>
               )}
+
+              {carrito.length > 0 &&
+                (!mostrarNota ? (
+                  <button
+                    type="button"
+                    onClick={() => setMostrarNota(true)}
+                    className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                  >
+                    <MessageSquarePlus className="w-3.5 h-3.5" />
+                    Agregar observaciones
+                  </button>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-muted-foreground">
+                        Observaciones (solo viajan en el ticket de WhatsApp, no se guardan)
+                      </label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setMostrarNota(false);
+                          setNotaVenta('');
+                        }}
+                        aria-label="Quitar observaciones"
+                        className="shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <Input
+                      value={notaVenta}
+                      onChange={(e) => setNotaVenta(e.target.value)}
+                      placeholder="Ej. Entregar en caja, cliente frecuente…"
+                    />
+                  </div>
+                ))}
 
               {carrito.length > 0 && (
                 <div>
@@ -1203,12 +1499,12 @@ export default function VentasPage() {
                   className="flex items-center gap-1.5 text-sm text-primary hover:underline"
                 >
                   <User className="w-3.5 h-3.5" />
-                  Agregar datos del cliente (opcional)
+                  Agregar cliente (opcional)
                 </button>
               ) : (
                 <div className="space-y-3 rounded-lg border border-border p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Datos del cliente (opcional)</span>
+                    <span className="text-sm font-medium">Cliente (opcional)</span>
                     <Button
                       type="button"
                       variant="ghost"
@@ -1237,11 +1533,25 @@ export default function VentasPage() {
 
               <div>
                 <label>Método de pago</label>
-                <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
-                  {METODOS_PAGO.map((m) => (
-                    <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
-                  ))}
-                </Select>
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
+                  {METODOS_PAGO.map((m) => {
+                    const activo = metodoPago === m.valor;
+                    const Icono = m.valor === 'EFECTIVO' ? Banknote : m.valor === 'TARJETA' ? CreditCard : Landmark;
+                    return (
+                      <button
+                        key={m.valor}
+                        type="button"
+                        onClick={() => setMetodoPago(m.valor)}
+                        className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-semibold transition-colors ${
+                          activo ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:bg-secondary'
+                        }`}
+                      >
+                        <Icono className="w-4 h-4" />
+                        {m.etiqueta}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {metodoPago === 'EFECTIVO' && (
@@ -1386,12 +1696,14 @@ export default function VentasPage() {
           )}
 
           {esLocal ? (
-            <Button size="lg" className="w-full" onClick={registrarVenta} disabled={carrito.length === 0 || guardando}>
-              {guardando
-                ? 'Guardando…'
-                : carrito.length > 0
-                  ? `Registrar venta — ${formatoMonedaExacto(totalVenta)}`
-                  : 'Registrar venta'}
+            <Button
+              size="lg"
+              className="w-full h-12 gap-2 text-base uppercase tracking-wide"
+              onClick={registrarVenta}
+              disabled={carrito.length === 0 || guardando}
+            >
+              <CreditCard className="w-4 h-4" />
+              {guardando ? 'Guardando…' : carrito.length > 0 ? `Cobrar ${formatoMonedaExacto(totalVenta)}` : 'Cobrar'}
             </Button>
           ) : (
             <Button size="lg" className="w-full" onClick={crearApartado} disabled={!seleccion || guardando}>
