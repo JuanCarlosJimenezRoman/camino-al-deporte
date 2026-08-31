@@ -8,6 +8,7 @@ const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { subirImagen, borrarImagen } = require('../config/cloudinary');
 const { generarCodigoInterno } = require('../utils/codigoInterno');
+const { generarCatalogoPdf } = require('../utils/catalogoPdf');
 
 const router = express.Router();
 
@@ -179,6 +180,81 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     page: pageNum,
     totalPages: Math.max(1, Math.ceil(total / limitNum)),
   });
+}));
+
+// GET /productos/catalogo-pdf - genera un PDF tipo "catálogo impreso" con
+// los productos que coincidan con los filtros (los mismos que el listado:
+// marca, categoría, modelo, talla, texto), en cuadrícula con foto, nombre,
+// precio y tallas disponibles (ver utils/catalogoPdf.js). Reemplaza la
+// práctica de mandarle al cliente una captura de pantalla de la tienda
+// filtrada, que se ve pixeleada y trae encimados los botones de la página.
+//
+// ?incluirPrecio=0 genera el catálogo sin precios (ej. para mostrar
+// disponibilidad a un proveedor/mayorista sin revelar el precio de lista).
+//
+// Se monta ANTES de "GET /:id" por la misma razón que /plantilla-excel y
+// /buscar-externo (ver comentario arriba): si no, Express interpretaría
+// "catalogo-pdf" como si fuera un id de producto.
+const MAX_PRODUCTOS_CATALOGO_PDF = 400;
+
+router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
+  const { marcaId, categoriaId, modeloId, tallaId, q, incluirPrecio } = req.query;
+
+  const where = {
+    activo: true,
+    ...(marcaId ? { marcaId: Number(marcaId) } : {}),
+    ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
+    ...(modeloId ? { modeloId: Number(modeloId) } : {}),
+    ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
+    ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
+  };
+
+  const total = await prisma.producto.count({ where });
+  if (total === 0) {
+    return res.status(404).json({ error: 'No hay productos que coincidan con estos filtros.' });
+  }
+  if (total > MAX_PRODUCTOS_CATALOGO_PDF) {
+    return res.status(400).json({
+      error: `Hay ${total} productos con estos filtros; el máximo para un PDF es ${MAX_PRODUCTOS_CATALOGO_PDF}. Acota con marca, categoría, modelo o talla.`,
+    });
+  }
+
+  const productos = await prisma.producto.findMany({
+    where,
+    include: {
+      marca: true,
+      variantes: {
+        where: { activo: true },
+        include: { talla: true, existencias: { select: { stockActual: true } } },
+      },
+      ...IMAGENES_INCLUDE,
+    },
+    orderBy: { nombre: 'asc' },
+  });
+
+  // Descripción de los filtros aplicados, para mostrarla en el encabezado
+  // del PDF (así el que lo recibe sabe qué recorte del catálogo es).
+  const partesFiltro = [];
+  if (q) partesFiltro.push(`Búsqueda: "${q}"`);
+  const [marca, categoria, modelo, talla] = await Promise.all([
+    marcaId ? prisma.marca.findUnique({ where: { id: Number(marcaId) } }) : null,
+    categoriaId ? prisma.categoria.findUnique({ where: { id: Number(categoriaId) } }) : null,
+    modeloId ? prisma.modelo.findUnique({ where: { id: Number(modeloId) } }) : null,
+    tallaId ? prisma.talla.findUnique({ where: { id: Number(tallaId) } }) : null,
+  ]);
+  if (marca) partesFiltro.push(`Marca: ${marca.nombre}`);
+  if (modelo) partesFiltro.push(`Modelo: ${modelo.nombre}`);
+  if (categoria) partesFiltro.push(`Categoría: ${categoria.nombre}`);
+  if (talla) partesFiltro.push(`Talla: ${talla.valor}`);
+
+  const buffer = await generarCatalogoPdf(productos, {
+    incluirPrecio: incluirPrecio !== '0',
+    filtrosTexto: partesFiltro.join('   ·   '),
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte-${Date.now()}.pdf"`);
+  res.send(buffer);
 }));
 
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {

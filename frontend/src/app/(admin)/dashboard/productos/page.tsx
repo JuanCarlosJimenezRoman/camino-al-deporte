@@ -18,8 +18,9 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  FileDown,
 } from 'lucide-react';
-import { api, ApiError } from '@/lib/api';
+import { api, apiDownload, ApiError } from '@/lib/api';
 import { guardarListaNavegacion } from '@/lib/navegacionProductos';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { Imagen } from '@/components/admin/GaleriaFotos';
@@ -161,6 +162,7 @@ export default function ProductosPage() {
   const [filtroModeloId, setFiltroModeloId] = useState('');
   const [filtroTallaId, setFiltroTallaId] = useState('');
   const hayFiltrosActivos = Boolean(filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || busqueda);
+  const [exportandoPdf, setExportandoPdf] = useState(false);
 
   // Paginación: con el catálogo creciendo (600+ productos) traer todo de una
   // vez volvía lento tanto el backend como el render de la tabla.
@@ -202,6 +204,32 @@ export default function ProductosPage() {
   const [variantesForm, setVariantesForm] = useState<VarianteForm[]>([nuevaVarianteForm()]);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  // Exporta a PDF el catálogo con los filtros que están aplicados en este
+  // momento en la pantalla (misma idea que "cargarProductos": mismos 5
+  // filtros, pero sin paginar, ya que el PDF trae todo el recorte en un
+  // solo documento). Pensado para reemplazar la práctica de mandarle al
+  // cliente una captura de pantalla de la tienda filtrada.
+  async function exportarCatalogoPdf() {
+    setExportandoPdf(true);
+    const qs = new URLSearchParams();
+    if (busqueda) qs.set('q', busqueda);
+    if (filtroMarcaId) qs.set('marcaId', filtroMarcaId);
+    if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
+    if (filtroModeloId) qs.set('modeloId', filtroModeloId);
+    if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    try {
+      await apiDownload(`/productos/catalogo-pdf?${qs.toString()}`, `catalogo-camino-al-deporte-${Date.now()}.pdf`);
+    } catch (err) {
+      toast({
+        title: 'No se pudo generar el catálogo',
+        description: err instanceof ApiError ? err.message : 'Intenta de nuevo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportandoPdf(false);
+    }
+  }
 
   async function cargarProductos(paginaDestino = pagina) {
     setCargando(true);
@@ -501,6 +529,10 @@ export default function ProductosPage() {
             Limpiar filtros
           </Button>
         )}
+        <Button variant="outline" size="sm" onClick={exportarCatalogoPdf} disabled={exportandoPdf} className="ml-auto">
+          <FileDown className="w-3.5 h-3.5" />
+          {exportandoPdf ? 'Generando PDF...' : 'Exportar catálogo PDF'}
+        </Button>
       </div>
 
       {/* Tabla */}
