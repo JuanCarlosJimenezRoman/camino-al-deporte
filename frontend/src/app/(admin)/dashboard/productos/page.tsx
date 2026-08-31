@@ -163,6 +163,7 @@ export default function ProductosPage() {
   const [filtroTallaId, setFiltroTallaId] = useState('');
   const hayFiltrosActivos = Boolean(filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || busqueda);
   const [exportandoPdf, setExportandoPdf] = useState(false);
+  const [incluirPrecioPdf, setIncluirPrecioPdf] = useState(true);
 
   // Paginación: con el catálogo creciendo (600+ productos) traer todo de una
   // vez volvía lento tanto el backend como el render de la tabla.
@@ -218,8 +219,15 @@ export default function ProductosPage() {
     if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
     if (filtroModeloId) qs.set('modeloId', filtroModeloId);
     if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    // Sin precios = catálogo de mayoreo: mismas fotos, nombre y tallas
+    // disponibles, pero sin revelar el precio de lista (ver
+    // ?incluirPrecio= en GET /productos/catalogo-pdf).
+    if (!incluirPrecioPdf) qs.set('incluirPrecio', '0');
+    const nombreArchivo = incluirPrecioPdf
+      ? `catalogo-camino-al-deporte-${Date.now()}.pdf`
+      : `catalogo-mayoreo-camino-al-deporte-${Date.now()}.pdf`;
     try {
-      await apiDownload(`/productos/catalogo-pdf?${qs.toString()}`, `catalogo-camino-al-deporte-${Date.now()}.pdf`);
+      await apiDownload(`/productos/catalogo-pdf?${qs.toString()}`, nombreArchivo);
     } catch (err) {
       toast({
         title: 'No se pudo generar el catálogo',
@@ -529,9 +537,18 @@ export default function ProductosPage() {
             Limpiar filtros
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={exportarCatalogoPdf} disabled={exportandoPdf} className="ml-auto">
+        <label className="ml-auto flex items-center gap-1.5 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={incluirPrecioPdf}
+            onChange={(e) => setIncluirPrecioPdf(e.target.checked)}
+            className="h-3.5 w-3.5 accent-primary"
+          />
+          Incluir precios
+        </label>
+        <Button variant="outline" size="sm" onClick={exportarCatalogoPdf} disabled={exportandoPdf}>
           <FileDown className="w-3.5 h-3.5" />
-          {exportandoPdf ? 'Generando PDF...' : 'Exportar catálogo PDF'}
+          {exportandoPdf ? 'Generando PDF...' : incluirPrecioPdf ? 'Exportar catálogo PDF' : 'Exportar catálogo de mayoreo'}
         </Button>
       </div>
 

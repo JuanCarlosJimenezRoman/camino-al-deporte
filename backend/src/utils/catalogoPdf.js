@@ -22,6 +22,7 @@ const MARGEN = 28;
 const GUTTER = 12;
 const ALTO_IMAGEN = 118;
 const ALTO_CELDA = 186;
+const RESERVA_PIE = 26; // espacio reservado al fondo de cada página para el pie ("Página X de Y")
 
 // Inserta una transformación de Cloudinary en la URL (recorte cuadrado,
 // calidad automática, formato jpg) para pedir una imagen del tamaño justo
@@ -113,9 +114,13 @@ function dibujarEncabezadoPagina(doc, { left, right, filtrosTexto }) {
 }
 
 function dibujarPiePagina(doc, { left, right, pagina, totalPaginas }) {
-  const y = doc.page.height - doc.page.margins.bottom + 8;
+  // OJO: debe quedar DENTRO de doc.page.maxY() (height - margins.bottom).
+  // Si se dibuja más abajo, pdfkit entiende que el texto "no cabe" y
+  // agrega una página nueva en blanco antes de escribirlo (ver nota
+  // arriba) — de ahí salían las páginas en blanco de más.
+  const y = doc.page.height - doc.page.margins.bottom - RESERVA_PIE + 6;
   doc.font('Helvetica').fontSize(7.5).fillColor(PALETA.textoMuted);
-  doc.text(`Página ${pagina} de ${totalPaginas}`, left, y, { width: right - left, align: 'center' });
+  doc.text(`Página ${pagina} de ${totalPaginas}`, left, y, { width: right - left, align: 'center', height: 12 });
   doc.fillColor(PALETA.texto);
 }
 
@@ -178,7 +183,7 @@ async function generarCatalogoPdf(productos, { incluirPrecio = true, filtrosText
     const left = doc.page.margins.left;
     const right = doc.page.width - doc.page.margins.right;
     const anchoCelda = (right - left - GUTTER * (COLUMNAS - 1)) / COLUMNAS;
-    const pageBottom = doc.page.height - doc.page.margins.bottom - 20;
+    const pageBottom = doc.page.height - doc.page.margins.bottom - RESERVA_PIE;
 
     let col = 0;
     let y;
