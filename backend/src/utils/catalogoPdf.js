@@ -3,13 +3,16 @@
 // de la misma lista de productos que ya arma GET /productos con sus
 // filtros (marca, categoría, modelo, talla, texto).
 //
-// Pensado para reemplazar la práctica de mandarle al cliente una captura de
-// pantalla de la tienda filtrada: la captura se ve pixeleada, trae
-// encimados los botones/iconos de la página y no queda lista para
-// imprimir. Este PDF toma las fotos directo de Cloudinary (en una
-// resolución pensada para el documento, no la de 1200x1200 que se guarda
-// para la tienda) y arma un documento con encabezado, cuadrícula y
-// numeración de página, listo para mandar o imprimir.
+// Hay dos formatos (ver opción `unaPagina`):
+//   - Multipágina (por defecto): tamaño carta, con salto de página normal
+//     y numeración "Página X de Y" — pensado para imprimir.
+//   - Una sola página larga: todo el catálogo cabe en una única página
+//     vertical, sin cortes — pensado para compartir digitalmente
+//     (WhatsApp, etc.), donde el lector de PDF simplemente hace scroll.
+//     Usa el mismo truco de "medir y luego dibujar" que ya usan
+//     ticketPdf.js/apartadoPdf.js (ver medirAltoContenido en
+//     ticketEstilo.js): primero se calcula cuánto va a medir el contenido
+//     y luego se crea la página exacta de ese alto.
 //
 // Reutiliza PALETA/moneda de ticketEstilo.js para que el documento se vea
 // del mismo sistema visual que los tickets y comprobantes de venta.
@@ -22,7 +25,23 @@ const MARGEN = 28;
 const GUTTER = 12;
 const ALTO_IMAGEN = 118;
 const ALTO_CELDA = 186;
-const RESERVA_PIE = 26; // espacio reservado al fondo de cada página para el pie ("Página X de Y")
+const RESERVA_PIE = 26; // espacio reservado al fondo de cada página (modo multipágina) para el pie ("Página X de Y")
+const ANCHO_PAGINA = 612; // ancho carta (Letter) en los dos formatos, para que la cuadrícula se vea igual
+
+// Normaliza puntuación "tipográfica" (guiones en/em, comillas curvas,
+// puntos suspensivos) a su equivalente ASCII. Algunos nombres de producto
+// traen un guion largo entre el modelo y el colorway (ej. llegó así de una
+// importación de Excel/KicksDB) y la fuente estándar que usa este PDF
+// (Helvetica) no lo soporta: en vez de un guion, dibuja "Ð". Se limpia
+// aquí para que ese carácter roto nunca aparezca en el catálogo.
+function limpiarTexto(texto) {
+  if (!texto) return texto;
+  return String(texto)
+    .replace(/[‒–—―]/g, '-')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/…/g, '...');
+}
 
 // Inserta una transformación de Cloudinary en la URL (recorte cuadrado,
 // calidad automática, formato jpg) para pedir una imagen del tamaño justo
@@ -85,6 +104,18 @@ function tallasDisponibles(producto) {
   return { valores, agotado: conStock.length === 0 };
 }
 
+// Alto que ocupa el encabezado (franja + título + subtítulo + línea de
+// filtros opcional + separador), medido desde el borde superior de la
+// página. Se usa TANTO para calcular el alto exacto de la página en el
+// formato de una sola página, COMO dentro de dibujarEncabezadoPagina() al
+// dibujarlo de verdad — una sola fórmula, para que nunca se desincronicen.
+function alturaEncabezado(filtrosTexto) {
+  const yTitulo = 26;
+  let yLinea = yTitulo + 34;
+  if (filtrosTexto) yLinea += 14;
+  return yLinea + 16;
+}
+
 function dibujarEncabezadoPagina(doc, { left, right, filtrosTexto }) {
   const contentWidth = right - left;
   doc.rect(0, 0, doc.page.width, 8).fill(PALETA.primario);
@@ -103,21 +134,21 @@ function dibujarEncabezadoPagina(doc, { left, right, filtrosTexto }) {
   let yLinea = yTitulo + 34;
   if (filtrosTexto) {
     doc.font('Helvetica').fontSize(8).fillColor(PALETA.textoMuted);
-    doc.text(filtrosTexto, left, yLinea, { width: contentWidth });
+    doc.text(limpiarTexto(filtrosTexto), left, yLinea, { width: contentWidth });
     yLinea += 14;
   }
 
   doc.moveTo(left, yLinea + 4).lineTo(right, yLinea + 4).strokeColor(PALETA.borde).lineWidth(1).stroke();
   doc.fillColor(PALETA.texto);
-  doc.y = yLinea + 16;
+  doc.y = alturaEncabezado(filtrosTexto);
   doc.x = left;
 }
 
 function dibujarPiePagina(doc, { left, right, pagina, totalPaginas }) {
   // OJO: debe quedar DENTRO de doc.page.maxY() (height - margins.bottom).
   // Si se dibuja más abajo, pdfkit entiende que el texto "no cabe" y
-  // agrega una página nueva en blanco antes de escribirlo (ver nota
-  // arriba) — de ahí salían las páginas en blanco de más.
+  // agrega una página nueva en blanco antes de escribirlo — de ahí salían
+  // las páginas en blanco de más que se veían en la primera versión.
   const y = doc.page.height - doc.page.margins.bottom - RESERVA_PIE + 6;
   doc.font('Helvetica').fontSize(7.5).fillColor(PALETA.textoMuted);
   doc.text(`Página ${pagina} de ${totalPaginas}`, left, y, { width: right - left, align: 'center', height: 12 });
@@ -148,12 +179,17 @@ function dibujarCeldaProducto(doc, producto, imagenBuffer, { x, y, ancho, inclui
 
   let cursorY = y + ALTO_IMAGEN + 6;
   doc.font('Helvetica-Bold').fontSize(8.5).fillColor(PALETA.texto);
-  doc.text(producto.nombre, x, cursorY, { width: ancho, height: 21, ellipsis: true });
+  doc.text(limpiarTexto(producto.nombre), x, cursorY, { width: ancho, height: 21, ellipsis: true });
   cursorY += 22;
 
   if (incluirPrecio) {
-    doc.font('Helvetica-Bold').fontSize(9.5).fillColor(PALETA.primarioOscuro);
-    doc.text(`$${moneda(producto.precioVenta)}`, x, cursorY, { width: ancho });
+    const precio = Number(producto.precioVenta);
+    // Un producto con precio en 0 (todavía no le capturaron precio de
+    // venta) no debe salir como "$0.00" en un catálogo que se manda a un
+    // cliente — se avisa en vez de eso.
+    const hayPrecio = Number.isFinite(precio) && precio > 0;
+    doc.font('Helvetica-Bold').fontSize(9.5).fillColor(hayPrecio ? PALETA.primarioOscuro : PALETA.textoMuted);
+    doc.text(hayPrecio ? `$${moneda(producto.precioVenta)}` : 'Precio a consultar', x, cursorY, { width: ancho });
     cursorY += 13;
   }
 
@@ -164,15 +200,24 @@ function dibujarCeldaProducto(doc, producto, imagenBuffer, { x, y, ancho, inclui
   doc.fillColor(PALETA.texto);
 }
 
-/**
- * @param {Array} productos - productos con marca, imagenes[] y variantes[]
- *   (con talla y existencias), igual al include de GET /productos.
- * @param {{incluirPrecio?: boolean, filtrosTexto?: string}} [opciones]
- * @returns {Promise<Buffer>}
- */
-async function generarCatalogoPdf(productos, { incluirPrecio = true, filtrosTexto = '' } = {}) {
-  const imagenes = await descargarImagenes(productos);
+// Dibuja la cuadrícula completa SIN preocuparse por saltos de página (la
+// página ya se creó con el alto exacto que necesita, ver
+// generarPdfUnaPagina).
+function dibujarCuadriculaUnaPagina(doc, productos, imagenes, { left, anchoCelda, incluirPrecio, yInicial }) {
+  let col = 0;
+  let y = yInicial;
+  productos.forEach((producto) => {
+    const x = left + col * (anchoCelda + GUTTER);
+    dibujarCeldaProducto(doc, producto, imagenes.get(producto.id), { x, y, ancho: anchoCelda, incluirPrecio });
+    col += 1;
+    if (col >= COLUMNAS) {
+      col = 0;
+      y += ALTO_CELDA;
+    }
+  });
+}
 
+function generarPdfMultipagina(productos, imagenes, { incluirPrecio, filtrosTexto }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: MARGEN, bufferPages: true });
     const chunks = [];
@@ -225,6 +270,46 @@ async function generarCatalogoPdf(productos, { incluirPrecio = true, filtrosText
 
     doc.end();
   });
+}
+
+function generarPdfUnaPagina(productos, imagenes, { incluirPrecio, filtrosTexto }) {
+  return new Promise((resolve, reject) => {
+    const filas = Math.max(1, Math.ceil(productos.length / COLUMNAS));
+    // Alto exacto: encabezado + todas las filas + un margen de respiro al
+    // final. Se calcula ANTES de crear el documento porque el tamaño de
+    // página se fija al construirlo (no se puede cambiar después).
+    const alturaPagina = alturaEncabezado(filtrosTexto) + filas * ALTO_CELDA + MARGEN;
+
+    const doc = new PDFDocument({ size: [ANCHO_PAGINA, alturaPagina], margin: MARGEN });
+    const chunks = [];
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const left = doc.page.margins.left;
+    const right = doc.page.width - doc.page.margins.right;
+    const anchoCelda = (right - left - GUTTER * (COLUMNAS - 1)) / COLUMNAS;
+
+    dibujarEncabezadoPagina(doc, { left, right, filtrosTexto });
+    dibujarCuadriculaUnaPagina(doc, productos, imagenes, { left, anchoCelda, incluirPrecio, yInicial: doc.y });
+
+    doc.end();
+  });
+}
+
+/**
+ * @param {Array} productos - productos con marca, imagenes[] y variantes[]
+ *   (con talla y existencias), igual al include de GET /productos.
+ * @param {{incluirPrecio?: boolean, filtrosTexto?: string, unaPagina?: boolean}} [opciones]
+ *   unaPagina: true genera una sola página larga sin cortes (pensada para
+ *   compartir digitalmente) en vez del formato multipágina para imprimir.
+ * @returns {Promise<Buffer>}
+ */
+async function generarCatalogoPdf(productos, { incluirPrecio = true, filtrosTexto = '', unaPagina = false } = {}) {
+  const imagenes = await descargarImagenes(productos);
+  return unaPagina
+    ? generarPdfUnaPagina(productos, imagenes, { incluirPrecio, filtrosTexto })
+    : generarPdfMultipagina(productos, imagenes, { incluirPrecio, filtrosTexto });
 }
 
 module.exports = { generarCatalogoPdf };

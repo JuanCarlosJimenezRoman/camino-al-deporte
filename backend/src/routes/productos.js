@@ -198,7 +198,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 const MAX_PRODUCTOS_CATALOGO_PDF = 400;
 
 router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, modeloId, tallaId, q, incluirPrecio } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, q, incluirPrecio, formato } = req.query;
 
   const where = {
     activo: true,
@@ -247,13 +247,20 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
   if (categoria) partesFiltro.push(`Categoría: ${categoria.nombre}`);
   if (talla) partesFiltro.push(`Talla: ${talla.valor}`);
 
+  // ?formato=una-pagina genera un solo PDF largo sin cortes (pensado para
+  // compartir digitalmente); cualquier otro valor (o ausente) usa el
+  // formato multipágina normal, pensado para imprimir.
+  const unaPagina = formato === 'una-pagina';
+
   const buffer = await generarCatalogoPdf(productos, {
     incluirPrecio: incluirPrecio !== '0',
     filtrosTexto: partesFiltro.join('   ·   '),
+    unaPagina,
   });
 
+  const sufijoFormato = unaPagina ? '-una-pagina' : '';
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte-${Date.now()}.pdf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte${sufijoFormato}-${Date.now()}.pdf"`);
   res.send(buffer);
 }));
 

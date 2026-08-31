@@ -164,6 +164,9 @@ export default function ProductosPage() {
   const hayFiltrosActivos = Boolean(filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || busqueda);
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [incluirPrecioPdf, setIncluirPrecioPdf] = useState(true);
+  // 'multipagina': tamaño carta con saltos de página, para imprimir.
+  // 'unaPagina': un solo PDF largo sin cortes, para compartir por WhatsApp/etc.
+  const [formatoPdf, setFormatoPdf] = useState<'multipagina' | 'unaPagina'>('multipagina');
 
   // Paginación: con el catálogo creciendo (600+ productos) traer todo de una
   // vez volvía lento tanto el backend como el render de la tabla.
@@ -223,9 +226,10 @@ export default function ProductosPage() {
     // disponibles, pero sin revelar el precio de lista (ver
     // ?incluirPrecio= en GET /productos/catalogo-pdf).
     if (!incluirPrecioPdf) qs.set('incluirPrecio', '0');
-    const nombreArchivo = incluirPrecioPdf
-      ? `catalogo-camino-al-deporte-${Date.now()}.pdf`
-      : `catalogo-mayoreo-camino-al-deporte-${Date.now()}.pdf`;
+    if (formatoPdf === 'unaPagina') qs.set('formato', 'una-pagina');
+    const sufijoPrecio = incluirPrecioPdf ? '' : '-mayoreo';
+    const sufijoFormato = formatoPdf === 'unaPagina' ? '-una-pagina' : '';
+    const nombreArchivo = `catalogo-camino-al-deporte${sufijoPrecio}${sufijoFormato}-${Date.now()}.pdf`;
     try {
       await apiDownload(`/productos/catalogo-pdf?${qs.toString()}`, nombreArchivo);
     } catch (err) {
@@ -537,7 +541,13 @@ export default function ProductosPage() {
             Limpiar filtros
           </Button>
         )}
-        <label className="ml-auto flex items-center gap-1.5 text-sm text-muted-foreground">
+        <div className="ml-auto w-52">
+          <Select value={formatoPdf} onChange={(e) => setFormatoPdf(e.target.value as 'multipagina' | 'unaPagina')}>
+            <option value="multipagina">PDF multipágina (imprimir)</option>
+            <option value="unaPagina">Una sola página (compartir)</option>
+          </Select>
+        </div>
+        <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <input
             type="checkbox"
             checked={incluirPrecioPdf}
