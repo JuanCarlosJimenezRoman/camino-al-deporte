@@ -1,0 +1,32 @@
+{
+  "name": "Camino al Deporte - Panel",
+  "short_name": "Panel CAD",
+  "description": "Panel de inventarios y ventas para personal",
+  "start_url": "/login",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FAFAFA",
+  "theme_color": "#FF4E00",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

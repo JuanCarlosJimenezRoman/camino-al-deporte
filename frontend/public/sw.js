@@ -7,6 +7,7 @@
 const CACHE = 'cad-shell-v1';
 const SHELL_ASSETS = [
   '/manifest.webmanifest',
+  '/manifest-staff.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ];

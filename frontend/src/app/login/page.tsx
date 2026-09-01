@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,11 +9,19 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, usuario, cargando } = useAuth();
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+
+  // Si ya hay sesion activa (por ejemplo, la app de personal instalada
+  // como PWA abre directo en /login como start_url) saltamos derecho al
+  // panel en vez de mostrar el formulario un instante.
+  useEffect(() => {
+    if (!cargando && usuario) router.replace('/dashboard');
+  }, [cargando, usuario, router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -26,6 +35,8 @@ export default function LoginPage() {
       setEnviando(false);
     }
   }
+
+  if (cargando || usuario) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
