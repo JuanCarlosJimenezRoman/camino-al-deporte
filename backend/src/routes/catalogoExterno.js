@@ -291,6 +291,13 @@ router.post(
                 cantidad: v.stockInicial,
                 motivo: `Alta desde catálogo externo (${datos.fuenteExterna})`,
                 usuarioId: req.usuario.id,
+                // Antes se omitía: la existencia sí quedaba con su proveedor
+                // (arriba), pero el movimiento de ENTRADA quedaba sin
+                // proveedorId — eso hacía que reportes agrupados por
+                // proveedor (ver GET /reportes/ventas/por-proveedor) mostraran
+                // este stock como "sin proveedor asignado" aunque el SKU sí
+                // tuviera uno.
+                proveedorId: v.proveedorId ?? null,
               },
             });
           }

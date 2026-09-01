@@ -278,10 +278,15 @@ async function fetchVentaItemsCompletados(desde, hasta, sucursalId) {
 
 // Movimientos de tipo ENTRADA (reabastos) en el periodo, con su proveedor —
 // es "lo que entro" de cada proveedor, para compararlo contra lo que se
-// vendio en el mismo periodo (ver agruparPorProveedor). A diferencia de
-// ProductoVariante.proveedorId ("proveedor por defecto" del SKU), aqui se usa
+// vendio en el mismo periodo (ver agruparPorProveedor). Se usa de preferencia
 // el proveedor real de CADA reabasto (MovimientoInventario.proveedorId) —
-// puede ser distinto si esa vez surtio alguien mas.
+// puede ser distinto al de la variante si esa vez surtio alguien mas — pero
+// también se trae variante.proveedorId (el "proveedor por defecto" del SKU)
+// como respaldo: algunas altas de stock antiguas (importación de Excel /
+// catálogo externo, antes de que se corrigiera) guardaron la existencia con
+// su proveedor pero dejaron el movimiento sin proveedorId, y sin este
+// respaldo ese stock aparecería como "sin proveedor" aunque el SKU sí tenga
+// uno asignado (ver agruparPorProveedor).
 async function fetchMovimientosEntrada(desde, hasta, sucursalId) {
   return prisma.movimientoInventario.findMany({
     where: {
@@ -292,6 +297,7 @@ async function fetchMovimientosEntrada(desde, hasta, sucursalId) {
     select: {
       cantidad: true,
       proveedor: { select: { id: true, nombre: true } },
+      variante: { select: { proveedor: { select: { id: true, nombre: true } } } },
     },
   });
 }
@@ -537,7 +543,11 @@ function agruparPorProveedor(itemsVendidos, entradas) {
   }
 
   for (const e of entradas) {
-    const r = fila(e.proveedor?.id ?? null, e.proveedor?.nombre);
+    // Preferir el proveedor del propio movimiento; si no lo tiene (dato
+    // faltante, ver fetchMovimientosEntrada), caer al proveedor por defecto
+    // del SKU antes de mandarlo al bucket "sin proveedor".
+    const proveedor = e.proveedor || e.variante?.proveedor || null;
+    const r = fila(proveedor?.id ?? null, proveedor?.nombre);
     r.cantidadIngresada += e.cantidad;
   }
 
