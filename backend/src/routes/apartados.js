@@ -201,6 +201,11 @@ const apartadoSchema = z
     notas: z.string().optional(),
     items: z.array(apartadoItemSchema).min(1),
     anticipo: anticipoSchema.optional(),
+    // Descuento libre (opcional) que se puede aplicar desde la creación del
+    // apartado — mismo criterio que en Ventas, ver POST /ventas.
+    descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).optional(),
+    descuentoValor: z.number().nonnegative().optional(),
+    descuentoMotivo: z.string().optional(),
   })
   .refine((d) => d.clienteId || d.clienteNuevo, {
     message: 'Indica un cliente existente (clienteId) o los datos de uno nuevo (clienteNuevo).',
@@ -209,6 +214,28 @@ const apartadoSchema = z
   .refine((d) => !d.anticipo || d.anticipo.metodoPago !== 'TRANSFERENCIA' || !!d.anticipo.cuentaTransferenciaId, {
     message: 'cuentaTransferenciaId es requerido cuando el anticipo es por transferencia.',
     path: ['anticipo', 'cuentaTransferenciaId'],
+  })
+  .refine((d) => !d.descuentoTipo || (d.descuentoValor !== undefined && d.descuentoValor > 0), {
+    message: 'descuentoValor es requerido y debe ser mayor a 0 cuando se manda descuentoTipo.',
+    path: ['descuentoValor'],
+  })
+  .refine((d) => d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
+    message: 'El descuento por porcentaje no puede ser mayor a 100.',
+    path: ['descuentoValor'],
+  });
+
+// Body de POST /:id/aplicar-descuento (aplicar/editar el descuento de un
+// apartado ya creado, mientras siga ACTIVO — pensado sobre todo para
+// ofrecerlo al momento de liquidarlo, ver esa ruta más abajo).
+const descuentoApartadoSchema = z
+  .object({
+    tipoDescuento: z.enum(['PORCENTAJE', 'MONTO']),
+    valor: z.number().positive(),
+    motivo: z.string().optional(),
+  })
+  .refine((d) => d.tipoDescuento !== 'PORCENTAJE' || d.valor <= 100, {
+    message: 'El descuento por porcentaje no puede ser mayor a 100.',
+    path: ['valor'],
   });
 
 // POST /apartados - crea el apartado y descuenta de inmediato el stock de
@@ -241,7 +268,8 @@ router.post(
     if (!parsed.success) {
       return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
     }
-    const { clienteId, clienteNuevo, fechaLimite, notas, items, anticipo } = parsed.data;
+    const { clienteId, clienteNuevo, fechaLimite, notas, items, anticipo, descuentoTipo, descuentoValor, descuentoMotivo } =
+      parsed.data;
 
     let sucursalVentaId;
     try {
@@ -288,7 +316,7 @@ router.post(
           }
         }
 
-        let total = 0;
+        let subtotalApartado = 0;
         const itemsData = [];
 
         for (const item of items) {
@@ -302,7 +330,7 @@ router.post(
           }
 
           const subtotal = item.cantidad * item.precioUnitario;
-          total += subtotal;
+          subtotalApartado += subtotal;
 
           await tx.existencia.update({
             where: { id: existencia.id },
@@ -324,9 +352,26 @@ router.post(
           itemsData.push(item);
         }
 
+        // Descuento libre opcional, igual que en Ventas: el monto real en
+        // pesos lo calcula y valida el servidor a partir del subtotal de
+        // los artículos, nunca se confía en un descuentoMonto mandado por
+        // el cliente.
+        let descuentoMonto = 0;
+        if (descuentoTipo === 'PORCENTAJE') {
+          descuentoMonto = subtotalApartado * ((descuentoValor ?? 0) / 100);
+        } else if (descuentoTipo === 'MONTO') {
+          descuentoMonto = descuentoValor ?? 0;
+        }
+        descuentoMonto = Math.min(descuentoMonto, subtotalApartado);
+        descuentoMonto = Math.round(descuentoMonto * 100) / 100;
+        const total = subtotalApartado - descuentoMonto;
+
         const folio = `AP-${Date.now()}`;
         const pagoInicial = anticipo ? Math.min(anticipo.monto, total) : 0;
-        const estadoInicial = pagoInicial >= total && total > 0 ? 'LIQUIDADO' : 'ACTIVO';
+        // subtotalApartado > 0 (en vez de total > 0) para que un descuento
+        // del 100% también quede LIQUIDADO de una vez, no solo cuando el
+        // anticipo alcanza a cubrirlo.
+        const estadoInicial = pagoInicial >= total && subtotalApartado > 0 ? 'LIQUIDADO' : 'ACTIVO';
 
         const nuevoApartado = await tx.apartado.create({
           data: {
@@ -337,6 +382,10 @@ router.post(
             estado: estadoInicial,
             fechaLimite: fechaLimite ? new Date(fechaLimite) : undefined,
             notas,
+            descuentoTipo: descuentoTipo ?? null,
+            descuentoValor: descuentoTipo ? descuentoValor : null,
+            descuentoMonto,
+            descuentoMotivo: descuentoTipo ? descuentoMotivo || null : null,
             creadoPorId: req.usuario.id,
             items: { create: itemsData.map((i) => ({ ...i, subtotal: i.cantidad * i.precioUnitario })) },
             ...(anticipo
@@ -507,6 +556,134 @@ router.post(
     const { whatsappContacto, ticketDigital, ticketPdfUrl } = await generarYEnviarComprobante(resultado, monto);
 
     res.status(201).json({ ...resultado, ...calcularSaldo(resultado), whatsappContacto, ticketDigital, ticketPdfUrl });
+  })
+);
+
+// POST /apartados/:id/aplicar-descuento - aplica (o reemplaza) un descuento
+// libre sobre un apartado que sigue ACTIVO. Pensado tanto para corregirlo
+// justo después de crear el apartado como, sobre todo, para ofrecerlo al
+// momento de liquidarlo (negociar un monto menor para cerrar el trato).
+// El % o el monto siempre se calculan sobre el SUBTOTAL de los artículos
+// (no sobre el saldo pendiente), igual que en Ventas, pero nunca puede
+// dejar el total por debajo de lo que el cliente ya pagó (eso dejaría un
+// saldo negativo). Si el nuevo total ya queda cubierto por lo pagado a la
+// fecha, el apartado pasa a LIQUIDADO de una vez.
+router.post(
+  '/:id/aplicar-descuento',
+  requireAuth,
+  requireRole(...ROLES_APARTADOS),
+  asyncHandler(async (req, res) => {
+    const apartadoId = Number(req.params.id);
+    const parsed = descuentoApartadoSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+
+    const apartado = await prisma.apartado.findUnique({ where: { id: apartadoId }, include: { items: true, pagos: true } });
+    if (!apartado) return res.status(404).json({ error: 'Apartado no encontrado.' });
+    if (!esAdmin(req.usuario.rol) && apartado.sucursalVentaId !== req.usuario.sucursalId) {
+      return res.status(403).json({ error: 'No tienes permiso para aplicar descuentos en este apartado.' });
+    }
+    if (apartado.estado !== 'ACTIVO') {
+      return res
+        .status(409)
+        .json({ error: 'Solo se puede aplicar un descuento mientras el apartado sigue activo (no liquidado ni cancelado).' });
+    }
+
+    const { tipoDescuento, valor, motivo } = parsed.data;
+    const subtotal = apartado.items.reduce((acc, i) => acc + Number(i.subtotal), 0);
+    const { pagado } = calcularSaldo(apartado);
+
+    let descuentoMonto = tipoDescuento === 'PORCENTAJE' ? subtotal * (valor / 100) : valor;
+    // No se puede descontar más de lo que aún no se ha pagado: lo que ya se
+    // abonó es irrevocable desde aquí (un reembolso, si aplicara, se maneja
+    // aparte, en efectivo/físico con el cliente).
+    descuentoMonto = Math.max(0, Math.min(descuentoMonto, subtotal - pagado));
+    descuentoMonto = Math.round(descuentoMonto * 100) / 100;
+
+    const nuevoTotal = subtotal - descuentoMonto;
+    const nuevoEstado = nuevoTotal - pagado <= 0.0001 ? 'LIQUIDADO' : 'ACTIVO';
+
+    const actualizado = await prisma.apartado.update({
+      where: { id: apartadoId },
+      data: {
+        total: nuevoTotal,
+        descuentoTipo: tipoDescuento,
+        descuentoValor: valor,
+        descuentoMonto,
+        descuentoMotivo: motivo || null,
+        estado: nuevoEstado,
+      },
+      include: {
+        cliente: true,
+        items: {
+          include: {
+            variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+            sucursalStock: { select: { nombre: true } },
+            proveedor: { select: { id: true, nombre: true } },
+          },
+        },
+        pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
+        creadoPor: { select: { nombre: true } },
+      },
+    });
+
+    res.json({ ...actualizado, ...calcularSaldo(actualizado) });
+  })
+);
+
+// POST /apartados/:id/quitar-descuento - quita el descuento de un apartado
+// (mientras no esté cancelado) y regresa el total al subtotal de los
+// artículos. Si eso reabre un saldo pendiente en un apartado que se había
+// marcado LIQUIDADO gracias al descuento, vuelve a quedar ACTIVO.
+router.post(
+  '/:id/quitar-descuento',
+  requireAuth,
+  requireRole(...ROLES_APARTADOS),
+  asyncHandler(async (req, res) => {
+    const apartadoId = Number(req.params.id);
+
+    const apartado = await prisma.apartado.findUnique({ where: { id: apartadoId }, include: { items: true, pagos: true } });
+    if (!apartado) return res.status(404).json({ error: 'Apartado no encontrado.' });
+    if (!esAdmin(req.usuario.rol) && apartado.sucursalVentaId !== req.usuario.sucursalId) {
+      return res.status(403).json({ error: 'No tienes permiso para modificar descuentos en este apartado.' });
+    }
+    if (apartado.estado === 'CANCELADO') {
+      return res.status(409).json({ error: 'Este apartado está cancelado.' });
+    }
+    if (!apartado.descuentoTipo) {
+      return res.status(409).json({ error: 'Este apartado no tiene un descuento activo.' });
+    }
+
+    const subtotal = apartado.items.reduce((acc, i) => acc + Number(i.subtotal), 0);
+    const { pagado } = calcularSaldo(apartado);
+    const nuevoEstado = subtotal - pagado <= 0.0001 ? 'LIQUIDADO' : 'ACTIVO';
+
+    const actualizado = await prisma.apartado.update({
+      where: { id: apartadoId },
+      data: {
+        total: subtotal,
+        descuentoTipo: null,
+        descuentoValor: null,
+        descuentoMonto: 0,
+        descuentoMotivo: null,
+        estado: nuevoEstado,
+      },
+      include: {
+        cliente: true,
+        items: {
+          include: {
+            variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+            sucursalStock: { select: { nombre: true } },
+            proveedor: { select: { id: true, nombre: true } },
+          },
+        },
+        pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
+        creadoPor: { select: { nombre: true } },
+      },
+    });
+
+    res.json({ ...actualizado, ...calcularSaldo(actualizado) });
   })
 );
 

@@ -874,10 +874,28 @@ model Apartado {
   sucursalVentaId Int            @map("sucursal_venta_id")
   sucursalVenta   Sucursal       @relation("ApartadoVenta", fields: [sucursalVentaId], references: [id])
 
+  // total YA es neto (subtotal de artículos - descuentoMonto, si hay). El
+  // subtotal bruto no se guarda aparte: se puede volver a sumar desde
+  // items.subtotal en cualquier momento (ver calcularSaldo/aplicar-descuento
+  // en routes/apartados.js).
   total           Decimal        @default(0) @db.Decimal(10, 2)
   estado          EstadoApartado @default(ACTIVO)
   fechaLimite     DateTime?      @map("fecha_limite")
   notas           String?
+
+  // Descuento libre (% o $) que se puede aplicar al apartado, ya sea al
+  // crearlo o después, mientras sigue ACTIVO — típicamente para cerrar el
+  // trato al momento de liquidarlo (ver POST /apartados,
+  // POST /:id/aplicar-descuento y POST /:id/quitar-descuento). Mismo
+  // patrón que Venta.descuentoTipo/Valor/Monto/Motivo: descuentoMonto es el
+  // monto real en pesos ya calculado y aplicado a "total" (nunca puede
+  // exceder subtotal - lo ya pagado, para no dejar un saldo negativo);
+  // descuentoValor es el % o el monto tal cual se capturó, solo para
+  // referencia/edición futura.
+  descuentoTipo   TipoDescuento? @map("descuento_tipo")
+  descuentoValor  Decimal?       @map("descuento_valor") @db.Decimal(10, 2)
+  descuentoMonto  Decimal        @default(0) @map("descuento_monto") @db.Decimal(10, 2)
+  descuentoMotivo String?        @map("descuento_motivo")
 
   // Comprobante en PDF (creación o del abono más reciente), generado con
   // pdfkit y subido a Cloudinary — ver utils/apartadoPdf.js. Se guarda para

@@ -109,6 +109,22 @@ function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whats
 
   dibujarSeparador(doc, { left, right });
 
+  // Si hubo descuento, se desglosa Subtotal - Descuento = Total (igual que
+  // en el ticket de venta, ver utils/ticketPdf.js) — apartado.total ya es
+  // neto, así que el subtotal se reconstruye sumando los artículos.
+  const descuentoMonto = Number(apartado.descuentoMonto || 0);
+  if (descuentoMonto > 0) {
+    const subtotalItems = apartado.items.reduce((acc, it) => acc + Number(it.subtotal), 0);
+    filaMonto('Subtotal', `$${moneda(subtotalItems)}`);
+    const etiquetaDescuento =
+      apartado.descuentoTipo === 'PORCENTAJE' ? `Descuento (${Number(apartado.descuentoValor)}%)` : 'Descuento';
+    filaMonto(etiquetaDescuento, `-$${moneda(descuentoMonto)}`, { color: PALETA.exito });
+    if (apartado.descuentoMotivo) {
+      doc.font('Helvetica').fontSize(8).fillColor(PALETA.textoMuted).text(`Motivo: ${apartado.descuentoMotivo}`, left, doc.y, { width: contentWidth });
+      doc.fillColor(PALETA.texto);
+    }
+  }
+
   filaMonto('Total', `$${moneda(apartado.total)}`, { boldEtiqueta: true, boldValor: true, fontSize: 11 });
 
   if (montoEsteEvento != null) {

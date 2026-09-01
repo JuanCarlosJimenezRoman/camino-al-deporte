@@ -17,6 +17,7 @@ import {
   CreditCard,
   Landmark,
   LucideIcon,
+  Tag,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearFecha } from '@/lib/utils';
@@ -121,6 +122,14 @@ interface Apartado {
   estado: 'ACTIVO' | 'LIQUIDADO' | 'CANCELADO';
   fechaLimite: string | null;
   notas: string | null;
+  // Descuento libre (opcional) aplicado al crear el apartado o después,
+  // mientras seguía ACTIVO — ver POST /apartados y
+  // POST /apartados/:id/aplicar-descuento. "total" ya viene neto (con el
+  // descuento aplicado); el subtotal se reconstruye sumando items.subtotal.
+  descuentoTipo: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoValor: string | null;
+  descuentoMonto: string;
+  descuentoMotivo: string | null;
   items: ApartadoItem[];
   pagos: Pago[];
   pagado: number;
@@ -614,6 +623,13 @@ function ApartadoFila({
   const [guardando, setGuardando] = useState(false);
   const [confirmarCancelar, setConfirmarCancelar] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  // Aplicar/editar el descuento del apartado — pensado sobre todo para
+  // ofrecerlo justo antes de "Saldar todo" (ver botón junto al abono).
+  const [mostrarDescuento, setMostrarDescuento] = useState(false);
+  const [descTipo, setDescTipo] = useState<'PORCENTAJE' | 'MONTO'>('PORCENTAJE');
+  const [descValor, setDescValor] = useState('');
+  const [descMotivo, setDescMotivo] = useState('');
+  const [guardandoDescuento, setGuardandoDescuento] = useState(false);
   // Comprobante actualizado (con el nuevo saldo) del abono que se acaba de
   // registrar.
   const [ticketLink, setTicketLink] = useState<string | null>(null);
@@ -678,6 +694,53 @@ function ApartadoFila({
     } finally {
       setCancelando(false);
       setConfirmarCancelar(false);
+    }
+  }
+
+  function abrirDescuento() {
+    setDescTipo((apartado.descuentoTipo as 'PORCENTAJE' | 'MONTO' | null) || 'PORCENTAJE');
+    setDescValor(apartado.descuentoValor || '');
+    setDescMotivo(apartado.descuentoMotivo || '');
+    setMensaje(null);
+    setMostrarDescuento(true);
+  }
+
+  async function guardarDescuento() {
+    const valorNum = Number(descValor);
+    if (!valorNum || valorNum <= 0) {
+      setMensaje('Captura el % o el monto del descuento.');
+      return;
+    }
+    if (descTipo === 'PORCENTAJE' && valorNum > 100) {
+      setMensaje('El descuento por porcentaje no puede ser mayor a 100%.');
+      return;
+    }
+    setGuardandoDescuento(true);
+    try {
+      await api(`/apartados/${apartado.id}/aplicar-descuento`, {
+        method: 'POST',
+        body: JSON.stringify({ tipoDescuento: descTipo, valor: valorNum, motivo: descMotivo.trim() || undefined }),
+      });
+      setMostrarDescuento(false);
+      toast({ title: 'Descuento aplicado', variant: 'success' });
+      onCambio();
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'Error al aplicar el descuento.');
+    } finally {
+      setGuardandoDescuento(false);
+    }
+  }
+
+  async function quitarDescuento() {
+    setGuardandoDescuento(true);
+    try {
+      await api(`/apartados/${apartado.id}/quitar-descuento`, { method: 'POST' });
+      toast({ title: 'Descuento quitado', variant: 'success' });
+      onCambio();
+    } catch (err) {
+      toast({ title: 'No se pudo quitar el descuento', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
+    } finally {
+      setGuardandoDescuento(false);
     }
   }
 
@@ -750,6 +813,24 @@ function ApartadoFila({
             </div>
           </div>
 
+          {Number(apartado.descuentoMonto) > 0 && (
+            <div className="rounded-lg border border-primary/30 bg-accent/40 p-2.5 text-sm">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Subtotal</span>
+                <span className="tabular-nums">
+                  ${apartado.items.reduce((acc, it) => acc + Number(it.subtotal), 0).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between font-medium text-primary">
+                <span>Descuento{apartado.descuentoTipo === 'PORCENTAJE' ? ` (${apartado.descuentoValor}%)` : ''}</span>
+                <span className="tabular-nums">-${Number(apartado.descuentoMonto).toFixed(2)}</span>
+              </div>
+              {apartado.descuentoMotivo && (
+                <div className="mt-0.5 text-xs text-muted-foreground">Motivo: {apartado.descuentoMotivo}</div>
+              )}
+            </div>
+          )}
+
           <div>
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagos / abonos</h3>
             {apartado.pagos.length === 0 ? (
@@ -784,6 +865,62 @@ function ApartadoFila({
 
           {apartado.estado === 'ACTIVO' && (
             <div className="space-y-2.5 rounded-lg border border-border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={abrirDescuento}>
+                  <Tag className="w-3.5 h-3.5" />
+                  {Number(apartado.descuentoMonto) > 0 ? 'Editar descuento' : 'Aplicar descuento'}
+                </Button>
+                {Number(apartado.descuentoMonto) > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive"
+                    onClick={quitarDescuento}
+                    disabled={guardandoDescuento}
+                  >
+                    Quitar descuento
+                  </Button>
+                )}
+              </div>
+
+              {mostrarDescuento && (
+                <div className="space-y-2 rounded-lg bg-secondary/50 p-2.5">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="w-32">
+                      <label className="text-xs">Tipo</label>
+                      <Select value={descTipo} onChange={(e) => setDescTipo(e.target.value as typeof descTipo)}>
+                        <option value="PORCENTAJE">Porcentaje (%)</option>
+                        <option value="MONTO">Monto fijo ($)</option>
+                      </Select>
+                    </div>
+                    <div className="w-28">
+                      <label className="text-xs">Valor</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={descValor}
+                        onChange={(e) => setDescValor(e.target.value)}
+                        placeholder={descTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                      />
+                    </div>
+                    <div className="min-w-[9rem] flex-1">
+                      <label className="text-xs">Motivo (opcional)</label>
+                      <Input value={descMotivo} onChange={(e) => setDescMotivo(e.target.value)} placeholder="Ej. para liquidar hoy" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={guardarDescuento} disabled={guardandoDescuento}>
+                      {guardandoDescuento ? 'Guardando…' : 'Guardar descuento'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setMostrarDescuento(false)}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-end gap-2">
                 <div className="w-32">
                   <label className="text-xs">Monto del abono</label>
@@ -946,6 +1083,14 @@ function NuevoApartadoForm({
   const [fechaLimite, setFechaLimite] = useState('');
   const [notas, setNotas] = useState('');
 
+  // Descuento libre (opcional) al momento de crear el apartado — mismo
+  // criterio que en Ventas: oculto por default, el monto real en pesos lo
+  // calcula y valida el servidor, aquí solo se muestra un preview.
+  const [aplicarDescuento, setAplicarDescuento] = useState(false);
+  const [descuentoTipo, setDescuentoTipo] = useState<'PORCENTAJE' | 'MONTO'>('PORCENTAJE');
+  const [descuentoValor, setDescuentoValor] = useState('');
+  const [descuentoMotivo, setDescuentoMotivo] = useState('');
+
   const [conAnticipo, setConAnticipo] = useState(false);
   const [montoAnticipo, setMontoAnticipo] = useState('');
   const [metodoAnticipo, setMetodoAnticipo] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
@@ -992,6 +1137,12 @@ function NuevoApartadoForm({
   }, [sucursalStockId, busquedaProducto]);
 
   const totalCarrito = carrito.reduce((acc, i) => acc + i.cantidad * i.precioUnitario, 0);
+  const descuentoValorNum = Number(descuentoValor) || 0;
+  const descuentoMontoPreview =
+    aplicarDescuento && descuentoValorNum > 0
+      ? Math.min(descuentoTipo === 'PORCENTAJE' ? totalCarrito * (descuentoValorNum / 100) : descuentoValorNum, totalCarrito)
+      : 0;
+  const totalConDescuento = totalCarrito - descuentoMontoPreview;
 
   // Se agrega directo al tocar el renglón del resultado de búsqueda (ver
   // más abajo) en vez de elegirlo en un <select> y luego dar clic aparte en
@@ -1039,6 +1190,10 @@ function NuevoApartadoForm({
     setCarrito([]);
     setFechaLimite('');
     setNotas('');
+    setAplicarDescuento(false);
+    setDescuentoTipo('PORCENTAJE');
+    setDescuentoValor('');
+    setDescuentoMotivo('');
     setConAnticipo(false);
     setMontoAnticipo('');
     setMetodoAnticipo('EFECTIVO');
@@ -1067,6 +1222,14 @@ function NuevoApartadoForm({
         return;
       }
     }
+    if (aplicarDescuento && descuentoValorNum <= 0) {
+      setMensaje('Captura el % o el monto del descuento, o desactiva "Aplicar descuento".');
+      return;
+    }
+    if (aplicarDescuento && descuentoTipo === 'PORCENTAJE' && descuentoValorNum > 100) {
+      setMensaje('El descuento por porcentaje no puede ser mayor a 100%.');
+      return;
+    }
 
     setGuardando(true);
     try {
@@ -1093,6 +1256,11 @@ function NuevoApartadoForm({
           metodoPago: metodoAnticipo,
           cuentaTransferenciaId: metodoAnticipo === 'TRANSFERENCIA' ? Number(cuentaAnticipoId) : undefined,
         };
+      }
+      if (aplicarDescuento && descuentoValorNum > 0) {
+        datos.descuentoTipo = descuentoTipo;
+        datos.descuentoValor = descuentoValorNum;
+        datos.descuentoMotivo = descuentoMotivo.trim() || undefined;
       }
 
       const formData = new FormData();
@@ -1285,7 +1453,51 @@ function NuevoApartadoForm({
               </div>
             )}
 
-            {carrito.length > 0 && <p className="text-sm font-semibold tabular-nums">Total: ${totalCarrito.toFixed(2)}</p>}
+            {carrito.length > 0 && (
+              <div className="space-y-0.5">
+                {descuentoMontoPreview > 0 && (
+                  <p className="text-sm text-muted-foreground tabular-nums">Subtotal: ${totalCarrito.toFixed(2)}</p>
+                )}
+                {descuentoMontoPreview > 0 && (
+                  <p className="text-sm text-primary tabular-nums">Descuento: -${descuentoMontoPreview.toFixed(2)}</p>
+                )}
+                <p className="text-sm font-semibold tabular-nums">Total: ${totalConDescuento.toFixed(2)}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3 border-t border-border pt-5">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
+              Aplicar descuento
+            </label>
+
+            {aplicarDescuento && (
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="w-32">
+                  <label>Tipo</label>
+                  <Select value={descuentoTipo} onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}>
+                    <option value="PORCENTAJE">Porcentaje (%)</option>
+                    <option value="MONTO">Monto fijo ($)</option>
+                  </Select>
+                </div>
+                <div className="w-28">
+                  <label>Valor</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={descuentoValor}
+                    onChange={(e) => setDescuentoValor(e.target.value)}
+                    placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                  />
+                </div>
+                <div className="min-w-[10rem] flex-1">
+                  <label>Motivo (opcional)</label>
+                  <Input value={descuentoMotivo} onChange={(e) => setDescuentoMotivo(e.target.value)} placeholder="Ej. cliente frecuente" />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3 border-t border-border pt-5">
