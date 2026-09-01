@@ -171,6 +171,13 @@ export default function ProductosPage() {
   // 'multipagina': tamaño carta con saltos de página, para imprimir.
   // 'unaPagina': un solo PDF largo sin cortes, para compartir por WhatsApp/etc.
   const [formatoPdf, setFormatoPdf] = useState<'multipagina' | 'unaPagina'>('multipagina');
+  // 'cuadricula': catálogo visual (foto, nombre, precio, qué tallas hay) —
+  // pensado para un cliente. 'lista': un renglón por producto con foto y la
+  // CANTIDAD exacta de cada talla (la cuadrícula no tiene espacio para
+  // números) — pensado para, ej., mandarle a un proveedor exactamente lo
+  // que tiene disponible, con fotos, sin que tenga que cruzar manualmente
+  // el reporte de Excel con cada producto.
+  const [vistaPdf, setVistaPdf] = useState<'cuadricula' | 'lista'>('cuadricula');
 
   // Paginación: con el catálogo creciendo (600+ productos) traer todo de una
   // vez volvía lento tanto el backend como el render de la tabla.
@@ -259,9 +266,11 @@ export default function ProductosPage() {
     // ?incluirPrecio= en GET /productos/catalogo-pdf).
     if (!incluirPrecioPdf) qs.set('incluirPrecio', '0');
     if (formatoPdf === 'unaPagina') qs.set('formato', 'una-pagina');
+    if (vistaPdf === 'lista') qs.set('vista', 'lista');
     const sufijoPrecio = incluirPrecioPdf ? '' : '-mayoreo';
     const sufijoFormato = formatoPdf === 'unaPagina' ? '-una-pagina' : '';
-    const nombreArchivo = `catalogo-camino-al-deporte${sufijoPrecio}${sufijoFormato}-${Date.now()}.pdf`;
+    const sufijoVista = vistaPdf === 'lista' ? '-lista-existencias' : '';
+    const nombreArchivo = `catalogo-camino-al-deporte${sufijoVista}${sufijoPrecio}${sufijoFormato}-${Date.now()}.pdf`;
     try {
       await apiDownload(`/productos/catalogo-pdf?${qs.toString()}`, nombreArchivo);
     } catch (err) {
@@ -586,6 +595,12 @@ export default function ProductosPage() {
           </Button>
         )}
         <div className="ml-auto w-52">
+          <Select value={vistaPdf} onChange={(e) => setVistaPdf(e.target.value as 'cuadricula' | 'lista')}>
+            <option value="cuadricula">Cuadrícula (catálogo visual)</option>
+            <option value="lista">Lista con existencias (cantidades)</option>
+          </Select>
+        </div>
+        <div className="w-52">
           <Select value={formatoPdf} onChange={(e) => setFormatoPdf(e.target.value as 'multipagina' | 'unaPagina')}>
             <option value="multipagina">PDF multipágina (imprimir)</option>
             <option value="unaPagina">Una sola página (compartir)</option>
@@ -602,7 +617,13 @@ export default function ProductosPage() {
         </label>
         <Button variant="outline" size="sm" onClick={exportarCatalogoPdf} disabled={exportandoPdf}>
           <FileDown className="w-3.5 h-3.5" />
-          {exportandoPdf ? 'Generando PDF...' : incluirPrecioPdf ? 'Exportar catálogo PDF' : 'Exportar catálogo de mayoreo'}
+          {exportandoPdf
+            ? 'Generando PDF...'
+            : vistaPdf === 'lista'
+            ? 'Exportar lista con existencias'
+            : incluirPrecioPdf
+            ? 'Exportar catálogo PDF'
+            : 'Exportar catálogo de mayoreo'}
         </Button>
         <Button variant="outline" size="sm" onClick={exportarReporteExistencias} disabled={exportandoExistencias}>
           <FileSpreadsheet className="w-3.5 h-3.5" />

@@ -261,13 +261,20 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 // ?incluirPrecio=0 genera el catálogo sin precios (ej. para mostrar
 // disponibilidad a un proveedor/mayorista sin revelar el precio de lista).
 //
+// ?vista=lista cambia la cuadrícula por una lista (una fila por producto)
+// que muestra la cantidad EXACTA de cada talla en vez de solo cuáles hay
+// disponibles — pensado para cuando alguien (ej. un proveedor) necesita ver
+// con fotos qué es exactamente lo que hay, no solo el total (ver
+// utils/catalogoPdf.js y /reporte-existencias más abajo, que da lo mismo
+// pero en Excel y sin fotos).
+//
 // Se monta ANTES de "GET /:id" por la misma razón que /plantilla-excel y
 // /buscar-externo (ver comentario arriba): si no, Express interpretaría
 // "catalogo-pdf" como si fuera un id de producto.
 const MAX_PRODUCTOS_CATALOGO_PDF = 400;
 
 router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q, incluirPrecio, formato } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q, incluirPrecio, formato, vista } = req.query;
 
   const where = {
     activo: true,
@@ -321,15 +328,23 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
   // formato multipágina normal, pensado para imprimir.
   const unaPagina = formato === 'una-pagina';
 
+  // ?vista=lista muestra un renglón por producto con la cantidad EXACTA de
+  // cada talla (para mandarle a un proveedor lo que es suyo); cualquier
+  // otro valor (o ausente) usa la cuadrícula visual normal, pensada para
+  // un cliente (que solo necesita saber qué tallas hay, no cuántas piezas).
+  const vistaLista = vista === 'lista';
+
   const buffer = await generarCatalogoPdf(productos, {
     incluirPrecio: incluirPrecio !== '0',
     filtrosTexto,
     unaPagina,
+    vista: vistaLista ? 'lista' : 'cuadricula',
   });
 
   const sufijoFormato = unaPagina ? '-una-pagina' : '';
+  const sufijoVista = vistaLista ? '-lista-existencias' : '';
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte${sufijoFormato}-${Date.now()}.pdf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte${sufijoVista}${sufijoFormato}-${Date.now()}.pdf"`);
   res.send(buffer);
 }));
 
