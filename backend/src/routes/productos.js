@@ -593,29 +593,100 @@ router.put(
     }
 
     try {
-      const variante = await prisma.$transaction(async (tx) => {
+      const resultado = await prisma.$transaction(async (tx) => {
+        // Se necesita el estado ANTES del update para saber qué proveedor(es)
+        // tenían ya las existencias de esta variante (ver reasignación más
+        // abajo) — después de actualizar ya no se puede distinguir "tenía
+        // proveedor 1" de "siempre fue null".
+        const anterior = await tx.productoVariante.findUnique({
+          where: { id: Number(req.params.varianteId) },
+          include: { existencias: true },
+        });
+        if (!anterior) {
+          const noEncontrada = new Error('Variante no encontrada.');
+          noEncontrada.code = 'P2025';
+          throw noEncontrada;
+        }
+
         const actualizada = await tx.productoVariante.update({
           where: { id: Number(req.params.varianteId) },
           data: parsed.data,
         });
 
+        let existenciasSinReasignar = false;
+
         // Si se está fijando un proveedor, de paso se clasifican los
-        // renglones de Existencia de esta variante que todavía no tienen
-        // proveedor (proveedorId null) — nunca se sobreescribe uno que ya
-        // está clasificado con otro proveedor distinto. Esto es necesario
+        // renglones de Existencia de esta variante. Esto es necesario
         // porque Inventario, Ventas y los pedidos en línea leen el
         // proveedor de CADA renglón de existencia (puede haber más de un
         // proveedor surtiendo la misma talla), no el "por defecto" que se
         // acaba de guardar arriba — sin esto, "asignar proveedor" desde
         // Productos no se reflejaba ahí (aparecía "sin asignar").
         if (parsed.data.proveedorId != null) {
+          const nuevoProveedorId = parsed.data.proveedorId;
+
+          // Renglones sin clasificar (proveedorId null): pasan a este
+          // proveedor sin ambigüedad.
           await tx.existencia.updateMany({
             where: { varianteId: actualizada.id, proveedorId: null },
-            data: { proveedorId: parsed.data.proveedorId },
+            data: { proveedorId: nuevoProveedorId },
           });
+
+          // Si TODO el stock ya clasificado de esta variante pertenecía a
+          // un solo proveedor distinto del nuevo, es una corrección simple
+          // (ej. "se capturó mal, en realidad es de este otro proveedor") y
+          // se reasigna ese stock también — si no, "cambiar el proveedor"
+          // en Productos no se reflejaba en Inventario ni en los reportes
+          // PDF filtrados por proveedor, que siguen leyendo el proveedor
+          // de cada renglón de Existencia, no el de la variante. Si ya
+          // había stock repartido entre 2+ proveedores distintos no se
+          // toca nada (no hay forma de saber cuál de esos lotes se quiere
+          // mover) y se avisa con existenciasSinReasignar.
+          const otrosProveedores = [
+            ...new Set(
+              anterior.existencias
+                .map((e) => e.proveedorId)
+                .filter((id) => id != null && id !== nuevoProveedorId)
+            ),
+          ];
+
+          if (otrosProveedores.length === 1) {
+            const proveedorAnterior = otrosProveedores[0];
+            const filasAMover = anterior.existencias.filter((e) => e.proveedorId === proveedorAnterior);
+            for (const fila of filasAMover) {
+              const destino = await tx.existencia.findUnique({
+                where: {
+                  sucursalId_varianteId_proveedorId: {
+                    sucursalId: fila.sucursalId,
+                    varianteId: actualizada.id,
+                    proveedorId: nuevoProveedorId,
+                  },
+                },
+              });
+              if (destino) {
+                // Ya había un renglón de este proveedor en esa sucursal
+                // (ej. de un reabasto previo): se suma el stock ahí y se
+                // borra el renglón viejo, para no perder piezas ni acabar
+                // con dos renglones del mismo proveedor en la misma
+                // sucursal.
+                await tx.existencia.update({
+                  where: { id: destino.id },
+                  data: {
+                    stockActual: destino.stockActual + fila.stockActual,
+                    stockMinimo: Math.max(destino.stockMinimo, fila.stockMinimo),
+                  },
+                });
+                await tx.existencia.delete({ where: { id: fila.id } });
+              } else {
+                await tx.existencia.update({ where: { id: fila.id }, data: { proveedorId: nuevoProveedorId } });
+              }
+            }
+          } else if (otrosProveedores.length > 1) {
+            existenciasSinReasignar = true;
+          }
         }
 
-        return tx.productoVariante.findUnique({
+        const variante = await tx.productoVariante.findUnique({
           where: { id: actualizada.id },
           include: {
             talla: true,
@@ -623,8 +694,10 @@ router.put(
             existencias: { include: { sucursal: true, proveedor: { select: { id: true, nombre: true } } } },
           },
         });
+
+        return { ...variante, existenciasSinReasignar };
       });
-      res.json(variante);
+      res.json(resultado);
     } catch (err) {
       if (err.code === 'P2002') return res.status(409).json({ error: 'Ya existe una variante con esos datos.' });
       if (err.code === 'P2025') return res.status(404).json({ error: 'Variante no encontrada.' });

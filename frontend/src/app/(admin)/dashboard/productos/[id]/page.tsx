@@ -630,10 +630,24 @@ function ProductoDetalleContenido() {
 
   async function cambiarProveedorVariante(varianteId: number, proveedorId: string) {
     try {
-      await api(`/productos/${productoId}/variantes/${varianteId}`, {
+      // El backend, además de guardar el proveedor "por defecto" de la
+      // variante, reclasifica las existencias que ya tenía: si todas eran
+      // de UN solo proveedor distinto (o no tenían), las mueve al nuevo; si
+      // ya estaban repartidas entre 2+ proveedores no las toca (no hay
+      // forma de saber cuál lote mover) y regresa existenciasSinReasignar
+      // para avisar aquí (ver PUT /productos/:id/variantes/:varianteId).
+      const actualizada = await api<{ existenciasSinReasignar?: boolean }>(`/productos/${productoId}/variantes/${varianteId}`, {
         method: 'PUT',
         body: JSON.stringify({ proveedorId: proveedorId ? Number(proveedorId) : null }),
       });
+      if (actualizada?.existenciasSinReasignar) {
+        toast({
+          title: 'Proveedor actualizado, pero revisa las existencias',
+          description:
+            'Esta variante ya tenía stock repartido entre más de un proveedor, así que las existencias existentes no se movieron automáticamente. Ajústalas a mano en Inventario si hace falta.',
+          variant: 'warning',
+        });
+      }
       cargarProducto();
     } catch (err) {
       toast({ title: 'No se pudo asignar el proveedor', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
