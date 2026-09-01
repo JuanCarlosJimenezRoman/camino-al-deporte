@@ -63,6 +63,7 @@ import {
 // mientras que chart-1/4/5 y los grises se heredan sin cambio.
 const COLOR_PRIMARIO = 'rgb(var(--chart-1))'; // --chart-1 / --primary
 const COLOR_PRIMARIO_SUAVE = 'rgb(var(--chart-1) / 0.14)';
+const COLOR_SECUNDARIO = 'rgb(var(--chart-2))'; // segundo color de la misma secuencia fija, para "Ingresado" vs "Vendido"
 const COLOR_PROYECCION = 'rgb(var(--chart-projection))'; // tinte claro del mismo hue, para la línea de estimación
 // Efectivo, Tarjeta, Transferencia (mostrador), Pedidos en línea
 const COLORES_METODO_PAGO = ['rgb(var(--chart-1))', 'rgb(var(--chart-2))', 'rgb(var(--chart-4))', 'rgb(var(--chart-3))'];
@@ -125,6 +126,17 @@ interface DesgloseResponse {
   porCategoria: DesgloseItem[];
   porTalla: DesgloseItem[];
   porProveedor: DesgloseItem[];
+}
+
+interface ProveedorRendimientoRow {
+  id: number | null;
+  nombre: string;
+  cantidadIngresada: number;
+  cantidadVendida: number;
+  montoVendido: number;
+  // Piezas vendidas / piezas ingresadas, en %. null cuando no hubo entradas
+  // registradas de ese proveedor en el periodo (no hay denominador).
+  tasaVenta: number | null;
 }
 
 interface EstimacionResponse {
@@ -272,6 +284,35 @@ function TooltipMoneda({ active, payload, label }: any) {
   );
 }
 
+function TooltipPiezas({ active, payload, label }: any) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-card text-xs">
+      <div className="text-muted-foreground mb-1">{label}</div>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2">
+          <span className="inline-block w-2.5 h-0.5 rounded" style={{ backgroundColor: p.color }} />
+          <span className="text-muted-foreground">{p.name}:</span>
+          <span className="font-semibold text-foreground">{p.value} pzs</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// % de piezas vendidas sobre piezas ingresadas en el periodo ("rotación").
+// null = ese proveedor no tuvo reabastos registrados en el periodo, así que
+// no hay denominador para calcular el porcentaje.
+function TasaVentaBadge({ valor }: { valor: number | null }) {
+  if (valor === null) {
+    return <span className="text-xs text-muted-foreground">sin entradas</span>;
+  }
+  const tono = valor >= 70 ? 'text-success' : valor >= 30 ? 'text-warning' : 'text-destructive';
+  return (
+    <span className={`text-xs font-medium ${tono}`}>{valor.toFixed(1)}%</span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Página
 // ---------------------------------------------------------------------------
@@ -292,6 +333,7 @@ export default function ReportesVentasPage() {
   const [porMetodoPago, setPorMetodoPago] = useState<MetodoPagoRow[] | null>(null);
   const [porSucursal, setPorSucursal] = useState<SucursalRow[] | null>(null);
   const [desglose, setDesglose] = useState<DesgloseResponse | null>(null);
+  const [porProveedor, setPorProveedor] = useState<ProveedorRendimientoRow[] | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
@@ -317,12 +359,13 @@ export default function ReportesVentasPage() {
       if (esAdmin && sucursalId) qs.set('sucursalId', sucursalId);
       const qsStr = qs.toString();
 
-      const [resumenData, serieData, metodoData, desgloseData, sucursalData] = await Promise.all([
+      const [resumenData, serieData, metodoData, desgloseData, sucursalData, proveedorData] = await Promise.all([
         api<ResumenResponse>(`/reportes/ventas/resumen?${qsStr}`),
         api<{ serie: SeriePunto[] }>(`/reportes/ventas/serie?${qsStr}`),
         api<{ porMetodoPago: MetodoPagoRow[] }>(`/reportes/ventas/por-metodo-pago?${qsStr}`),
         api<DesgloseResponse>(`/reportes/ventas/desglose?${qsStr}&limite=10`),
         esAdmin ? api<{ porSucursal: SucursalRow[] }>(`/reportes/ventas/por-sucursal?${qsStr}`) : Promise.resolve(null),
+        api<{ porProveedor: ProveedorRendimientoRow[] }>(`/reportes/ventas/por-proveedor?${qsStr}`),
       ]);
 
       setResumen(resumenData);
@@ -330,6 +373,7 @@ export default function ReportesVentasPage() {
       setPorMetodoPago(metodoData.porMetodoPago);
       setDesglose(desgloseData);
       setPorSucursal(sucursalData?.porSucursal ?? null);
+      setPorProveedor(proveedorData.porProveedor);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los reportes.');
     } finally {
@@ -794,6 +838,78 @@ export default function ReportesVentasPage() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Ventas por proveedor */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ventas por proveedor</CardTitle>
+          <CardDescription>
+            Piezas que entraron (reabastos) contra piezas vendidas en el periodo, para ver qué tan bien rota lo que surte
+            cada proveedor — no solo cuánto vendió en total.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!porProveedor || porProveedor.length === 0 ? (
+            <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">Sin datos.</div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <ResponsiveContainer width="100%" height={Math.max(260, porProveedor.slice(0, 8).length * 52)}>
+                <BarChart data={porProveedor.slice(0, 8)} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                  <CartesianGrid stroke={COLOR_GRID} horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: COLOR_EJE }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="nombre"
+                    width={110}
+                    tick={{ fontSize: 11, fill: COLOR_TEXTO_SECUNDARIO }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v: string) => (v.length > 16 ? `${v.slice(0, 16)}…` : v)}
+                  />
+                  <Tooltip content={<TooltipPiezas />} />
+                  <Legend
+                    verticalAlign="top"
+                    align="right"
+                    height={28}
+                    iconType="circle"
+                    iconSize={8}
+                    formatter={(value) => <span className="text-xs text-foreground">{value}</span>}
+                  />
+                  <Bar dataKey="cantidadIngresada" name="Ingresado" fill={COLOR_SECUNDARIO} radius={[0, 4, 4, 0]} maxBarSize={14} />
+                  <Bar dataKey="cantidadVendida" name="Vendido" fill={COLOR_PRIMARIO} radius={[0, 4, 4, 0]} maxBarSize={14} />
+                </BarChart>
+              </ResponsiveContainer>
+
+              <div className="overflow-x-auto">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Proveedor</th>
+                      <th>Ingresado (pzs)</th>
+                      <th>Vendido (pzs)</th>
+                      <th>Monto vendido</th>
+                      <th>% vendido</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {porProveedor.map((p) => (
+                      <tr key={p.id ?? 'sin-proveedor'}>
+                        <td>{p.nombre}</td>
+                        <td>{p.cantidadIngresada}</td>
+                        <td>{p.cantidadVendida}</td>
+                        <td>{money(p.montoVendido)}</td>
+                        <td>
+                          <TasaVentaBadge valor={p.tasaVenta} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

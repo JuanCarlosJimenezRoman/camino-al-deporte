@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 // Genera el libro .xlsx que descarga GET /reportes/ventas/exportar. Cada
 // desglose ya viene calculado (ver routes/reportes.js) — este módulo solo
 // arma las hojas, igual patrón que utils/excel.js para el catálogo.
-function generarReporteVentasExcel({ periodo, resumen, serie, porMetodoPago, porSucursal, desglose, estimacion }) {
+function generarReporteVentasExcel({ periodo, resumen, serie, porMetodoPago, porSucursal, desglose, estimacion, porProveedorRendimiento }) {
   const libro = XLSX.utils.book_new();
 
   const fmt = (n) => Math.round(Number(n) * 100) / 100;
@@ -62,9 +62,29 @@ function generarReporteVentasExcel({ periodo, resumen, serie, porMetodoPago, por
     XLSX.utils.json_to_sheet(desglose.porTalla.map((t) => ({ talla: t.valor, tipo: t.tipo, cantidad: t.cantidad, monto: fmt(t.monto) }))),
     'Por talla'
   );
+  // Si se calculó el rendimiento por proveedor (entradas vs. ventas, ver
+  // agruparPorProveedor en routes/reportes.js) se usa esa hoja más completa;
+  // si no, se cae al desglose simple (solo lo vendido) por compatibilidad.
+  const filasProveedor =
+    porProveedorRendimiento ||
+    desglose.porProveedor.map((p) => ({
+      nombre: p.nombre,
+      cantidadIngresada: null,
+      cantidadVendida: p.cantidad,
+      montoVendido: p.monto,
+      tasaVenta: null,
+    }));
   XLSX.utils.book_append_sheet(
     libro,
-    XLSX.utils.json_to_sheet(desglose.porProveedor.map((p) => ({ proveedor: p.nombre, cantidad: p.cantidad, monto: fmt(p.monto) }))),
+    XLSX.utils.json_to_sheet(
+      filasProveedor.map((p) => ({
+        proveedor: p.nombre,
+        'ingresado (piezas)': p.cantidadIngresada,
+        'vendido (piezas)': p.cantidadVendida,
+        'vendido ($)': fmt(p.montoVendido),
+        '% vendido de lo ingresado': p.tasaVenta === null || p.tasaVenta === undefined ? 'n/a' : `${p.tasaVenta}%`,
+      }))
+    ),
     'Por proveedor'
   );
 

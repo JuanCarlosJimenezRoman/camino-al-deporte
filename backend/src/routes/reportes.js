@@ -276,6 +276,26 @@ async function fetchVentaItemsCompletados(desde, hasta, sucursalId) {
   });
 }
 
+// Movimientos de tipo ENTRADA (reabastos) en el periodo, con su proveedor —
+// es "lo que entro" de cada proveedor, para compararlo contra lo que se
+// vendio en el mismo periodo (ver agruparPorProveedor). A diferencia de
+// ProductoVariante.proveedorId ("proveedor por defecto" del SKU), aqui se usa
+// el proveedor real de CADA reabasto (MovimientoInventario.proveedorId) —
+// puede ser distinto si esa vez surtio alguien mas.
+async function fetchMovimientosEntrada(desde, hasta, sucursalId) {
+  return prisma.movimientoInventario.findMany({
+    where: {
+      tipo: 'ENTRADA',
+      createdAt: { gte: desde, lte: hasta },
+      ...(sucursalId ? { sucursalId } : {}),
+    },
+    select: {
+      cantidad: true,
+      proveedor: { select: { id: true, nombre: true } },
+    },
+  });
+}
+
 function calcularResumen(ventas) {
   const totalVentas = ventas.length;
   const totalMonto = ventas.reduce((acc, v) => acc + Number(v.total), 0);
@@ -484,6 +504,52 @@ function calcularDesglose(items, limiteProductos) {
   };
 }
 
+// Compara, por proveedor, cuánta mercancía entró (movimientos ENTRADA) en el
+// periodo contra cuánta se vendió — el "rendimiento" de cada proveedor, no
+// solo cuánto vendió en términos absolutos. tasaVenta (piezas vendidas /
+// piezas ingresadas, en %) queda en null cuando no hubo entradas registradas
+// en el periodo (no hay denominador). Un proveedor puede mostrar
+// cantidadVendida > cantidadIngresada si vendió stock que entró ANTES del
+// periodo filtrado — no es un error, solo significa que la venta viene de
+// existencia previa.
+function agruparPorProveedor(itemsVendidos, entradas) {
+  const porProveedor = new Map();
+
+  function fila(id, nombre) {
+    const clave = id ?? 'sin-proveedor';
+    if (!porProveedor.has(clave)) {
+      porProveedor.set(clave, {
+        id: id ?? null,
+        nombre: nombre || 'Sin proveedor asignado',
+        cantidadIngresada: 0,
+        cantidadVendida: 0,
+        montoVendido: 0,
+      });
+    }
+    return porProveedor.get(clave);
+  }
+
+  for (const item of itemsVendidos) {
+    const proveedor = item.proveedor;
+    const r = fila(proveedor?.id ?? null, proveedor?.nombre);
+    r.cantidadVendida += item.cantidad;
+    r.montoVendido += Number(item.subtotal);
+  }
+
+  for (const e of entradas) {
+    const r = fila(e.proveedor?.id ?? null, e.proveedor?.nombre);
+    r.cantidadIngresada += e.cantidad;
+  }
+
+  return [...porProveedor.values()]
+    .map((r) => ({
+      ...r,
+      montoVendido: Math.round(r.montoVendido * 100) / 100,
+      tasaVenta: r.cantidadIngresada > 0 ? Math.round((r.cantidadVendida / r.cantidadIngresada) * 1000) / 10 : null,
+    }))
+    .sort((a, b) => b.montoVendido - a.montoVendido);
+}
+
 // ---------------------------------------------------------------------------
 // Estimación de ventas futuras: tendencia lineal (regresión simple) sobre el
 // histórico + un índice de estacionalidad por día de la semana (para negocios
@@ -681,6 +747,28 @@ router.get(
   })
 );
 
+// GET /reportes/ventas/por-proveedor?desde=&hasta=&sucursalId=
+// Compara, por proveedor, cuánta mercancía entró (reabastos) contra cuánta se
+// vendió en el mismo periodo — para ver qué tan bien "rota" lo que cada
+// proveedor surte, no solo cuánto vendió en absoluto (ver agruparPorProveedor).
+router.get(
+  '/ventas/por-proveedor',
+  requireAuth,
+  requireRole(...ROLES_REPORTES),
+  conSucursalResuelta,
+  conRangoResuelto,
+  asyncHandler(async (req, res) => {
+    const { desde, hasta } = req.rango;
+    const [items, pedidos, entradas] = await Promise.all([
+      fetchVentaItemsCompletados(desde, hasta, req.sucursalReporte),
+      fetchPedidosPagados(desde, hasta, req.sucursalReporte),
+      fetchMovimientosEntrada(desde, hasta, req.sucursalReporte),
+    ]);
+    const itemsVendidos = [...items, ...pedidos.flatMap((p) => p.items)];
+    res.json({ porProveedor: agruparPorProveedor(itemsVendidos, entradas) });
+  })
+);
+
 // GET /reportes/ventas/estimacion?historialDias=90&horizonte=30&sucursalId=
 // Proyección de ventas para los próximos días, con base en el histórico
 // reciente (ver calcularEstimacion arriba).
@@ -723,12 +811,13 @@ router.get(
     const anterior = rangoAnterior(desdeStr, hastaStr);
     const limite = Math.min(Number(req.query.limite) || 10, 50);
 
-    const [ventasActual, pedidosActual, ventasAnterior, pedidosAnterior, items] = await Promise.all([
+    const [ventasActual, pedidosActual, ventasAnterior, pedidosAnterior, items, entradas] = await Promise.all([
       fetchVentasCompletadas(desde, hasta, req.sucursalReporte),
       fetchPedidosPagados(desde, hasta, req.sucursalReporte),
       fetchVentasCompletadas(anterior.desde, anterior.hasta, req.sucursalReporte),
       fetchPedidosPagados(anterior.desde, anterior.hasta, req.sucursalReporte),
       fetchVentaItemsCompletados(desde, hasta, req.sucursalReporte),
+      fetchMovimientosEntrada(desde, hasta, req.sucursalReporte),
     ]);
 
     const actual = calcularResumen([...ventasActual, ...pedidosActual]);
@@ -746,6 +835,7 @@ router.get(
     const porMetodoPago = agruparPorMetodoPago(ventasActual, pedidosActual);
     const porSucursal = agruparPorSucursal(ventasActual, pedidosActual);
     const desglose = calcularDesglose([...items, ...pedidosActual.flatMap((p) => p.items)], limite);
+    const porProveedorRendimiento = agruparPorProveedor([...items, ...pedidosActual.flatMap((p) => p.items)], entradas);
 
     // La estimación en el Excel usa el mismo histórico del periodo filtrado
     // (no los 90 días por defecto de /estimacion) para que el archivo
@@ -760,6 +850,7 @@ router.get(
       porSucursal,
       desglose,
       estimacion,
+      porProveedorRendimiento,
     });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
