@@ -966,16 +966,29 @@ function NuevoApartadoForm({
     return () => clearTimeout(t);
   }, [busquedaCliente]);
 
+  // Sin debounce esto disparaba una petición por cada tecla — en tablet,
+  // donde escribir en el teclado en pantalla ya es más lento, eso se sentía
+  // como que la búsqueda "se traba". Con sucursal elegida y SIN texto
+  // todavía se trae y se muestra TODO el stock de esa sucursal (ver más
+  // abajo, ya no hace falta escribir para que aparezca algo) — para poder
+  // recorrerlo con el dedo en vez de depender del teclado.
   useEffect(() => {
     if (!sucursalStockId) {
       setExistencias([]);
       return;
     }
-    const qs = new URLSearchParams({ sucursalId: sucursalStockId });
-    if (busquedaProducto) qs.set('skuOProducto', busquedaProducto);
-    api<Existencia[]>(`/inventario/existencias?${qs.toString()}`).then((data) =>
-      setExistencias(data.filter((e) => e.stockActual > 0))
-    );
+    const t = setTimeout(() => {
+      const qs = new URLSearchParams({ sucursalId: sucursalStockId });
+      if (busquedaProducto.trim()) qs.set('skuOProducto', busquedaProducto.trim());
+      api<Existencia[]>(`/inventario/existencias?${qs.toString()}`).then((data) =>
+        setExistencias(
+          data
+            .filter((e) => e.stockActual > 0)
+            .sort((a, b) => a.variante.producto.nombre.localeCompare(b.variante.producto.nombre))
+        )
+      );
+    }, 300);
+    return () => clearTimeout(t);
   }, [sucursalStockId, busquedaProducto]);
 
   const totalCarrito = carrito.reduce((acc, i) => acc + i.cantidad * i.precioUnitario, 0);
@@ -1196,37 +1209,63 @@ function NuevoApartadoForm({
               </div>
             </div>
 
-            {/* Resultados: una fila por existencia, con foto — se agrega
-                directo al tocarla (ver agregarAlCarrito), sin un paso
-                aparte de "elegir y luego dar clic en Agregar". */}
-            {sucursalStockId &&
-              busquedaProducto.trim().length > 0 &&
-              (existencias.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Sin existencias que coincidan con esa búsqueda.</p>
-              ) : (
-                <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
-                  {existencias.map((e) => (
-                    <button
-                      key={claveExistencia(e)}
-                      type="button"
-                      onClick={() => agregarAlCarrito(e)}
-                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-secondary"
-                    >
-                      <ProductoThumb url={imagenPrincipal(e.variante.producto, e.variante.color)} alt="" size={36} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">
-                          {e.variante.producto.nombre}
-                          {e.variante.talla ? ` (${e.variante.talla.valor})` : ''}
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          SKU {e.variante.sku} · {e.proveedor?.nombre ?? 'sin proveedor'} · stock: {e.stockActual}
-                        </div>
-                      </div>
-                      <Plus className="w-4 h-4 shrink-0 text-primary" />
-                    </button>
-                  ))}
-                </div>
-              ))}
+            {/* Resultados: aparecen en cuanto se elige la sucursal, SIN
+                necesidad de escribir nada — en tablet, poder recorrerlos
+                con el dedo es mucho más rápido que escribir en el teclado
+                en pantalla. Escribir en el buscador de arriba solo acota la
+                lista. Una fila por existencia, con foto, y se agrega
+                directo al tocarla (ver agregarAlCarrito) — nada de "elegir
+                y luego dar clic en Agregar" aparte. Sin scroll propio (se
+                deja crecer dentro del panel, que ya se desplaza completo):
+                una lista con su propio scroll adentro de otra que también
+                hace scroll es justo lo que se sentía "difícil de usar" en
+                touch — el dedo nunca sabe cuál de las dos está agarrando. */}
+            {!sucursalStockId ? (
+              <p className="text-sm text-muted-foreground">Elige primero de qué sucursal sale el stock para ver sus productos.</p>
+            ) : existencias.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {busquedaProducto.trim() ? 'Sin existencias que coincidan con esa búsqueda.' : 'Esta sucursal no tiene stock disponible.'}
+              </p>
+            ) : (
+              (() => {
+                const SIN_BUSQUEDA_LIMITE = 30;
+                const buscando = busquedaProducto.trim().length > 0;
+                const visibles = buscando ? existencias : existencias.slice(0, SIN_BUSQUEDA_LIMITE);
+                return (
+                  <div className="space-y-2">
+                    <div className="divide-y divide-border rounded-lg border border-border">
+                      {visibles.map((e) => (
+                        <button
+                          key={claveExistencia(e)}
+                          type="button"
+                          onClick={() => agregarAlCarrito(e)}
+                          className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-secondary active:bg-secondary"
+                        >
+                          <ProductoThumb url={imagenPrincipal(e.variante.producto, e.variante.color)} alt="" size={44} />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium truncate">
+                              {e.variante.producto.nombre}
+                              {e.variante.talla ? ` (${e.variante.talla.valor})` : ''}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              SKU {e.variante.sku} · {e.proveedor?.nombre ?? 'sin proveedor'} · stock: {e.stockActual}
+                            </div>
+                          </div>
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <Plus className="w-4 h-4" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {!buscando && existencias.length > SIN_BUSQUEDA_LIMITE && (
+                      <p className="text-xs text-muted-foreground">
+                        Mostrando {SIN_BUSQUEDA_LIMITE} de {existencias.length} productos — escribe en el buscador para encontrar algo más específico.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()
+            )}
 
             {carrito.length > 0 && (
               <div className="rounded-lg border border-border divide-y divide-border">
