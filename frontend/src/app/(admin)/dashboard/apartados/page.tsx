@@ -1,7 +1,23 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Send, FileText, Plus, X, CalendarClock } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Send,
+  FileText,
+  Plus,
+  X,
+  CalendarClock,
+  Search,
+  AlertTriangle,
+  Wallet,
+  Users,
+  Banknote,
+  CreditCard,
+  Landmark,
+  LucideIcon,
+} from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearFecha } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
@@ -125,6 +141,38 @@ interface Apartado {
   ticketPdfUrl?: string | null;
 }
 
+// Tarjeta de estadística chica (Activos / Vencidos / Saldo pendiente) para
+// la franja de resumen bajo el encabezado — nada de gráfica, solo el
+// número, para que cargue rápido y no dependa de librerías de charts.
+function TarjetaEstadistica({
+  icon: Icon,
+  label,
+  valor,
+  tono = 'neutral',
+}: {
+  icon: LucideIcon;
+  label: string;
+  valor: string;
+  tono?: 'neutral' | 'warning' | 'destructive';
+}) {
+  const TONO_CLASES: Record<typeof tono, string> = {
+    neutral: 'bg-primary/8 text-primary',
+    warning: 'bg-warning/10 text-warning',
+    destructive: 'bg-destructive/10 text-destructive',
+  };
+  return (
+    <div className="card flex items-center gap-3 p-4">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${TONO_CLASES[tono]}`}>
+        <Icon className="w-5 h-5" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        <div className="text-xl font-bold tabular-nums truncate">{valor}</div>
+      </div>
+    </div>
+  );
+}
+
 const METODOS_PAGO = [
   { valor: 'EFECTIVO', etiqueta: 'Efectivo' },
   { valor: 'TARJETA', etiqueta: 'Tarjeta' },
@@ -139,6 +187,76 @@ const ESTADO_TONO: Record<Apartado['estado'], EstadoTono> = {
 
 function etiquetaMetodoPago(v: Pago['metodoPago']) {
   return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
+}
+
+// Qué tan urgente es la fecha límite de un apartado ACTIVO: "vencido" (ya
+// pasó y sigue sin recogerse/liquidarse — lo más urgente, hay que hablarle
+// al cliente) y "proximo" (vence en 3 días o menos, para no dejarlo pasar).
+// Un apartado LIQUIDADO/CANCELADO o sin fecha límite nunca es urgente. Se
+// usa tanto para ordenar la lista (ver ordenarApartados) como para el badge
+// y el texto humanizado de cada renglón (ver textoFechaLimite).
+type Urgencia = 'vencido' | 'proximo' | null;
+
+function urgenciaApartado(a: Apartado): Urgencia {
+  if (a.estado !== 'ACTIVO' || !a.fechaLimite) return null;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const limite = new Date(a.fechaLimite);
+  limite.setHours(0, 0, 0, 0);
+  const dias = Math.round((limite.getTime() - hoy.getTime()) / 86400000);
+  if (dias < 0) return 'vencido';
+  if (dias <= 3) return 'proximo';
+  return null;
+}
+
+// Texto humanizado de la fecha límite ("Vencido hace 2 días" / "Vence
+// hoy" / "Vence en 3 días") en vez de solo la fecha cruda — así el cajero
+// no tiene que calcular mentalmente qué tan urgente es cada uno.
+function textoFechaLimite(a: Apartado): string {
+  if (!a.fechaLimite) return 'Sin fecha límite';
+  if (a.estado !== 'ACTIVO') return formatearFecha(a.fechaLimite);
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const limite = new Date(a.fechaLimite);
+  limite.setHours(0, 0, 0, 0);
+  const dias = Math.round((limite.getTime() - hoy.getTime()) / 86400000);
+  if (dias < 0) return `Vencido hace ${Math.abs(dias)} día${Math.abs(dias) === 1 ? '' : 's'}`;
+  if (dias === 0) return 'Vence hoy';
+  if (dias <= 7) return `Vence en ${dias} día${dias === 1 ? '' : 's'}`;
+  return `Vence el ${formatearFecha(a.fechaLimite)}`;
+}
+
+// Orden por urgencia operativa en vez de solo "más reciente primero": los
+// vencidos van arriba de todo (los más vencidos primero — son los que más
+// urge resolver), luego los próximos a vencer (el más cercano primero), y
+// hasta abajo el resto, por fecha de creación descendente como antes.
+function ordenarApartados(lista: Apartado[]): Apartado[] {
+  function rango(a: Apartado): number {
+    const u = urgenciaApartado(a);
+    if (u === 'vencido') return 0;
+    if (u === 'proximo') return 1;
+    return 2;
+  }
+  return [...lista].sort((a, b) => {
+    const ra = rango(a);
+    const rb = rango(b);
+    if (ra !== rb) return ra - rb;
+    if (ra <= 1 && a.fechaLimite && b.fechaLimite) {
+      return new Date(a.fechaLimite).getTime() - new Date(b.fechaLimite).getTime();
+    }
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+
+// Resumen corto de los artículos de un apartado para la vista de lista
+// ("Nike Sabrina 3 (26.5) +2 más") — el detalle completo solo se ve al
+// expandir el renglón.
+function resumenArticulos(a: Apartado): string {
+  if (a.items.length === 0) return 'Sin artículos';
+  const primero = a.items[0];
+  const detalle = [primero.variante.talla?.valor, primero.variante.color].filter(Boolean).join(' / ');
+  const base = `${primero.variante.producto.nombre}${detalle ? ` (${detalle})` : ''}`;
+  return a.items.length > 1 ? `${base} +${a.items.length - 1} más` : base;
 }
 
 // Comprobante digital del apartado: mismo mecanismo de click-to-chat que ya
@@ -200,6 +318,14 @@ export default function ApartadosPage() {
   const [apartados, setApartados] = useState<Apartado[]>([]);
   const [cargando, setCargando] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('');
+  // Buscar por folio, nombre o teléfono del cliente — se filtra en el
+  // cliente sobre lo ya cargado (el catálogo de apartados de una tienda de
+  // este tamaño no justifica ir y venir al servidor por cada letra; ver
+  // apartadosFiltrados).
+  const [busqueda, setBusqueda] = useState('');
+  // Atajo para ver solo los que ya pasaron su fecha límite — son los que
+  // más urgen resolver (hablarle al cliente, liquidar o cancelar).
+  const [soloVencidos, setSoloVencidos] = useState(false);
   const [expandidoId, setExpandidoId] = useState<number | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -213,12 +339,16 @@ export default function ApartadosPage() {
     api<CuentaTransferencia[]>('/catalogos/cuentas-transferencia').then(setCuentas);
   }, []);
 
+  // Se carga TODO una sola vez (sin filtrar por estado en el servidor):
+  // así el resumen de arriba (Activos/Vencidos/Saldo pendiente) y "Clientes
+  // con adeudo" siempre reflejan la realidad completa, sin importar qué
+  // filtro esté viendo el cajero en ese momento — el filtro de estado, la
+  // búsqueda y "solo vencidos" se aplican después, en el cliente (ver
+  // apartadosFiltrados).
   async function cargar() {
     setCargando(true);
     try {
-      const qs = new URLSearchParams();
-      if (filtroEstado) qs.set('estado', filtroEstado);
-      const data = await api<Apartado[]>(`/apartados?${qs.toString()}`);
+      const data = await api<Apartado[]>('/apartados');
       setApartados(data);
     } finally {
       setCargando(false);
@@ -228,7 +358,27 @@ export default function ApartadosPage() {
   useEffect(() => {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroEstado]);
+  }, []);
+
+  const activos = useMemo(() => apartados.filter((a) => a.estado === 'ACTIVO'), [apartados]);
+  const vencidos = useMemo(() => activos.filter((a) => urgenciaApartado(a) === 'vencido'), [activos]);
+  const saldoPendienteTotal = useMemo(() => activos.reduce((acc, a) => acc + a.saldoPendiente, 0), [activos]);
+
+  const apartadosFiltrados = useMemo(() => {
+    const termino = busqueda.trim().toLowerCase();
+    let lista = apartados;
+    if (filtroEstado) lista = lista.filter((a) => a.estado === filtroEstado);
+    if (soloVencidos) lista = lista.filter((a) => urgenciaApartado(a) === 'vencido');
+    if (termino) {
+      lista = lista.filter(
+        (a) =>
+          a.folio.toLowerCase().includes(termino) ||
+          a.cliente.nombre.toLowerCase().includes(termino) ||
+          a.cliente.telefono.includes(termino)
+      );
+    }
+    return ordenarApartados(lista);
+  }, [apartados, filtroEstado, soloVencidos, busqueda]);
 
   const adeudosPorCliente = useMemo(() => {
     const mapa = new Map<number, { cliente: Cliente; saldo: number; cantidad: number }>();
@@ -242,11 +392,21 @@ export default function ApartadosPage() {
     return Array.from(mapa.values()).sort((x, y) => y.saldo - x.saldo);
   }, [apartados]);
 
+  // Al tocar un cliente de "Clientes con adeudo": salta directo a sus
+  // apartados (limpia el filtro de estado y "solo vencidos" por si estaban
+  // activos, y busca por su nombre) en vez de dejar que el cajero los
+  // busque a mano en la lista completa.
+  function verApartadosDeCliente(nombre: string) {
+    setFiltroEstado('');
+    setSoloVencidos(false);
+    setBusqueda(nombre);
+  }
+
   return (
     <div className="space-y-5">
       <PageHeader
         title="Apartados"
-        subtitle={`${apartados.length} apartado${apartados.length === 1 ? '' : 's'}`}
+        subtitle={`${activos.length} activo${activos.length === 1 ? '' : 's'} · ${apartados.length} en total`}
         breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Apartados' }]}
         actions={
           <Button size="sm" onClick={() => setMostrarForm(true)}>
@@ -299,45 +459,85 @@ export default function ApartadosPage() {
         </div>
       )}
 
+      {/* Resumen: de un vistazo, qué tan urgente está la situación — sin
+          tener que contar renglones de la tabla de abajo a mano. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <TarjetaEstadistica icon={CalendarClock} label="Apartados activos" valor={String(activos.length)} />
+        <TarjetaEstadistica
+          icon={AlertTriangle}
+          label="Vencidos (sin liquidar)"
+          valor={String(vencidos.length)}
+          tono={vencidos.length > 0 ? 'destructive' : 'neutral'}
+        />
+        <TarjetaEstadistica icon={Wallet} label="Saldo pendiente total" valor={`$${saldoPendienteTotal.toFixed(2)}`} tono="warning" />
+      </div>
+
       {adeudosPorCliente.length > 0 && (
-        <div className="card">
-          <h2 className="text-base font-semibold mb-3">Clientes con adeudo</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Teléfono</th>
-                <th>Apartados activos</th>
-                <th>Saldo pendiente</th>
-              </tr>
-            </thead>
-            <tbody>
-              {adeudosPorCliente.map(({ cliente, saldo, cantidad }) => (
-                <tr key={cliente.id}>
-                  <td className="font-medium">{cliente.nombre}</td>
-                  <td>{cliente.telefono}</td>
-                  <td className="tabular-nums">{cantidad}</td>
-                  <td className="tabular-nums font-medium">${saldo.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="card space-y-2">
+          <h2 className="flex items-center gap-1.5 text-base font-semibold">
+            <Users className="w-4 h-4 text-muted-foreground" />
+            Clientes con adeudo
+          </h2>
+          <div className="divide-y divide-border rounded-lg border border-border">
+            {adeudosPorCliente.map(({ cliente, saldo, cantidad }) => (
+              <button
+                key={cliente.id}
+                type="button"
+                onClick={() => verApartadosDeCliente(cliente.nombre)}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-secondary"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{cliente.nombre}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {cliente.telefono} · {cantidad} apartado{cantidad === 1 ? '' : 's'} activo{cantidad === 1 ? '' : 's'}
+                  </div>
+                </div>
+                <div className="shrink-0 text-sm font-semibold tabular-nums text-warning">${saldo.toFixed(2)}</div>
+                <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      <div className="w-48">
-        <Select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
-          <option value="">Todos los estados</option>
-          <option value="ACTIVO">Activos</option>
-          <option value="LIQUIDADO">Liquidados</option>
-          <option value="CANCELADO">Cancelados</option>
-        </Select>
+      {/* Buscar + filtros: folio/cliente/teléfono en un solo campo (se
+          filtra sobre lo ya cargado, ver apartadosFiltrados), el estado
+          como antes, y "Vencidos" como atajo de un toque a lo más urgente
+          sin tener que combinar filtro de estado + leer cada fecha. */}
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por folio, cliente o teléfono…"
+            className="pl-9"
+          />
+        </div>
+        <div className="w-full sm:w-48">
+          <Select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
+            <option value="">Todos los estados</option>
+            <option value="ACTIVO">Activos</option>
+            <option value="LIQUIDADO">Liquidados</option>
+            <option value="CANCELADO">Cancelados</option>
+          </Select>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSoloVencidos((v) => !v)}
+          className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 h-9 text-sm font-medium transition-colors ${
+            soloVencidos ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border bg-card text-foreground hover:bg-secondary'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Solo vencidos
+        </button>
       </div>
 
       {cargando ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
+            <Skeleton key={i} className="h-16 w-full" />
           ))}
         </div>
       ) : apartados.length === 0 ? (
@@ -352,36 +552,37 @@ export default function ApartadosPage() {
             </Button>
           }
         />
+      ) : apartadosFiltrados.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          title="Sin resultados"
+          description="Ningún apartado coincide con la búsqueda o los filtros actuales."
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setBusqueda('');
+                setFiltroEstado('');
+                setSoloVencidos(false);
+              }}
+            >
+              Quitar filtros
+            </Button>
+          }
+        />
       ) : (
-        <div className="overflow-x-auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Folio</th>
-              <th>Cliente</th>
-              <th>Sucursal</th>
-              <th>Total</th>
-              <th>Pagado</th>
-              <th>Saldo</th>
-              <th>Estado</th>
-              <th>Fecha límite</th>
-              <th>Comprobante</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {apartados.map((a) => (
-              <ApartadoFila
-                key={a.id}
-                apartado={a}
-                expandido={expandidoId === a.id}
-                onToggle={() => setExpandidoId(expandidoId === a.id ? null : a.id)}
-                cuentas={cuentas}
-                onCambio={cargar}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="space-y-2">
+          {apartadosFiltrados.map((a) => (
+            <ApartadoFila
+              key={a.id}
+              apartado={a}
+              expandido={expandidoId === a.id}
+              onToggle={() => setExpandidoId(expandidoId === a.id ? null : a.id)}
+              cuentas={cuentas}
+              onCambio={cargar}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -480,187 +681,215 @@ function ApartadoFila({
     }
   }
 
+  const urgencia = urgenciaApartado(apartado);
+
   return (
-    <>
-      <tr className="cursor-pointer" onClick={onToggle}>
-        <td className="font-medium">{apartado.folio}</td>
-        <td>
-          {apartado.cliente.nombre}
-          <div className="text-xs text-muted-foreground">{apartado.cliente.telefono}</div>
-        </td>
-        <td>{apartado.sucursalVenta?.nombre}</td>
-        <td className="tabular-nums">${apartado.total}</td>
-        <td className="tabular-nums">${apartado.pagado.toFixed(2)}</td>
-        <td className="tabular-nums font-medium">${apartado.saldoPendiente.toFixed(2)}</td>
-        <td>
-          <StatusBadge tono={ESTADO_TONO[apartado.estado]}>{apartado.estado}</StatusBadge>
-        </td>
-        <td>{apartado.fechaLimite ? formatearFecha(apartado.fechaLimite) : '—'}</td>
-        <td onClick={(e) => e.stopPropagation()}>
-          {apartado.ticketPdfUrl ? (
-            <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
-              ver PDF
-            </a>
-          ) : (
-            '—'
-          )}
-        </td>
-        <td onClick={(e) => e.stopPropagation()}>
-          <Button variant="ghost" size="sm" onClick={onToggle}>
-            {expandido ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-            {expandido ? 'Ocultar' : 'Ver'}
-          </Button>
-        </td>
-      </tr>
+    <div
+      className={`card overflow-hidden !p-0 ${
+        urgencia === 'vencido' ? 'border-destructive/40' : urgencia === 'proximo' ? 'border-warning/40' : ''
+      }`}
+    >
+      <button type="button" onClick={onToggle} className="flex w-full items-center gap-3 p-3 text-left hover:bg-secondary/50 transition-colors">
+        <ProductoThumb
+          url={imagenPrincipal(apartado.items[0]?.variante.producto, apartado.items[0]?.variante.color)}
+          alt=""
+          size={44}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-semibold">{apartado.cliente.nombre}</span>
+            <StatusBadge tono={ESTADO_TONO[apartado.estado]}>{apartado.estado}</StatusBadge>
+            {urgencia === 'vencido' && <StatusBadge tono="destructive">Vencido</StatusBadge>}
+            {urgencia === 'proximo' && <StatusBadge tono="warning">Por vencer</StatusBadge>}
+          </div>
+          <div className="text-xs text-muted-foreground truncate">
+            {apartado.folio} · {apartado.sucursalVenta?.nombre} · {resumenArticulos(apartado)}
+          </div>
+          <div className="text-xs text-muted-foreground truncate">{apartado.cliente.telefono}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-sm font-bold tabular-nums">
+            {apartado.saldoPendiente > 0.01 ? `Saldo: $${apartado.saldoPendiente.toFixed(2)}` : `Total: $${apartado.total}`}
+          </div>
+          <div className={`text-xs ${urgencia === 'vencido' ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>
+            {textoFechaLimite(apartado)}
+          </div>
+        </div>
+        {expandido ? (
+          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
+        )}
+      </button>
+
       {expandido && (
-        <tr>
-          <td colSpan={10} className="bg-secondary/40">
-            <div className="p-4 space-y-4">
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Artículos</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th></th>
-                      <th>SKU</th>
-                      <th>Producto</th>
-                      <th>Talla</th>
-                      <th>Sucursal stock</th>
-                      <th>Cant.</th>
-                      <th>Precio</th>
-                      <th>Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {apartado.items.map((it) => (
-                      <tr key={it.id}>
-                        <td>
-                          <ProductoThumb url={imagenPrincipal(it.variante.producto, it.variante.color)} alt={it.variante.producto.nombre} />
-                        </td>
-                        <td className="text-xs text-muted-foreground">{it.variante.sku}</td>
-                        <td>{it.variante.producto.nombre}</td>
-                        <td>{it.variante.talla?.valor ?? '—'}</td>
-                        <td>{it.sucursalStock?.nombre ?? '—'}</td>
-                        <td className="tabular-nums">{it.cantidad}</td>
-                        <td className="tabular-nums">${it.precioUnitario}</td>
-                        <td className="tabular-nums font-medium">${it.subtotal}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Pagos / abonos</h3>
-                {apartado.pagos.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Sin abonos todavía.</p>
-                ) : (
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Monto</th>
-                        <th>Método</th>
-                        <th>Registrado por</th>
-                        <th>Fecha</th>
-                        <th>Comprobante</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {apartado.pagos.map((p) => (
-                        <tr key={p.id}>
-                          <td className="tabular-nums font-medium">${p.monto}</td>
-                          <td className="text-xs">
-                            {etiquetaMetodoPago(p.metodoPago)}
-                            {p.cuentaTransferencia ? ` (${p.cuentaTransferencia.nombre})` : ''}
-                          </td>
-                          <td>{p.registradoPor?.nombre}</td>
-                          <td className="text-xs text-muted-foreground">{formatearFechaHora(p.createdAt)}</td>
-                          <td>
-                            {p.comprobanteUrl ? (
-                              <a href={p.comprobanteUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline text-xs">
-                                ver
-                              </a>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              {apartado.estado === 'ACTIVO' && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div>
-                    <label className="text-xs">Monto del abono</label>
-                    <Input type="number" min={0} step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} className="w-32" />
+        <div className="space-y-4 border-t border-border p-4">
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Artículos ({apartado.items.length})
+            </h3>
+            <div className="space-y-1.5">
+              {apartado.items.map((it) => {
+                const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
+                return (
+                  <div key={it.id} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2">
+                    <ProductoThumb url={imagenPrincipal(it.variante.producto, it.variante.color)} alt={it.variante.producto.nombre} size={36} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium truncate">
+                        {it.variante.producto.nombre}
+                        {detalle ? ` (${detalle})` : ''}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        SKU {it.variante.sku} · sale de {it.sucursalStock?.nombre ?? '—'} · x{it.cantidad}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right text-sm font-semibold tabular-nums">${it.subtotal}</div>
                   </div>
-                  <div className="w-36">
-                    <label className="text-xs">Método</label>
-                    <Select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value as typeof metodoPago)}>
-                      {METODOS_PAGO.map((m) => (
-                        <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pagos / abonos</h3>
+            {apartado.pagos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sin abonos todavía.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {apartado.pagos.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium">
+                        {etiquetaMetodoPago(p.metodoPago)}
+                        {p.cuentaTransferencia ? ` (${p.cuentaTransferencia.nombre})` : ''}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {p.registradoPor?.nombre} · {formatearFechaHora(p.createdAt)}
+                        {p.comprobanteUrl && (
+                          <>
+                            {' · '}
+                            <a href={p.comprobanteUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                              ver comprobante
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold tabular-nums">${p.monto}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {apartado.estado === 'ACTIVO' && (
+            <div className="space-y-2.5 rounded-lg border border-border p-3">
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="w-32">
+                  <label className="text-xs">Monto del abono</label>
+                  <Input type="number" min={0} step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMonto(apartado.saldoPendiente.toFixed(2))}
+                >
+                  Saldar todo (${apartado.saldoPendiente.toFixed(2)})
+                </Button>
+              </div>
+              <div className="grid max-w-xs grid-cols-3 gap-2">
+                {METODOS_PAGO.map((m) => {
+                  const activo = metodoPago === m.valor;
+                  const Icono = m.valor === 'EFECTIVO' ? Banknote : m.valor === 'TARJETA' ? CreditCard : Landmark;
+                  return (
+                    <button
+                      key={m.valor}
+                      type="button"
+                      onClick={() => setMetodoPago(m.valor)}
+                      className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors ${
+                        activo ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:bg-secondary'
+                      }`}
+                    >
+                      <Icono className="w-4 h-4" />
+                      {m.etiqueta}
+                    </button>
+                  );
+                })}
+              </div>
+              {metodoPago === 'TRANSFERENCIA' && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-44">
+                    <label className="text-xs">Cuenta</label>
+                    <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
+                      <option value="">Selecciona...</option>
+                      {cuentas.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
                       ))}
                     </Select>
                   </div>
-                  {metodoPago === 'TRANSFERENCIA' && (
-                    <>
-                      <div className="w-44">
-                        <label className="text-xs">Cuenta</label>
-                        <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
-                          <option value="">Selecciona...</option>
-                          {cuentas.map((c) => (
-                            <option key={c.id} value={c.id}>{c.nombre}</option>
-                          ))}
-                        </Select>
-                      </div>
-                      <div>
-                        <label className="text-xs block mb-1">Comprobante</label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => setComprobante(e.target.files?.[0] || null)}
-                          className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:font-medium hover:file:bg-secondary/70"
-                        />
-                      </div>
-                    </>
-                  )}
-                  <Button size="sm" onClick={registrarAbono} disabled={guardando}>
-                    {guardando ? 'Guardando…' : 'Registrar abono'}
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmarCancelar(true)}>
-                    Cancelar apartado
-                  </Button>
+                  <div>
+                    <label className="text-xs block mb-1">Comprobante</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+                      className="text-xs file:mr-2 file:rounded-md file:border-0 file:bg-secondary file:px-2.5 file:py-1 file:text-xs file:font-medium hover:file:bg-secondary/70"
+                    />
+                  </div>
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button size="sm" onClick={registrarAbono} disabled={guardando}>
+                  {guardando ? 'Guardando…' : 'Registrar abono'}
+                </Button>
+                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmarCancelar(true)}>
+                  Cancelar apartado
+                </Button>
+                {apartado.ticketPdfUrl && (
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer">
+                      <FileText className="w-3.5 h-3.5" />
+                      Ver comprobante (PDF)
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
 
-              {apartado.notas && <p className="text-xs text-muted-foreground">Notas: {apartado.notas}</p>}
-              {mensaje && <p className="text-sm">{mensaje}</p>}
-              {(ticketLink || ticketPdfUrl) && (
-                <div className="flex flex-wrap gap-2">
-                  {ticketLink && (
-                    <Button variant="outline" size="sm" asChild>
-                      <a href={ticketLink} target="_blank" rel="noreferrer">
-                        <Send className="w-3.5 h-3.5" />
-                        Enviar comprobante por WhatsApp
-                      </a>
-                    </Button>
-                  )}
-                  {ticketPdfUrl && (
-                    <Button variant="outline" size="sm" asChild>
-                      <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
-                        <FileText className="w-3.5 h-3.5" />
-                        Ver comprobante (PDF)
-                      </a>
-                    </Button>
-                  )}
-                </div>
+          {apartado.estado !== 'ACTIVO' && apartado.ticketPdfUrl && (
+            <Button variant="outline" size="sm" asChild>
+              <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer">
+                <FileText className="w-3.5 h-3.5" />
+                Ver comprobante (PDF)
+              </a>
+            </Button>
+          )}
+
+          {apartado.notas && <p className="text-xs text-muted-foreground">Notas: {apartado.notas}</p>}
+          {mensaje && <p className="text-sm">{mensaje}</p>}
+          {(ticketLink || ticketPdfUrl) && (
+            <div className="flex flex-wrap gap-2">
+              {ticketLink && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={ticketLink} target="_blank" rel="noreferrer">
+                    <Send className="w-3.5 h-3.5" />
+                    Enviar comprobante por WhatsApp
+                  </a>
+                </Button>
+              )}
+              {ticketPdfUrl && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                    <FileText className="w-3.5 h-3.5" />
+                    Ver comprobante actualizado (PDF)
+                  </a>
+                </Button>
               )}
             </div>
-          </td>
-        </tr>
+          )}
+        </div>
       )}
 
       <ConfirmDialog
@@ -672,7 +901,7 @@ function ApartadoFila({
         onConfirm={cancelar}
         loading={cancelando}
       />
-    </>
+    </div>
   );
 }
 
@@ -711,7 +940,6 @@ function NuevoApartadoForm({
   const [sucursalStockId, setSucursalStockId] = useState('');
   const [busquedaProducto, setBusquedaProducto] = useState('');
   const [existencias, setExistencias] = useState<Existencia[]>([]);
-  const [existenciaKey, setExistenciaKey] = useState('');
   const [cantidad, setCantidad] = useState(1);
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
 
@@ -752,10 +980,12 @@ function NuevoApartadoForm({
 
   const totalCarrito = carrito.reduce((acc, i) => acc + i.cantidad * i.precioUnitario, 0);
 
-  function agregarAlCarrito() {
-    if (!existenciaKey || !sucursalStockId) return;
-    const existencia = existencias.find((e) => claveExistencia(e) === existenciaKey);
-    if (!existencia) return;
+  // Se agrega directo al tocar el renglón del resultado de búsqueda (ver
+  // más abajo) en vez de elegirlo en un <select> y luego dar clic aparte en
+  // "Agregar" — un paso menos, y se ve la foto de cada opción antes de
+  // elegir en vez de una línea de texto comprimida.
+  function agregarAlCarrito(existencia: Existencia) {
+    if (!sucursalStockId) return;
     const sucursal = sucursales.find((s) => String(s.id) === sucursalStockId);
 
     setCarrito((prev) => [
@@ -773,7 +1003,7 @@ function NuevoApartadoForm({
         precioUnitario: Number(existencia.variante.producto.precioVenta),
       },
     ]);
-    setExistenciaKey('');
+    setBusquedaProducto('');
     setCantidad(1);
   }
 
@@ -792,7 +1022,6 @@ function NuevoApartadoForm({
     setSucursalStockId('');
     setBusquedaProducto('');
     setExistencias([]);
-    setExistenciaKey('');
     setCantidad(1);
     setCarrito([]);
     setFechaLimite('');
@@ -939,7 +1168,7 @@ function NuevoApartadoForm({
           <div className="space-y-3 border-t border-border pt-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Artículos (pueden venir de cualquier sucursal)</p>
             <div className="flex flex-wrap items-end gap-2">
-              <div className="w-40">
+              <div className="w-44">
                 <label>Sucursal de stock</label>
                 <Select value={sucursalStockId} onChange={(e) => setSucursalStockId(e.target.value)}>
                   <option value="">Selecciona...</option>
@@ -948,43 +1177,56 @@ function NuevoApartadoForm({
                   ))}
                 </Select>
               </div>
-              <div className="w-44">
+              <div className="relative min-w-[200px] flex-1">
                 <label>Buscar SKU / producto</label>
-                <Input value={busquedaProducto} onChange={(e) => setBusquedaProducto(e.target.value)} />
-              </div>
-              <div className="flex items-end gap-1.5">
-                {existenciaKey && (
-                  <ProductoThumb
-                    url={imagenPrincipal(
-                      existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.producto,
-                      existencias.find((e) => claveExistencia(e) === existenciaKey)?.variante.color
-                    )}
-                    alt=""
-                    size={32}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    value={busquedaProducto}
+                    onChange={(e) => setBusquedaProducto(e.target.value)}
+                    placeholder={sucursalStockId ? 'Nombre o SKU…' : 'Elige primero la sucursal de stock'}
+                    disabled={!sucursalStockId}
+                    className="pl-9"
                   />
-                )}
-                <div className="w-64">
-                  <label>Producto</label>
-                  <Select value={existenciaKey} onChange={(e) => setExistenciaKey(e.target.value)}>
-                    <option value="">Selecciona...</option>
-                    {existencias.map((e) => (
-                      <option key={claveExistencia(e)} value={claveExistencia(e)}>
-                        {e.variante.producto.nombre} {e.variante.talla ? `(${e.variante.talla.valor})` : ''} — {e.variante.sku} —{' '}
-                        {e.proveedor?.nombre ?? 'sin proveedor'} — stock: {e.stockActual}
-                      </option>
-                    ))}
-                  </Select>
                 </div>
               </div>
               <div className="w-20">
                 <label>Cantidad</label>
                 <Input type="number" min={1} value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
               </div>
-              <Button variant="outline" size="sm" onClick={agregarAlCarrito} disabled={!existenciaKey}>
-                <Plus className="w-3.5 h-3.5" />
-                Agregar
-              </Button>
             </div>
+
+            {/* Resultados: una fila por existencia, con foto — se agrega
+                directo al tocarla (ver agregarAlCarrito), sin un paso
+                aparte de "elegir y luego dar clic en Agregar". */}
+            {sucursalStockId &&
+              busquedaProducto.trim().length > 0 &&
+              (existencias.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin existencias que coincidan con esa búsqueda.</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                  {existencias.map((e) => (
+                    <button
+                      key={claveExistencia(e)}
+                      type="button"
+                      onClick={() => agregarAlCarrito(e)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-secondary"
+                    >
+                      <ProductoThumb url={imagenPrincipal(e.variante.producto, e.variante.color)} alt="" size={36} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {e.variante.producto.nombre}
+                          {e.variante.talla ? ` (${e.variante.talla.valor})` : ''}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          SKU {e.variante.sku} · {e.proveedor?.nombre ?? 'sin proveedor'} · stock: {e.stockActual}
+                        </div>
+                      </div>
+                      <Plus className="w-4 h-4 shrink-0 text-primary" />
+                    </button>
+                  ))}
+                </div>
+              ))}
 
             {carrito.length > 0 && (
               <div className="rounded-lg border border-border divide-y divide-border">
@@ -1014,18 +1256,31 @@ function NuevoApartadoForm({
             </label>
 
             {conAnticipo && (
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="w-28">
-                  <label>Monto</label>
-                  <Input type="number" min={0} step="0.01" value={montoAnticipo} onChange={(e) => setMontoAnticipo(e.target.value)} />
-                </div>
-                <div className="w-36">
-                  <label>Método</label>
-                  <Select value={metodoAnticipo} onChange={(e) => setMetodoAnticipo(e.target.value as typeof metodoAnticipo)}>
-                    {METODOS_PAGO.map((m) => (
-                      <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
-                    ))}
-                  </Select>
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-28">
+                    <label>Monto</label>
+                    <Input type="number" min={0} step="0.01" value={montoAnticipo} onChange={(e) => setMontoAnticipo(e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {METODOS_PAGO.map((m) => {
+                      const activo = metodoAnticipo === m.valor;
+                      const Icono = m.valor === 'EFECTIVO' ? Banknote : m.valor === 'TARJETA' ? CreditCard : Landmark;
+                      return (
+                        <button
+                          key={m.valor}
+                          type="button"
+                          onClick={() => setMetodoAnticipo(m.valor)}
+                          className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors ${
+                            activo ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:bg-secondary'
+                          }`}
+                        >
+                          <Icono className="w-4 h-4" />
+                          {m.etiqueta}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 {metodoAnticipo === 'TRANSFERENCIA' && (
                   <>
