@@ -9,6 +9,7 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const { subirImagen, borrarImagen } = require('../config/cloudinary');
 const { generarCodigoInterno } = require('../utils/codigoInterno');
 const { generarCatalogoPdf } = require('../utils/catalogoPdf');
+const { generarReporteExistencias } = require('../utils/existenciasExcel');
 
 const router = express.Router();
 
@@ -48,6 +49,28 @@ function filtroVariantesDeProveedor(proveedorId) {
       },
     },
   };
+}
+
+// Arma el texto "Marca: X   ·   Talla: Y   ·   ..." que se muestra en el
+// encabezado del catálogo PDF y del reporte de existencias, para que quien
+// lo recibe sepa qué recorte del catálogo es. Compartido entre las dos
+// rutas para no tener la misma consulta de nombres duplicada dos veces.
+async function describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q }) {
+  const partes = [];
+  if (q) partes.push(`Búsqueda: "${q}"`);
+  const [marca, categoria, modelo, talla, proveedor] = await Promise.all([
+    marcaId ? prisma.marca.findUnique({ where: { id: Number(marcaId) } }) : null,
+    categoriaId ? prisma.categoria.findUnique({ where: { id: Number(categoriaId) } }) : null,
+    modeloId ? prisma.modelo.findUnique({ where: { id: Number(modeloId) } }) : null,
+    tallaId ? prisma.talla.findUnique({ where: { id: Number(tallaId) } }) : null,
+    proveedorId ? prisma.proveedor.findUnique({ where: { id: Number(proveedorId) } }) : null,
+  ]);
+  if (marca) partes.push(`Marca: ${marca.nombre}`);
+  if (modelo) partes.push(`Modelo: ${modelo.nombre}`);
+  if (categoria) partes.push(`Categoría: ${categoria.nombre}`);
+  if (talla) partes.push(`Talla: ${talla.valor}`);
+  if (proveedor) partes.push(`Proveedor: ${proveedor.nombre}`);
+  return partes.join('   ·   ');
 }
 
 // Campos por los que se puede pedir orden en GET /productos (?ordenarPor=).
@@ -291,20 +314,7 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
 
   // Descripción de los filtros aplicados, para mostrarla en el encabezado
   // del PDF (así el que lo recibe sabe qué recorte del catálogo es).
-  const partesFiltro = [];
-  if (q) partesFiltro.push(`Búsqueda: "${q}"`);
-  const [marca, categoria, modelo, talla, proveedor] = await Promise.all([
-    marcaId ? prisma.marca.findUnique({ where: { id: Number(marcaId) } }) : null,
-    categoriaId ? prisma.categoria.findUnique({ where: { id: Number(categoriaId) } }) : null,
-    modeloId ? prisma.modelo.findUnique({ where: { id: Number(modeloId) } }) : null,
-    tallaId ? prisma.talla.findUnique({ where: { id: Number(tallaId) } }) : null,
-    proveedorId ? prisma.proveedor.findUnique({ where: { id: Number(proveedorId) } }) : null,
-  ]);
-  if (marca) partesFiltro.push(`Marca: ${marca.nombre}`);
-  if (modelo) partesFiltro.push(`Modelo: ${modelo.nombre}`);
-  if (categoria) partesFiltro.push(`Categoría: ${categoria.nombre}`);
-  if (talla) partesFiltro.push(`Talla: ${talla.valor}`);
-  if (proveedor) partesFiltro.push(`Proveedor: ${proveedor.nombre}`);
+  const filtrosTexto = await describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q });
 
   // ?formato=una-pagina genera un solo PDF largo sin cortes (pensado para
   // compartir digitalmente); cualquier otro valor (o ausente) usa el
@@ -313,13 +323,77 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
 
   const buffer = await generarCatalogoPdf(productos, {
     incluirPrecio: incluirPrecio !== '0',
-    filtrosTexto: partesFiltro.join('   ·   '),
+    filtrosTexto,
     unaPagina,
   });
 
   const sufijoFormato = unaPagina ? '-una-pagina' : '';
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte${sufijoFormato}-${Date.now()}.pdf"`);
+  res.send(buffer);
+}));
+
+// GET /productos/reporte-existencias - reporte de existencias en Excel, con
+// los mismos filtros que el catálogo (marca, categoría, modelo, talla,
+// proveedor, texto): una fila por talla/color con la CANTIDAD exacta en
+// existencia (ver utils/existenciasExcel.js). El catálogo en PDF de arriba
+// solo alcanza a mostrar qué tallas hay disponibles (es una cuadrícula de
+// fotos, no hay espacio para números) — para "cuánto hay de cada una" está
+// este reporte. Pensado, por ejemplo, para mandarle a un proveedor
+// exactamente lo que se tiene de él sin tener que darle acceso al panel.
+//
+// A diferencia de GET /productos/exportar-excel (productosImportExport.js),
+// este archivo es de SOLO LECTURA: no usa las columnas que espera el
+// importador, no se puede volver a subir tal cual.
+//
+// Se monta ANTES de "GET /:id" por la misma razón que el resto de las
+// rutas de arriba.
+router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) => {
+  const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q } = req.query;
+
+  const where = {
+    activo: true,
+    ...(marcaId ? { marcaId: Number(marcaId) } : {}),
+    ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
+    ...(modeloId ? { modeloId: Number(modeloId) } : {}),
+    ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
+    ...filtroVariantesDeProveedor(proveedorId),
+    ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
+  };
+
+  const total = await prisma.producto.count({ where });
+  if (total === 0) {
+    return res.status(404).json({ error: 'No hay productos que coincidan con estos filtros.' });
+  }
+
+  const productos = await prisma.producto.findMany({
+    where,
+    include: {
+      marca: true,
+      modelo: true,
+      categoria: true,
+      variantes: {
+        where: { activo: true },
+        include: {
+          talla: true,
+          // Igual que en catalogo-pdf: si se filtró por proveedor, aquí se
+          // acotan las existencias a solo las de ESE proveedor, para que la
+          // cantidad del reporte sea la de él, no el total de todos.
+          existencias: {
+            include: { sucursal: true },
+            ...(proveedorId ? { where: { proveedorId: Number(proveedorId) } } : {}),
+          },
+        },
+      },
+    },
+    orderBy: { nombre: 'asc' },
+  });
+
+  const filtrosTexto = await describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q });
+  const buffer = generarReporteExistencias(productos, { filtrosTexto });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="existencias-camino-al-deporte-${Date.now()}.xlsx"`);
   res.send(buffer);
 }));
 

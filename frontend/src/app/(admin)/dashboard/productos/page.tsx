@@ -166,6 +166,7 @@ export default function ProductosPage() {
     filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || filtroProveedorId || busqueda
   );
   const [exportandoPdf, setExportandoPdf] = useState(false);
+  const [exportandoExistencias, setExportandoExistencias] = useState(false);
   const [incluirPrecioPdf, setIncluirPrecioPdf] = useState(true);
   // 'multipagina': tamaño carta con saltos de página, para imprimir.
   // 'unaPagina': un solo PDF largo sin cortes, para compartir por WhatsApp/etc.
@@ -211,6 +212,33 @@ export default function ProductosPage() {
   const [variantesForm, setVariantesForm] = useState<VarianteForm[]>([nuevaVarianteForm()]);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  // Reporte de existencias (Excel): mismos filtros que el catálogo PDF, pero
+  // con la CANTIDAD exacta por talla/color en vez de solo "disponible/no
+  // disponible" — el catálogo en cuadrícula no tiene espacio para números.
+  // Pensado para, por ejemplo, filtrar por un proveedor y mandarle
+  // exactamente lo que se tiene de él, sin darle acceso al sistema.
+  async function exportarReporteExistencias() {
+    setExportandoExistencias(true);
+    const qs = new URLSearchParams();
+    if (busqueda) qs.set('q', busqueda);
+    if (filtroMarcaId) qs.set('marcaId', filtroMarcaId);
+    if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
+    if (filtroModeloId) qs.set('modeloId', filtroModeloId);
+    if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    if (filtroProveedorId) qs.set('proveedorId', filtroProveedorId);
+    try {
+      await apiDownload(`/productos/reporte-existencias?${qs.toString()}`, `existencias-camino-al-deporte-${Date.now()}.xlsx`);
+    } catch (err) {
+      toast({
+        title: 'No se pudo generar el reporte',
+        description: err instanceof ApiError ? err.message : 'Intenta de nuevo.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExportandoExistencias(false);
+    }
+  }
 
   // Exporta a PDF el catálogo con los filtros que están aplicados en este
   // momento en la pantalla (misma idea que "cargarProductos": mismos 5
@@ -575,6 +603,10 @@ export default function ProductosPage() {
         <Button variant="outline" size="sm" onClick={exportarCatalogoPdf} disabled={exportandoPdf}>
           <FileDown className="w-3.5 h-3.5" />
           {exportandoPdf ? 'Generando PDF...' : incluirPrecioPdf ? 'Exportar catálogo PDF' : 'Exportar catálogo de mayoreo'}
+        </Button>
+        <Button variant="outline" size="sm" onClick={exportarReporteExistencias} disabled={exportandoExistencias}>
+          <FileSpreadsheet className="w-3.5 h-3.5" />
+          {exportandoExistencias ? 'Generando...' : 'Exportar existencias (Excel)'}
         </Button>
       </div>
 
