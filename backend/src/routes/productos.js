@@ -29,6 +29,27 @@ const upload = multer({
 
 const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }] } };
 
+// Fragmento de Prisma para "?proveedorId=": productos con al menos una
+// variante activa surtida por ese proveedor — ya sea porque ES el
+// proveedor "por defecto" de esa variante (ProductoVariante.proveedorId) o
+// porque ya le registraron stock actual (>0) en algún renglón de
+// Existencia, en cualquier sucursal. Mismo criterio que ya usa GET
+// /inventario/existencias?proveedorId= (ver ese comentario ahí): "de este
+// proveedor" significa lo mismo en toda la app — lo que ya tiene, más lo
+// que le toca surtir.
+function filtroVariantesDeProveedor(proveedorId) {
+  if (!proveedorId) return {};
+  const id = Number(proveedorId);
+  return {
+    variantes: {
+      some: {
+        activo: true,
+        OR: [{ proveedorId: id }, { existencias: { some: { proveedorId: id, stockActual: { gt: 0 } } } }],
+      },
+    },
+  };
+}
+
 // Campos por los que se puede pedir orden en GET /productos (?ordenarPor=).
 // "nombre" y "precio" son columnas directas de Producto, así que se ordenan
 // con el orderBy normal de Prisma. "stock" NO es una columna: es la suma de
@@ -47,7 +68,7 @@ const CAMPOS_ORDEN = ['nombre', 'precio', 'stock', 'estado'];
 // orden correcto para esa página — y luego hidrata esos ids con el include
 // completo de siempre. El total viene de prisma.producto.count(where), igual
 // que en los demás campos de orden, para no duplicar la lógica de filtros.
-async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId, tallaId, q, direccion, pageNum, limitNum, include }) {
+async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId, tallaId, proveedorId, q, direccion, pageNum, limitNum, include }) {
   const condiciones = [Prisma.sql`p.activo = true`];
   if (marcaId) condiciones.push(Prisma.sql`p.marca_id = ${Number(marcaId)}`);
   if (categoriaId) condiciones.push(Prisma.sql`p.categoria_id = ${Number(categoriaId)}`);
@@ -55,6 +76,24 @@ async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId,
   if (tallaId) {
     condiciones.push(
       Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id = ${Number(tallaId)} AND activo = true)`
+    );
+  }
+  if (proveedorId) {
+    // Mismo criterio que filtroVariantesDeProveedor() de arriba (proveedor
+    // "por defecto" de la variante, o ya con stock actual >0 registrado),
+    // pero como subconsulta SQL porque este camino (ordenar por stock) no
+    // pasa por el "where" de Prisma normal.
+    condiciones.push(
+      Prisma.sql`p.id IN (
+        SELECT pv.producto_id FROM producto_variantes pv
+        WHERE pv.activo = true AND (
+          pv.proveedor_id = ${Number(proveedorId)}
+          OR EXISTS (
+            SELECT 1 FROM existencias ex
+            WHERE ex.variante_id = pv.id AND ex.proveedor_id = ${Number(proveedorId)} AND ex.stock_actual > 0
+          )
+        )
+      )`
     );
   }
   if (q) condiciones.push(Prisma.sql`p.nombre ILIKE ${`%${String(q)}%`}`);
@@ -102,6 +141,11 @@ router.use('/', require('./catalogoExterno'));
 // producto, así que filtra a los productos que tengan AL MENOS una variante
 // activa con esa talla (para poder responder rápido "qué productos hay
 // disponibles en el número 27", por ejemplo).
+// ?proveedorId= es del mismo tipo que ?tallaId= (vive en la variante, no en
+// el producto): filtra a los productos que tengan al menos una variante
+// donde ese proveedor sea el "por defecto" o ya tenga stock actual >0
+// registrado (ver filtroVariantesDeProveedor arriba) — para poder ver o
+// exportar "lo que tengo de tal proveedor".
 //
 // Paginado (?page=, ?limit=, tope 100): con cientos de productos, cada uno
 // con su lista de variantes + existencias + imágenes, traer todo en una sola
@@ -111,7 +155,7 @@ router.use('/', require('./catalogoExterno'));
 // solo el total (ver dashboard de inicio, que antes traía el catálogo
 // completo nada más para contar cuántos productos hay).
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, modeloId, tallaId, q, page, limit, ordenarPor, orden } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q, page, limit, ordenarPor, orden } = req.query;
 
   const pageNum = Math.max(1, Number(page) || 1);
   const limitNum = Math.min(100, Math.max(1, Number(limit) || 30));
@@ -126,6 +170,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
     ...(modeloId ? { modeloId: Number(modeloId) } : {}),
     ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
+    ...filtroVariantesDeProveedor(proveedorId),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
@@ -154,6 +199,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
       categoriaId,
       modeloId,
       tallaId,
+      proveedorId,
       q,
       direccion,
       pageNum,
@@ -198,7 +244,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 const MAX_PRODUCTOS_CATALOGO_PDF = 400;
 
 router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
-  const { marcaId, categoriaId, modeloId, tallaId, q, incluirPrecio, formato } = req.query;
+  const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q, incluirPrecio, formato } = req.query;
 
   const where = {
     activo: true,
@@ -206,6 +252,7 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
     ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
     ...(modeloId ? { modeloId: Number(modeloId) } : {}),
     ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
+    ...filtroVariantesDeProveedor(proveedorId),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
@@ -215,7 +262,7 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
   }
   if (total > MAX_PRODUCTOS_CATALOGO_PDF) {
     return res.status(400).json({
-      error: `Hay ${total} productos con estos filtros; el máximo para un PDF es ${MAX_PRODUCTOS_CATALOGO_PDF}. Acota con marca, categoría, modelo o talla.`,
+      error: `Hay ${total} productos con estos filtros; el máximo para un PDF es ${MAX_PRODUCTOS_CATALOGO_PDF}. Acota con marca, categoría, modelo, talla o proveedor.`,
     });
   }
 
@@ -225,7 +272,17 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
       marca: true,
       variantes: {
         where: { activo: true },
-        include: { talla: true, existencias: { select: { stockActual: true } } },
+        include: {
+          talla: true,
+          // Si se filtró por proveedor, aquí también se acotan las
+          // existencias que llegan a catalogoPdf.js a solo las de ESE
+          // proveedor — así "tallas disponibles" en el PDF refleja lo que
+          // de verdad tiene ese proveedor, no el total sumando a todos.
+          existencias: {
+            select: { stockActual: true },
+            ...(proveedorId ? { where: { proveedorId: Number(proveedorId) } } : {}),
+          },
+        },
       },
       ...IMAGENES_INCLUDE,
     },
@@ -236,16 +293,18 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
   // del PDF (así el que lo recibe sabe qué recorte del catálogo es).
   const partesFiltro = [];
   if (q) partesFiltro.push(`Búsqueda: "${q}"`);
-  const [marca, categoria, modelo, talla] = await Promise.all([
+  const [marca, categoria, modelo, talla, proveedor] = await Promise.all([
     marcaId ? prisma.marca.findUnique({ where: { id: Number(marcaId) } }) : null,
     categoriaId ? prisma.categoria.findUnique({ where: { id: Number(categoriaId) } }) : null,
     modeloId ? prisma.modelo.findUnique({ where: { id: Number(modeloId) } }) : null,
     tallaId ? prisma.talla.findUnique({ where: { id: Number(tallaId) } }) : null,
+    proveedorId ? prisma.proveedor.findUnique({ where: { id: Number(proveedorId) } }) : null,
   ]);
   if (marca) partesFiltro.push(`Marca: ${marca.nombre}`);
   if (modelo) partesFiltro.push(`Modelo: ${modelo.nombre}`);
   if (categoria) partesFiltro.push(`Categoría: ${categoria.nombre}`);
   if (talla) partesFiltro.push(`Talla: ${talla.valor}`);
+  if (proveedor) partesFiltro.push(`Proveedor: ${proveedor.nombre}`);
 
   // ?formato=una-pagina genera un solo PDF largo sin cortes (pensado para
   // compartir digitalmente); cualquier otro valor (o ausente) usa el

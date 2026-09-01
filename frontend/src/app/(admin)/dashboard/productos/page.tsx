@@ -161,7 +161,10 @@ export default function ProductosPage() {
   const [filtroCategoriaId, setFiltroCategoriaId] = useState('');
   const [filtroModeloId, setFiltroModeloId] = useState('');
   const [filtroTallaId, setFiltroTallaId] = useState('');
-  const hayFiltrosActivos = Boolean(filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || busqueda);
+  const [filtroProveedorId, setFiltroProveedorId] = useState('');
+  const hayFiltrosActivos = Boolean(
+    filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || filtroProveedorId || busqueda
+  );
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [incluirPrecioPdf, setIncluirPrecioPdf] = useState(true);
   // 'multipagina': tamaño carta con saltos de página, para imprimir.
@@ -222,6 +225,7 @@ export default function ProductosPage() {
     if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
     if (filtroModeloId) qs.set('modeloId', filtroModeloId);
     if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    if (filtroProveedorId) qs.set('proveedorId', filtroProveedorId);
     // Sin precios = catálogo de mayoreo: mismas fotos, nombre y tallas
     // disponibles, pero sin revelar el precio de lista (ver
     // ?incluirPrecio= en GET /productos/catalogo-pdf).
@@ -251,6 +255,7 @@ export default function ProductosPage() {
     if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
     if (filtroModeloId) qs.set('modeloId', filtroModeloId);
     if (filtroTallaId) qs.set('tallaId', filtroTallaId);
+    if (filtroProveedorId) qs.set('proveedorId', filtroProveedorId);
     qs.set('ordenarPor', ordenCampo);
     qs.set('orden', ordenDireccion);
     // Se guarda ANTES de agregar "page"/"limit": es el criterio que se
@@ -298,7 +303,7 @@ export default function ProductosPage() {
   useEffect(() => {
     cargarProductos(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId, ordenCampo, ordenDireccion]);
+  }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId, filtroProveedorId, ordenCampo, ordenDireccion]);
 
   // Los modelos del filtro dependen de la marca elegida ahí (si no hay
   // ninguna, se listan todos). Al cambiar la marca del filtro se limpia el
@@ -315,6 +320,7 @@ export default function ProductosPage() {
     setFiltroCategoriaId('');
     setFiltroModeloId('');
     setFiltroTallaId('');
+    setFiltroProveedorId('');
     cargarProductos(1);
   }
 
@@ -531,6 +537,16 @@ export default function ProductosPage() {
             {tallas.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.tipo}: {t.valor}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-44">
+          <Select value={filtroProveedorId} onChange={(e) => setFiltroProveedorId(e.target.value)}>
+            <option value="">Todos los proveedores</option>
+            {proveedores.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nombre}
               </option>
             ))}
           </Select>
