@@ -1043,10 +1043,7 @@ export default function VentasPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start">
         {/* Columna izquierda: elegir qué se vende — sucursal, buscador,
             categorías y el catálogo visual (tarjetas con foto, como en
-            tienda). El carrito y el cobro viven en el panel de la derecha
-            (ver más abajo), que se queda fijo en pantalla mientras se sigue
-            buscando aquí — así nunca hay que bajar hasta el fondo para dar
-            clic en "Cobrar". */}
+            tienda). */}
         <div className="card space-y-4">
           <div className="flex flex-col sm:flex-row gap-2.5">
             <div className="sm:w-52 shrink-0">
@@ -1207,47 +1204,6 @@ export default function VentasPage() {
             );
           })()}
 
-          {/* Acciones rápidas: escanear/buscar solo regresan el foco al
-              buscador de arriba (el lector de código de barras "escribe"
-              ahí); descuento y vaciar operan directo sobre el ticket de la
-              derecha. */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-border pt-3">
-            <button
-              type="button"
-              onClick={() => busquedaInputRef.current?.focus()}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              <Barcode className="w-4 h-4 shrink-0" />
-              Escanear código
-            </button>
-            <button
-              type="button"
-              onClick={() => busquedaInputRef.current?.focus()}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              <Search className="w-4 h-4 shrink-0" />
-              Buscar producto
-            </button>
-            <button
-              type="button"
-              disabled={carrito.length === 0}
-              onClick={() => setAplicarDescuento(true)}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors disabled:pointer-events-none disabled:opacity-40"
-            >
-              <Tag className="w-4 h-4 shrink-0" />
-              Aplicar descuento
-            </button>
-            <button
-              type="button"
-              disabled={carrito.length === 0}
-              onClick={vaciarCarrito}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
-            >
-              <Trash2 className="w-4 h-4 shrink-0" />
-              Vaciar ticket
-            </button>
-          </div>
-
           {/* Vender algo que no está dado de alta en el catálogo: no
               depende de la búsqueda ni del catálogo visual de arriba — es
               un renglón de cobro aparte que nunca toca inventario (ver
@@ -1322,10 +1278,49 @@ export default function VentasPage() {
           </div>
         </div>
 
-        {/* Columna derecha: el "ticket" — carrito (o el apartado en curso) y
-            el cobro. En pantallas grandes se queda fija (sticky) mientras se
+        {/* Columna derecha: el "ticket" — acciones rápidas, carrito (o el apartado en curso)
+            y el cobro. En pantallas grandes se queda fija (sticky) mientras se
             sigue buscando en la columna izquierda. */}
         <div className="lg:sticky lg:top-4 card space-y-4">
+          {/* Acciones rápidas: escanear, buscar, descuento, vaciar ticket — ahora pegadas
+              arriba del ticket, justo donde siempre están visibles */}
+          <div className="grid grid-cols-2 gap-2 border-b border-border pb-3">
+            <button
+              type="button"
+              onClick={() => busquedaInputRef.current?.focus()}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              <Barcode className="w-4 h-4 shrink-0" />
+              Escanear código
+            </button>
+            <button
+              type="button"
+              onClick={() => busquedaInputRef.current?.focus()}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+            >
+              <Search className="w-4 h-4 shrink-0" />
+              Buscar producto
+            </button>
+            <button
+              type="button"
+              disabled={carrito.length === 0}
+              onClick={() => setAplicarDescuento(true)}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Tag className="w-4 h-4 shrink-0" />
+              Aplicar descuento
+            </button>
+            <button
+              type="button"
+              disabled={carrito.length === 0}
+              onClick={vaciarCarrito}
+              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Trash2 className="w-4 h-4 shrink-0" />
+              Vaciar ticket
+            </button>
+          </div>
+
           {esLocal ? (
             <>
               <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
