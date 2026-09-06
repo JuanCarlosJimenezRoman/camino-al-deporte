@@ -998,6 +998,8 @@ export default function VentasPage() {
     (v) => new Date(v.createdAt).toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' }) === hoyISO
   );
 
+  // ... (el código anterior se mantiene igual hasta el return)
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -1045,6 +1047,7 @@ export default function VentasPage() {
             categorías y el catálogo visual (tarjetas con foto, como en
             tienda). */}
         <div className="card space-y-4">
+          {/* ... contenido de la columna izquierda (sin cambios) ... */}
           <div className="flex flex-col sm:flex-row gap-2.5">
             <div className="sm:w-52 shrink-0">
               {sucursalBloqueada ? (
@@ -1060,9 +1063,6 @@ export default function VentasPage() {
               )}
             </div>
 
-            {/* Buscador: filtra en vivo las tarjetas de abajo. También es
-                donde "escribe" el lector de código de barras — Enter agrega
-                directo (ver manejarEnterBusqueda), sin necesitar mouse. */}
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -1099,10 +1099,6 @@ export default function VentasPage() {
             </div>
           )}
 
-          {/* Categorías: píldoras generadas de Marcas y tallas → Categorías,
-              igual que en Productos — "Todos" siempre primero. Si hay más
-              de 6, el resto se esconde detrás de "Más" para no ocupar
-              varias líneas por default. */}
           <div>
             <h2 className="mb-2 text-sm font-semibold text-muted-foreground">Categorías</h2>
             <div className="flex flex-wrap gap-2">
@@ -1142,9 +1138,6 @@ export default function VentasPage() {
             </div>
           </div>
 
-          {/* Catálogo visual: una tarjeta por producto (agrupa tallas, ver
-              agruparPorProducto). Sin filtro activo solo se pintan las
-              primeras — "Ver todos los productos" quita el límite. */}
           {(() => {
             const productosAgrupados = agruparPorProducto(catalogoGrid);
             const hayFiltro = busqueda.trim().length >= 2 || categoriaId !== '';
@@ -1204,10 +1197,6 @@ export default function VentasPage() {
             );
           })()}
 
-          {/* Vender algo que no está dado de alta en el catálogo: no
-              depende de la búsqueda ni del catálogo visual de arriba — es
-              un renglón de cobro aparte que nunca toca inventario (ver
-              POST /ventas → descripcionLibre). */}
           <div>
             {!mostrarFormLibre ? (
               <Button type="button" variant="outline" size="sm" onClick={() => setMostrarFormLibre(true)} className="gap-1.5">
@@ -1278,446 +1267,446 @@ export default function VentasPage() {
           </div>
         </div>
 
-        {/* Columna derecha: el "ticket" — acciones rápidas, carrito (o el apartado en curso)
-            y el cobro. En pantallas grandes se queda fija (sticky) mientras se
-            sigue buscando en la columna izquierda. */}
-        <div className="lg:sticky lg:top-4 card space-y-4">
-          {/* Acciones rápidas: escanear, buscar, descuento, vaciar ticket — ahora pegadas
-              arriba del ticket, justo donde siempre están visibles */}
-          <div className="grid grid-cols-2 gap-2 border-b border-border pb-3">
-            <button
-              type="button"
-              onClick={() => busquedaInputRef.current?.focus()}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              <Barcode className="w-4 h-4 shrink-0" />
-              Escanear código
-            </button>
-            <button
-              type="button"
-              onClick={() => busquedaInputRef.current?.focus()}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
-            >
-              <Search className="w-4 h-4 shrink-0" />
-              Buscar producto
-            </button>
-            <button
-              type="button"
-              disabled={carrito.length === 0}
-              onClick={() => setAplicarDescuento(true)}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors disabled:pointer-events-none disabled:opacity-40"
-            >
-              <Tag className="w-4 h-4 shrink-0" />
-              Aplicar descuento
-            </button>
-            <button
-              type="button"
-              disabled={carrito.length === 0}
-              onClick={vaciarCarrito}
-              className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
-            >
-              <Trash2 className="w-4 h-4 shrink-0" />
-              Vaciar ticket
-            </button>
-          </div>
+        {/* Columna derecha: el "ticket" — ahora con altura fija y scroll interno */}
+        <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)]">
+          <div className="card h-full flex flex-col space-y-4 overflow-hidden">
+            {/* Acciones rápidas - siempre visibles */}
+            <div className="grid grid-cols-2 gap-2 border-b border-border pb-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => busquedaInputRef.current?.focus()}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+              >
+                <Barcode className="w-4 h-4 shrink-0" />
+                Escanear código
+              </button>
+              <button
+                type="button"
+                onClick={() => busquedaInputRef.current?.focus()}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+              >
+                <Search className="w-4 h-4 shrink-0" />
+                Buscar producto
+              </button>
+              <button
+                type="button"
+                disabled={carrito.length === 0}
+                onClick={() => setAplicarDescuento(true)}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-foreground hover:bg-secondary transition-colors disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Tag className="w-4 h-4 shrink-0" />
+                Aplicar descuento
+              </button>
+              <button
+                type="button"
+                disabled={carrito.length === 0}
+                onClick={vaciarCarrito}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2 h-10 text-xs sm:text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                Vaciar ticket
+              </button>
+            </div>
 
-          {esLocal ? (
-            <>
-              <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
+            {/* Contenido scrolleable del ticket */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {esLocal ? (
+                <>
+                  <h2 className="text-base font-semibold">Ticket {carrito.length > 0 ? `(${carrito.length})` : ''}</h2>
 
-              {carrito.length > 0 ? (
-                <div className="space-y-2 max-h-[38vh] overflow-y-auto p-0.5">
-                  {carrito.map((it) => {
-                    if (it.tipo === 'libre') {
-                      return (
-                        <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-secondary">
-                            <Plus className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium truncate">{it.descripcion}</div>
-                            <div className="text-xs text-muted-foreground truncate">
-                              {formatoMonedaExacto(it.precioUnitario)} c/u · No registrado
-                              {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
+                  {carrito.length > 0 ? (
+                    <div className="space-y-2">
+                      {carrito.map((it) => {
+                        if (it.tipo === 'libre') {
+                          return (
+                            <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-secondary">
+                                <Plus className="w-4 h-4 text-muted-foreground" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium truncate">{it.descripcion}</div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {formatoMonedaExacto(it.precioUnitario)} c/u · No registrado
+                                  {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between">
+                                  <SelectorCantidad cantidad={it.cantidad} onCambiar={(n) => cambiarCantidadCarrito(it.key, n)} />
+                                  <span className="text-sm font-semibold tabular-nums">
+                                    {formatoMonedaExacto(it.precioUnitario * it.cantidad)}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => quitarDelCarrito(it.key)}
+                                aria-label="Quitar de la venta"
+                                className="shrink-0 text-destructive"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
                             </div>
-                            <div className="mt-1 flex items-center justify-between">
-                              <SelectorCantidad cantidad={it.cantidad} onCambiar={(n) => cambiarCantidadCarrito(it.key, n)} />
-                              <span className="text-sm font-semibold tabular-nums">
-                                {formatoMonedaExacto(it.precioUnitario * it.cantidad)}
-                              </span>
+                          );
+                        }
+                        const p = it.existencia.variante.producto;
+                        const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
+                          .filter(Boolean)
+                          .join(' / ');
+                        const precio = Number(p.precioVenta);
+                        return (
+                          <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
+                            <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={44} />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-medium truncate">{p.nombre}</div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {detalle || 'Único'} · {formatoMonedaExacto(precio)}
+                              </div>
+                              <div className="mt-1 flex items-center justify-between">
+                                <SelectorCantidad
+                                  cantidad={it.cantidad}
+                                  onCambiar={(n) => cambiarCantidadCarrito(it.key, n)}
+                                  max={it.existencia.stockActual}
+                                />
+                                <span className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(precio * it.cantidad)}</span>
+                              </div>
                             </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => quitarDelCarrito(it.key)}
+                              aria-label="Quitar de la venta"
+                              className="shrink-0 text-destructive"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
                           </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Busca y agrega uno o más productos para armar la venta.</p>
+                  )}
+
+                  {carrito.length > 0 &&
+                    (!mostrarNota ? (
+                      <button
+                        type="button"
+                        onClick={() => setMostrarNota(true)}
+                        className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                      >
+                        <MessageSquarePlus className="w-3.5 h-3.5" />
+                        Agregar observaciones
+                      </button>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs text-muted-foreground">
+                            Observaciones (solo viajan en el ticket de WhatsApp, no se guardan)
+                          </label>
                           <Button
+                            type="button"
                             variant="ghost"
                             size="icon"
-                            onClick={() => quitarDelCarrito(it.key)}
-                            aria-label="Quitar de la venta"
-                            className="shrink-0 text-destructive"
+                            onClick={() => {
+                              setMostrarNota(false);
+                              setNotaVenta('');
+                            }}
+                            aria-label="Quitar observaciones"
+                            className="shrink-0"
                           >
                             <X className="w-4 h-4" />
                           </Button>
                         </div>
-                      );
-                    }
-                    const p = it.existencia.variante.producto;
-                    const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
-                      .filter(Boolean)
-                      .join(' / ');
-                    const precio = Number(p.precioVenta);
-                    return (
-                      <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
-                        <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={44} />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium truncate">{p.nombre}</div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {detalle || 'Único'} · {formatoMonedaExacto(precio)}
-                          </div>
-                          <div className="mt-1 flex items-center justify-between">
-                            <SelectorCantidad
-                              cantidad={it.cantidad}
-                              onCambiar={(n) => cambiarCantidadCarrito(it.key, n)}
-                              max={it.existencia.stockActual}
-                            />
-                            <span className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(precio * it.cantidad)}</span>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => quitarDelCarrito(it.key)}
-                          aria-label="Quitar de la venta"
-                          className="shrink-0 text-destructive"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Busca y agrega uno o más productos para armar la venta.</p>
-              )}
-
-              {carrito.length > 0 &&
-                (!mostrarNota ? (
-                  <button
-                    type="button"
-                    onClick={() => setMostrarNota(true)}
-                    className="flex items-center gap-1.5 text-sm text-primary hover:underline"
-                  >
-                    <MessageSquarePlus className="w-3.5 h-3.5" />
-                    Agregar observaciones
-                  </button>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs text-muted-foreground">
-                        Observaciones (solo viajan en el ticket de WhatsApp, no se guardan)
-                      </label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setMostrarNota(false);
-                          setNotaVenta('');
-                        }}
-                        aria-label="Quitar observaciones"
-                        className="shrink-0"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    <Input
-                      value={notaVenta}
-                      onChange={(e) => setNotaVenta(e.target.value)}
-                      placeholder="Ej. Entregar en caja, cliente frecuente…"
-                    />
-                  </div>
-                ))}
-
-              {carrito.length > 0 && (
-                <div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
-                    Aplicar descuento
-                  </label>
-                  {aplicarDescuento && (
-                    <div className="mt-2 space-y-2 pl-1">
-                      <div className="flex gap-2">
-                        <div className="w-20">
-                          <Select value={descuentoTipo} onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}>
-                            <option value="PORCENTAJE">%</option>
-                            <option value="MONTO">$</option>
-                          </Select>
-                        </div>
                         <Input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={descuentoValor}
-                          onChange={(e) => setDescuentoValor(e.target.value)}
-                          placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                          value={notaVenta}
+                          onChange={(e) => setNotaVenta(e.target.value)}
+                          placeholder="Ej. Entregar en caja, cliente frecuente…"
                         />
                       </div>
-                      <Input
-                        value={descuentoMotivo}
-                        onChange={(e) => setDescuentoMotivo(e.target.value)}
-                        placeholder="Motivo del descuento (opcional)"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+                    ))}
 
-              {carrito.length > 0 && (
-                <div className="rounded-lg bg-secondary/60 border border-border px-4 py-3">
-                  {descuentoMontoPreview > 0 && (
-                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                      <span>Subtotal</span>
-                      <span className="tabular-nums">{formatoMonedaExacto(subtotalVenta)}</span>
+                  {carrito.length > 0 && (
+                    <div>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={aplicarDescuento} onChange={(e) => setAplicarDescuento(e.target.checked)} />
+                        Aplicar descuento
+                      </label>
+                      {aplicarDescuento && (
+                        <div className="mt-2 space-y-2 pl-1">
+                          <div className="flex gap-2">
+                            <div className="w-20">
+                              <Select value={descuentoTipo} onChange={(e) => setDescuentoTipo(e.target.value as typeof descuentoTipo)}>
+                                <option value="PORCENTAJE">%</option>
+                                <option value="MONTO">$</option>
+                              </Select>
+                            </div>
+                            <Input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={descuentoValor}
+                              onChange={(e) => setDescuentoValor(e.target.value)}
+                              placeholder={descuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                            />
+                          </div>
+                          <Input
+                            value={descuentoMotivo}
+                            onChange={(e) => setDescuentoMotivo(e.target.value)}
+                            placeholder="Motivo del descuento (opcional)"
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
-                  {descuentoMontoPreview > 0 && (
-                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                      <span>Descuento</span>
-                      <span className="tabular-nums">-{formatoMonedaExacto(descuentoMontoPreview)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-sm font-medium text-muted-foreground">Total</span>
-                    <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(totalVenta)}</span>
-                  </div>
-                </div>
-              )}
 
-              {!mostrarDatosCliente ? (
-                <button
-                  type="button"
-                  onClick={() => setMostrarDatosCliente(true)}
-                  className="flex items-center gap-1.5 text-sm text-primary hover:underline"
-                >
-                  <User className="w-3.5 h-3.5" />
-                  Agregar cliente (opcional)
-                </button>
-              ) : (
-                <div className="space-y-3 rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Cliente (opcional)</span>
-                    <Button
+                  {carrito.length > 0 && (
+                    <div className="rounded-lg bg-secondary/60 border border-border px-4 py-3">
+                      {descuentoMontoPreview > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                          <span>Subtotal</span>
+                          <span className="tabular-nums">{formatoMonedaExacto(subtotalVenta)}</span>
+                        </div>
+                      )}
+                      {descuentoMontoPreview > 0 && (
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                          <span>Descuento</span>
+                          <span className="tabular-nums">-{formatoMonedaExacto(descuentoMontoPreview)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-sm font-medium text-muted-foreground">Total</span>
+                        <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(totalVenta)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {!mostrarDatosCliente ? (
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setMostrarDatosCliente(false)}
-                      aria-label="Ocultar datos del cliente"
-                      className="shrink-0"
+                      onClick={() => setMostrarDatosCliente(true)}
+                      className="flex items-center gap-1.5 text-sm text-primary hover:underline"
                     >
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
-                  </div>
+                      <User className="w-3.5 h-3.5" />
+                      Agregar cliente (opcional)
+                    </button>
+                  ) : (
+                    <div className="space-y-3 rounded-lg border border-border p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Cliente (opcional)</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setMostrarDatosCliente(false)}
+                          aria-label="Ocultar datos del cliente"
+                          className="shrink-0"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div>
+                        <label>Cliente</label>
+                        <Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
+                      </div>
+                      <div>
+                        <label>Teléfono</label>
+                        <Input
+                          value={clienteTelefono}
+                          onChange={(e) => setClienteTelefono(e.target.value)}
+                          placeholder="10 dígitos, para mandarle el ticket por WhatsApp"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div>
-                    <label>Cliente</label>
-                    <Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre del cliente" />
+                    <label>Método de pago</label>
+                    <div className="mt-1.5 grid grid-cols-3 gap-2">
+                      {METODOS_PAGO.map((m) => {
+                        const activo = metodoPago === m.valor;
+                        const Icono = m.valor === 'EFECTIVO' ? Banknote : m.valor === 'TARJETA' ? CreditCard : Landmark;
+                        return (
+                          <button
+                            key={m.valor}
+                            type="button"
+                            onClick={() => setMetodoPago(m.valor)}
+                            className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-semibold transition-colors ${
+                              activo ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:bg-secondary'
+                            }`}
+                          >
+                            <Icono className="w-4 h-4" />
+                            {m.etiqueta}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+
+                  {metodoPago === 'EFECTIVO' && (
+                    <div>
+                      <label>Efectivo recibido</label>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={efectivoRecibido}
+                        onChange={(e) => setEfectivoRecibido(e.target.value)}
+                        placeholder="$0.00"
+                      />
+                      {carrito.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(totalVenta.toFixed(2))}>
+                            Exacto
+                          </Button>
+                          {billetesSugeridos(totalVenta).map((b) => (
+                            <Button key={b} type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(String(b))}>
+                              ${b}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                      {efectivoRecibido.trim() && cambio !== null && (
+                        <p className={`text-sm font-semibold mt-1.5 ${cambio < 0 ? 'text-destructive' : 'text-success'}`}>
+                          {cambio < 0
+                            ? `Falta efectivo: ${formatoMonedaExacto(Math.abs(cambio))}`
+                            : `Cambio a dar: ${formatoMonedaExacto(cambio)}`}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {metodoPago === 'TRANSFERENCIA' && (
+                    <>
+                      <div>
+                        <label>Cuenta que recibió el pago</label>
+                        <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
+                          <option value="">Selecciona...</option>
+                          {cuentas.map((c) => (
+                            <option key={c.id} value={c.id}>{c.nombre} {c.banco ? `(${c.banco})` : ''}</option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div>
+                        <label>Foto del comprobante</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setComprobante(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-secondary/70"
+                        />
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2 className="text-base font-semibold">Apartar para el cliente</h2>
+
+                  {seleccion && (
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-card border border-border bg-secondary/40 p-2">
+                        <ProductoThumb url={previewUrl} alt={seleccion?.variante.producto.nombre || ''} size={56} fit="contain" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">{seleccion.variante.producto.nombre}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {seleccion.variante.talla ? `Talla ${seleccion.variante.talla.valor}` : ''}
+                          {seleccion.variante.color ? ` · ${seleccion.variante.color}` : ''}
+                        </div>
+                        <div className="text-xs text-muted-foreground">SKU {seleccion.variante.sku}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <label>Cantidad</label>
+                    <SelectorCantidad cantidad={cantidad} onCambiar={(n) => setCantidad(n)} max={seleccion?.stockActual} />
+                  </div>
+
+                  <div className="rounded-lg bg-secondary/60 border border-border px-4 py-3 flex justify-between items-baseline">
+                    <span className="text-sm font-medium text-muted-foreground">Total</span>
+                    <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(subtotalApartado)}</span>
+                  </div>
+
                   <div>
-                    <label>Teléfono</label>
+                    <label>Nombre del cliente</label>
                     <Input
-                      value={clienteTelefono}
-                      onChange={(e) => setClienteTelefono(e.target.value)}
-                      placeholder="10 dígitos, para mandarle el ticket por WhatsApp"
+                      value={clienteNombreApartado}
+                      onChange={(e) => setClienteNombreApartado(e.target.value)}
+                      placeholder="Nombre completo"
                     />
                   </div>
-                </div>
-              )}
-
-              <div>
-                <label>Método de pago</label>
-                <div className="mt-1.5 grid grid-cols-3 gap-2">
-                  {METODOS_PAGO.map((m) => {
-                    const activo = metodoPago === m.valor;
-                    const Icono = m.valor === 'EFECTIVO' ? Banknote : m.valor === 'TARJETA' ? CreditCard : Landmark;
-                    return (
-                      <button
-                        key={m.valor}
-                        type="button"
-                        onClick={() => setMetodoPago(m.valor)}
-                        className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-semibold transition-colors ${
-                          activo ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:bg-secondary'
-                        }`}
-                      >
-                        <Icono className="w-4 h-4" />
-                        {m.etiqueta}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {metodoPago === 'EFECTIVO' && (
-                <div>
-                  <label>Efectivo recibido</label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={efectivoRecibido}
-                    onChange={(e) => setEfectivoRecibido(e.target.value)}
-                    placeholder="$0.00"
-                  />
-                  {carrito.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(totalVenta.toFixed(2))}>
-                        Exacto
-                      </Button>
-                      {billetesSugeridos(totalVenta).map((b) => (
-                        <Button key={b} type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(String(b))}>
-                          ${b}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-                  {efectivoRecibido.trim() && cambio !== null && (
-                    <p className={`text-sm font-semibold mt-1.5 ${cambio < 0 ? 'text-destructive' : 'text-success'}`}>
-                      {cambio < 0
-                        ? `Falta efectivo: ${formatoMonedaExacto(Math.abs(cambio))}`
-                        : `Cambio a dar: ${formatoMonedaExacto(cambio)}`}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {metodoPago === 'TRANSFERENCIA' && (
-                <>
                   <div>
-                    <label>Cuenta que recibió el pago</label>
-                    <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
-                      <option value="">Selecciona...</option>
-                      {cuentas.map((c) => (
-                        <option key={c.id} value={c.id}>{c.nombre} {c.banco ? `(${c.banco})` : ''}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <label>Foto del comprobante</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => setComprobante(e.target.files?.[0] || null)}
-                      className="block w-full text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-secondary/70"
+                    <label>Teléfono del cliente</label>
+                    <Input
+                      value={clienteTelefonoApartado}
+                      onChange={(e) => setClienteTelefonoApartado(e.target.value)}
+                      placeholder="10 dígitos"
                     />
                   </div>
                 </>
               )}
-            </>
-          ) : (
-            <>
-              <h2 className="text-base font-semibold">Apartar para el cliente</h2>
+            </div>
 
-              {seleccion && (
-                <div className="flex items-center gap-3">
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-card border border-border bg-secondary/40 p-2">
-                    <ProductoThumb url={previewUrl} alt={seleccion?.variante.producto.nombre || ''} size={56} fit="contain" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">{seleccion.variante.producto.nombre}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {seleccion.variante.talla ? `Talla ${seleccion.variante.talla.valor}` : ''}
-                      {seleccion.variante.color ? ` · ${seleccion.variante.color}` : ''}
-                    </div>
-                    <div className="text-xs text-muted-foreground">SKU {seleccion.variante.sku}</div>
-                  </div>
+            {/* Mensajes y botones de acción - siempre visibles al final */}
+            <div className="shrink-0 space-y-3 pt-3 border-t border-border">
+              {mensaje && <p className="rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm">{mensaje}</p>}
+
+              {(ticketLink || ticketPdfUrl) && (
+                <div className="flex flex-wrap gap-2">
+                  {ticketLink && (
+                    <Button size="sm" asChild>
+                      <a href={ticketLink} target="_blank" rel="noreferrer">
+                        <Send className="w-3.5 h-3.5" />
+                        Enviar ticket por WhatsApp
+                      </a>
+                    </Button>
+                  )}
+                  {ticketPdfUrl && (
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
+                        <FileText className="w-3.5 h-3.5" />
+                        Ver ticket (PDF)
+                      </a>
+                    </Button>
+                  )}
+                  {ticketPdfUrl && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      title="Descarga el PDF a tu dispositivo para adjuntarlo a mano en WhatsApp si el envío automático no llegó"
+                    >
+                      <a href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}>
+                        <Download className="w-3.5 h-3.5" />
+                        Descargar PDF
+                      </a>
+                    </Button>
+                  )}
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <label>Cantidad</label>
-                <SelectorCantidad cantidad={cantidad} onCambiar={(n) => setCantidad(n)} max={seleccion?.stockActual} />
-              </div>
-
-              <div className="rounded-lg bg-secondary/60 border border-border px-4 py-3 flex justify-between items-baseline">
-                <span className="text-sm font-medium text-muted-foreground">Total</span>
-                <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(subtotalApartado)}</span>
-              </div>
-
-              <div>
-                <label>Nombre del cliente</label>
-                <Input
-                  value={clienteNombreApartado}
-                  onChange={(e) => setClienteNombreApartado(e.target.value)}
-                  placeholder="Nombre completo"
-                />
-              </div>
-              <div>
-                <label>Teléfono del cliente</label>
-                <Input
-                  value={clienteTelefonoApartado}
-                  onChange={(e) => setClienteTelefonoApartado(e.target.value)}
-                  placeholder="10 dígitos"
-                />
-              </div>
-            </>
-          )}
-
-          {mensaje && <p className="rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm">{mensaje}</p>}
-
-          {(ticketLink || ticketPdfUrl) && (
-            <div className="flex flex-wrap gap-2">
-              {ticketLink && (
-                <Button size="sm" asChild>
-                  <a href={ticketLink} target="_blank" rel="noreferrer">
-                    <Send className="w-3.5 h-3.5" />
-                    Enviar ticket por WhatsApp
-                  </a>
-                </Button>
-              )}
-              {ticketPdfUrl && (
-                <Button variant="outline" size="sm" asChild>
-                  <a href={ticketPdfUrl} target="_blank" rel="noreferrer">
-                    <FileText className="w-3.5 h-3.5" />
-                    Ver ticket (PDF)
-                  </a>
-                </Button>
-              )}
-              {ticketPdfUrl && (
+              {esLocal ? (
                 <Button
-                  variant="outline"
-                  size="sm"
-                  asChild
-                  title="Descarga el PDF a tu dispositivo para adjuntarlo a mano en WhatsApp si el envío automático no llegó"
+                  size="lg"
+                  className="w-full h-12 gap-2 text-base uppercase tracking-wide"
+                  onClick={registrarVenta}
+                  disabled={carrito.length === 0 || guardando}
                 >
-                  <a href={construirLinkDescargaTicket(ticketPdfUrl, ticketFolio)}>
-                    <Download className="w-3.5 h-3.5" />
-                    Descargar PDF
-                  </a>
+                  <CreditCard className="w-4 h-4" />
+                  {guardando ? 'Guardando…' : carrito.length > 0 ? `Cobrar ${formatoMonedaExacto(totalVenta)}` : 'Cobrar'}
+                </Button>
+              ) : (
+                <Button size="lg" className="w-full" onClick={crearApartado} disabled={!seleccion || guardando}>
+                  {guardando ? 'Guardando…' : 'Apartar para el cliente'}
                 </Button>
               )}
             </div>
-          )}
-
-          {esLocal ? (
-            <Button
-              size="lg"
-              className="w-full h-12 gap-2 text-base uppercase tracking-wide"
-              onClick={registrarVenta}
-              disabled={carrito.length === 0 || guardando}
-            >
-              <CreditCard className="w-4 h-4" />
-              {guardando ? 'Guardando…' : carrito.length > 0 ? `Cobrar ${formatoMonedaExacto(totalVenta)}` : 'Cobrar'}
-            </Button>
-          ) : (
-            <Button size="lg" className="w-full" onClick={crearApartado} disabled={!seleccion || guardando}>
-              {guardando ? 'Guardando…' : 'Apartar para el cliente'}
-            </Button>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Ventas de hoy: antes aquí se pintaba la tabla de TODAS las ventas
-          (sin paginar), compitiendo por espacio y scroll justo en la
-          pantalla que se usa para cobrar todo el día. El histórico completo,
-          con filtros de fecha, ya vive en /ventas/historial — aquí solo se
-          deja un resumen compacto de lo vendido hoy, útil para el cajero sin
-          estorbar el flujo de venta. */}
+      {/* Ventas de hoy */}
       <div className="card space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Ventas de hoy {ventasHoy.length > 0 ? `(${ventasHoy.length})` : ''}</h2>
