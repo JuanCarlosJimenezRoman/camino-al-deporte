@@ -30,6 +30,25 @@ const upload = multer({
 
 const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }] } };
 
+const PRODUCTO_INCLUDE_COMPLETO = {
+  marca: true,
+  modelo: true,
+  categoria: true,
+  variantes: {
+    where: { activo: true },
+    include: {
+      talla: true,
+      proveedor: { select: { id: true, nombre: true } },
+      existencias: { 
+        include: { 
+          sucursal: true, 
+          proveedor: { select: { id: true, nombre: true } } 
+        } 
+      },
+    },
+  },
+  ...IMAGENES_INCLUDE,
+};
 // Fragmento de Prisma para "?proveedorId=": productos con al menos una
 // variante activa surtida por ese proveedor — ya sea porque ES el
 // proveedor "por defecto" de esa variante (ProductoVariante.proveedorId) o
@@ -197,10 +216,18 @@ async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId,
     prisma.producto.count({ where }),
   ]);
 
+  
   const ids = filas.map((f) => f.id);
   if (ids.length === 0) return { productos: [], total };
 
-  const encontrados = await prisma.producto.findMany({ where: { id: { in: ids } }, include });
+    const includeCompleto = {
+    ...include,
+    imagenes: {  // Forzar que siempre incluya imagenes
+      orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }]
+    }
+  }; 
+  
+  const encontrados = await prisma.producto.findMany({ where: { id: { in: ids } }, include: includeCompleto });
   const porId = new Map(encontrados.map((p) => [p.id, p]));
   const productos = ids.map((id) => porId.get(id)).filter(Boolean);
 
