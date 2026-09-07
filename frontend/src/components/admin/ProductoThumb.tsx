@@ -32,10 +32,13 @@ export function ProductoThumb({
       />
     );
   }
+
+    const urlConTimestamp = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
+
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={url}
+      src={urlConTimestamp}
       alt={alt}
       style={{ width: size, height: size, borderRadius: 6, objectFit: fit, flexShrink: 0 }}
     />
