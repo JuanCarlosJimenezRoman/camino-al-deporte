@@ -377,7 +377,8 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
   const tallaIds = parseIds(tallaId);
   const proveedorIds = parseIds(proveedorId);
 
-  const where = {
+  // 🔥 CONSTRUIR WHERE CON STOCK > 0 para tallas
+  let where = {
     activo: true,
     ...(marcaIds.length === 1 ? { marcaId: marcaIds[0] } : {}),
     ...(marcaIds.length > 1 ? { marcaId: { in: marcaIds } } : {}),
@@ -385,14 +386,50 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
     ...(categoriaIds.length > 1 ? { categoriaId: { in: categoriaIds } } : {}),
     ...(modeloIds.length === 1 ? { modeloId: modeloIds[0] } : {}),
     ...(modeloIds.length > 1 ? { modeloId: { in: modeloIds } } : {}),
-    ...(tallaIds.length > 0 ? { variantes: { some: { tallaId: { in: tallaIds }, activo: true } } } : {}),
     ...(proveedorIds.length > 0 ? filtroVariantesDeProveedor(proveedorId) : {}),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
+  // 🔥 NUEVO: Si hay tallaId, solo traer productos con stock > 0 en esas tallas
+  if (tallaIds.length > 0) {
+    where = {
+      ...where,
+      variantes: {
+        some: {
+          tallaId: { in: tallaIds },
+          activo: true,
+          existencias: {
+            some: {
+              stockActual: { gt: 0 },
+              ...(proveedorIds.length > 0 ? { proveedorId: { in: proveedorIds } } : {}),
+            },
+          },
+        },
+      },
+    };
+  }
+
+  // 🔥 Si hay proveedorId pero NO tallaId, filtrar por stock > 0 del proveedor
+  if (proveedorIds.length > 0 && tallaIds.length === 0) {
+    where = {
+      ...where,
+      variantes: {
+        some: {
+          activo: true,
+          existencias: {
+            some: {
+              stockActual: { gt: 0 },
+              proveedorId: { in: proveedorIds },
+            },
+          },
+        },
+      },
+    };
+  }
+
   const total = await prisma.producto.count({ where });
   if (total === 0) {
-    return res.status(404).json({ error: 'No hay productos que coincidan con estos filtros.' });
+    return res.status(404).json({ error: 'No hay productos disponibles que coincidan con estos filtros.' });
   }
   if (total > MAX_PRODUCTOS_CATALOGO_PDF) {
     return res.status(400).json({
@@ -405,7 +442,11 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
     include: {
       marca: true,
       variantes: {
-        where: { activo: true },
+        where: { 
+          activo: true,
+          // Si hay tallaId, solo traer variantes de esas tallas
+          ...(tallaIds.length > 0 ? { tallaId: { in: tallaIds } } : {}),
+        },
         include: {
           talla: true,
           existencias: {
@@ -419,11 +460,35 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
     orderBy: { nombre: 'asc' },
   });
 
+  // 🔥 FILTRO FINAL: Asegurar que solo lleguen al PDF productos con stock > 0
+  let productosConStock = productos;
+  if (tallaIds.length > 0) {
+    productosConStock = productos.filter(p => {
+      return p.variantes.some(v => {
+        // Si la variante tiene existencias con stock > 0
+        const tieneStock = v.existencias.some(e => e.stockActual > 0);
+        return tieneStock;
+      });
+    });
+  }
+
+  // 🔥 Si no hay tallaId pero hay proveedorId, también filtrar por stock > 0
+  if (proveedorIds.length > 0 && tallaIds.length === 0) {
+    productosConStock = productos.filter(p => {
+      return p.variantes.some(v => {
+        const tieneStockDelProveedor = v.existencias.some(e => 
+          e.stockActual > 0 && proveedorIds.includes(e.proveedorId)
+        );
+        return tieneStockDelProveedor;
+      });
+    });
+  }
+
   const filtrosTexto = await describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q });
   const unaPagina = formato === 'una-pagina';
   const vistaLista = vista === 'lista';
 
-  const buffer = await generarCatalogoPdf(productos, {
+  const buffer = await generarCatalogoPdf(productosConStock, {
     incluirPrecio: incluirPrecio !== '0',
     filtrosTexto,
     unaPagina,
@@ -432,8 +497,9 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
 
   const sufijoFormato = unaPagina ? '-una-pagina' : '';
   const sufijoVista = vistaLista ? '-lista-existencias' : '';
+  const sufijoPrecio = incluirPrecio !== '0' ? '' : '-mayoreo';
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte${sufijoVista}${sufijoFormato}-${Date.now()}.pdf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="catalogo-camino-al-deporte${sufijoVista}${sufijoPrecio}${sufijoFormato}-${Date.now()}.pdf"`);
   res.send(buffer);
 }));
 
@@ -462,7 +528,7 @@ router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) =>
   const tallaIds = parseIds(tallaId);
   const proveedorIds = parseIds(proveedorId);
 
-  const where = {
+  let where = {
     activo: true,
     ...(marcaIds.length === 1 ? { marcaId: marcaIds[0] } : {}),
     ...(marcaIds.length > 1 ? { marcaId: { in: marcaIds } } : {}),
@@ -470,14 +536,49 @@ router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) =>
     ...(categoriaIds.length > 1 ? { categoriaId: { in: categoriaIds } } : {}),
     ...(modeloIds.length === 1 ? { modeloId: modeloIds[0] } : {}),
     ...(modeloIds.length > 1 ? { modeloId: { in: modeloIds } } : {}),
-    ...(tallaIds.length > 0 ? { variantes: { some: { tallaId: { in: tallaIds }, activo: true } } } : {}),
     ...(proveedorIds.length > 0 ? filtroVariantesDeProveedor(proveedorId) : {}),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
+  // 🔥 Igual que en catalogo-pdf
+  if (tallaIds.length > 0) {
+    where = {
+      ...where,
+      variantes: {
+        some: {
+          tallaId: { in: tallaIds },
+          activo: true,
+          existencias: {
+            some: {
+              stockActual: { gt: 0 },
+              ...(proveedorIds.length > 0 ? { proveedorId: { in: proveedorIds } } : {}),
+            },
+          },
+        },
+      },
+    };
+  }
+
+  if (proveedorIds.length > 0 && tallaIds.length === 0) {
+    where = {
+      ...where,
+      variantes: {
+        some: {
+          activo: true,
+          existencias: {
+            some: {
+              stockActual: { gt: 0 },
+              proveedorId: { in: proveedorIds },
+            },
+          },
+        },
+      },
+    };
+  }
+
   const total = await prisma.producto.count({ where });
   if (total === 0) {
-    return res.status(404).json({ error: 'No hay productos que coincidan con estos filtros.' });
+    return res.status(404).json({ error: 'No hay productos disponibles que coincidan con estos filtros.' });
   }
 
   const productos = await prisma.producto.findMany({
@@ -487,7 +588,10 @@ router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) =>
       modelo: true,
       categoria: true,
       variantes: {
-        where: { activo: true },
+        where: { 
+          activo: true,
+          ...(tallaIds.length > 0 ? { tallaId: { in: tallaIds } } : {}),
+        },
         include: {
           talla: true,
           existencias: {
@@ -500,8 +604,24 @@ router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) =>
     orderBy: { nombre: 'asc' },
   });
 
+  // 🔥 Filtrar solo productos con stock > 0
+  let productosConStock = productos;
+  if (tallaIds.length > 0) {
+    productosConStock = productos.filter(p => {
+      return p.variantes.some(v => v.existencias.some(e => e.stockActual > 0));
+    });
+  }
+
+  if (proveedorIds.length > 0 && tallaIds.length === 0) {
+    productosConStock = productos.filter(p => {
+      return p.variantes.some(v => 
+        v.existencias.some(e => e.stockActual > 0 && proveedorIds.includes(e.proveedorId))
+      );
+    });
+  }
+
   const filtrosTexto = await describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q });
-  const buffer = generarReporteExistencias(productos, { filtrosTexto });
+  const buffer = generarReporteExistencias(productosConStock, { filtrosTexto });
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="existencias-camino-al-deporte-${Date.now()}.xlsx"`);
