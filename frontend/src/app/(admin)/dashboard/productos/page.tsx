@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -19,6 +19,8 @@ import {
   ArrowDown,
   ArrowUpDown,
   FileDown,
+  Check,
+  ChevronDown,
 } from 'lucide-react';
 import { api, apiDownload, ApiError } from '@/lib/api';
 import { guardarListaNavegacion } from '@/lib/navegacionProductos';
@@ -43,6 +45,59 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/use-toast';
+import { Badge } from '@/components/ui/badge';
+
+// Local implementation avoids depending on a missing shared scroll-area module.
+function ScrollArea({ className = '', children }: { className?: string; children: ReactNode }) {
+  return <div className={`overflow-auto ${className}`}>{children}</div>;
+}
+
+// Local implementation avoids depending on a missing shared popover module.
+interface PopoverContextValue {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+const PopoverContext = createContext<PopoverContextValue | null>(null);
+
+function Popover({
+  open,
+  onOpenChange,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <PopoverContext.Provider value={{ open, onOpenChange }}>
+      <div className="relative">{children}</div>
+    </PopoverContext.Provider>
+  );
+}
+
+function PopoverTrigger({ asChild, children }: { asChild?: boolean; children: ReactNode }) {
+  const context = useContext(PopoverContext);
+  if (asChild && isValidElement(children)) {
+    return cloneElement(children, {
+      onClick: (event: React.MouseEvent) => {
+        children.props.onClick?.(event);
+        context?.onOpenChange(!context.open);
+      },
+    });
+  }
+  return <button onClick={() => context?.onOpenChange(!context.open)}>{children}</button>;
+}
+
+function PopoverContent({ children, className = '' }: { children: ReactNode; className?: string; align?: string }) {
+  const context = useContext(PopoverContext);
+  if (!context?.open) return null;
+  return (
+    <div className={`absolute left-0 top-full z-50 mt-1 rounded-md border bg-popover text-popover-foreground shadow-md ${className}`}>
+      {children}
+    </div>
+  );
+}
 
 interface Existencia {
   stockActual: number;
@@ -120,6 +175,330 @@ interface VarianteForm {
   proveedorId: string;
 }
 
+interface MultiSelectProps {
+  options: { id: number; nombre: string; label?: string }[];
+  value: string[];
+  onChange: (value: string[]) => void;
+  placeholder: string;
+  disabled?: boolean;
+  searchPlaceholder?: string;
+  renderLabel?: (option: { id: number; nombre: string; label?: string }) => string;
+}
+
+function MultiSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+  disabled = false,
+  searchPlaceholder = 'Buscar...',
+  renderLabel = (opt) => opt.label || opt.nombre,
+}: MultiSelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const filteredOptions = options.filter((opt) =>
+    renderLabel(opt).toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleOption = (id: string) => {
+    const newValue = value.includes(id)
+      ? value.filter((v) => v !== id)
+      : [...value, id];
+    onChange(newValue);
+  };
+
+  const clearAll = () => {
+    onChange([]);
+    setSearch('');
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="w-full justify-between h-9 text-sm font-normal"
+        >
+          <span className="truncate">
+            {value.length === 0
+              ? placeholder
+              : `${value.length} seleccionado${value.length > 1 ? 's' : ''}`}
+          </span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <div className="flex flex-col">
+          <div className="flex items-center border-b px-3 gap-2">
+            <Search className="h-4 w-4 shrink-0 opacity-50" />
+            <Input
+              placeholder={searchPlaceholder}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0"
+            />
+            {value.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={clearAll}
+              >
+                <X className="h-3.5 w-3.5" />
+                Limpiar
+              </Button>
+            )}
+          </div>
+          <ScrollArea className="h-48">
+            <div className="p-1">
+              {filteredOptions.length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  No hay opciones
+                </div>
+              ) : (
+                filteredOptions.map((opt) => {
+                  const id = String(opt.id);
+                  const isSelected = value.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      className={`
+                        relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none
+                        hover:bg-accent hover:text-accent-foreground
+                        ${isSelected ? 'bg-accent/50' : ''}
+                      `}
+                      onClick={() => toggleOption(id)}
+                    >
+                      <span className="flex-1 text-left">{renderLabel(opt)}</span>
+                      {isSelected && <Check className="h-4 w-4 text-primary" />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
+          {value.length > 0 && (
+            <div className="border-t p-2 flex flex-wrap gap-1">
+              {value.slice(0, 5).map((id) => {
+                const opt = options.find((o) => String(o.id) === id);
+                if (!opt) return null;
+                return (
+                  <Badge key={id} variant="secondary" className="text-xs">
+                    {renderLabel(opt)}
+                    <button
+                      className="ml-1 hover:text-destructive"
+                      onClick={() => toggleOption(id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                );
+              })}
+              {value.length > 5 && (
+                <Badge variant="secondary" className="text-xs">
+                  +{value.length - 5} más
+                </Badge>
+              )}
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+interface FilterMultiSelectProps {
+  label: string;
+  options: { id: number; nombre: string }[];
+  value: string[];
+  onChange: (value: string[]) => void;
+  placeholder: string;
+  disabled?: boolean;
+}
+
+function FilterMultiSelect({
+  label,
+  options,
+  value,
+  onChange,
+  placeholder,
+  disabled = false,
+}: FilterMultiSelectProps) {
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span className="text-xs text-muted-foreground font-medium truncate">{label}</span>
+      <MultiSelect
+        options={options}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        disabled={disabled}
+        renderLabel={(opt) => opt.nombre}
+      />
+    </div>
+  );
+}
+
+function TallaMultiSelect({
+  tallas,
+  value,
+  onChange,
+}: {
+  tallas: Talla[];
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  // Agrupar tallas por tipo
+  const grouped = tallas.reduce((acc, t) => {
+    const key = t.tipo || 'Sin tipo';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(t);
+    return acc;
+  }, {} as Record<string, Talla[]>);
+
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const allTallas = tallas.map((t) => ({ id: t.id, nombre: `${t.tipo}: ${t.valor}` }));
+
+  const filteredOptions = allTallas.filter((opt) =>
+    opt.nombre.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleOption = (id: string) => {
+    const newValue = value.includes(id)
+      ? value.filter((v) => v !== id)
+      : [...value, id];
+    onChange(newValue);
+  };
+
+  const clearAll = () => {
+    onChange([]);
+    setSearch('');
+  };
+
+  const selectedLabels = tallas
+    .filter((t) => value.includes(String(t.id)))
+    .map((t) => `${t.tipo}: ${t.valor}`);
+
+  return (
+    <div className="flex flex-col gap-0.5 min-w-0">
+      <span className="text-xs text-muted-foreground font-medium truncate">Talla(s)</span>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className="w-full justify-between h-9 text-sm font-normal"
+          >
+            <span className="truncate">
+              {value.length === 0
+                ? 'Todas las tallas'
+                : `${value.length} talla${value.length > 1 ? 's' : ''}`}
+            </span>
+            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+          <div className="flex flex-col">
+            <div className="flex items-center border-b px-3 gap-2">
+              <Search className="h-4 w-4 shrink-0 opacity-50" />
+              <Input
+                placeholder="Buscar talla..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 border-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-0"
+              />
+              {value.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={clearAll}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Limpiar
+                </Button>
+              )}
+            </div>
+            <ScrollArea className="h-64">
+              <div className="p-1">
+                {filteredOptions.length === 0 ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">
+                    No hay tallas
+                  </div>
+                ) : (
+                  // Mostrar agrupado por tipo
+                  Object.entries(grouped).map(([tipo, tallasDelTipo]) => {
+                    const filtered = tallasDelTipo.filter((t) =>
+                      `${tipo}: ${t.valor}`.toLowerCase().includes(search.toLowerCase())
+                    );
+                    if (filtered.length === 0) return null;
+                    return (
+                      <div key={tipo}>
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted/50 rounded-sm mt-1">
+                          {tipo}
+                        </div>
+                        {filtered.map((t) => {
+                          const id = String(t.id);
+                          const isSelected = value.includes(id);
+                          const label = `${t.valor}`;
+                          return (
+                            <button
+                              key={id}
+                              className={`
+                                relative flex w-full cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none
+                                hover:bg-accent hover:text-accent-foreground
+                                ${isSelected ? 'bg-accent/50' : ''}
+                              `}
+                              onClick={() => toggleOption(id)}
+                            >
+                              <span className="flex-1 text-left">{label}</span>
+                              {isSelected && <Check className="h-4 w-4 text-primary" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </ScrollArea>
+            {value.length > 0 && (
+              <div className="border-t p-2 flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                {selectedLabels.slice(0, 5).map((label, idx) => {
+                  const id = value[idx];
+                  return (
+                    <Badge key={id} variant="secondary" className="text-xs">
+                      {label}
+                      <button
+                        className="ml-1 hover:text-destructive"
+                        onClick={() => toggleOption(id)}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  );
+                })}
+                {selectedLabels.length > 5 && (
+                  <Badge variant="secondary" className="text-xs">
+                    +{selectedLabels.length - 5} más
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function nuevaVarianteForm(): VarianteForm {
   return { tallaId: '', color: '', sku: '', stockInicial: '0', proveedorId: '' };
 }
@@ -157,13 +536,19 @@ export default function ProductosPage() {
   const [modelosFiltro, setModelosFiltro] = useState<Modelo[]>([]);
 
   // Filtros del listado (además de la búsqueda por texto que ya existía)
-  const [filtroMarcaId, setFiltroMarcaId] = useState('');
-  const [filtroCategoriaId, setFiltroCategoriaId] = useState('');
-  const [filtroModeloId, setFiltroModeloId] = useState('');
-  const [filtroTallaId, setFiltroTallaId] = useState('');
-  const [filtroProveedorId, setFiltroProveedorId] = useState('');
+ const [filtroMarcaIds, setFiltroMarcaIds] = useState<string[]>([]);
+  const [filtroCategoriaIds, setFiltroCategoriaIds] = useState<string[]>([]);
+  const [filtroModeloIds, setFiltroModeloIds] = useState<string[]>([]);
+  const [filtroTallaIds, setFiltroTallaIds] = useState<string[]>([]);
+  const [filtroProveedorIds, setFiltroProveedorIds] = useState<string[]>([]);
+
   const hayFiltrosActivos = Boolean(
-    filtroMarcaId || filtroCategoriaId || filtroModeloId || filtroTallaId || filtroProveedorId || busqueda
+    filtroMarcaIds.length > 0 ||
+    filtroCategoriaIds.length > 0 ||
+    filtroModeloIds.length > 0 ||
+    filtroTallaIds.length > 0 ||
+    filtroProveedorIds.length > 0 ||
+    busqueda
   );
   const [exportandoPdf, setExportandoPdf] = useState(false);
   const [exportandoExistencias, setExportandoExistencias] = useState(false);
@@ -229,11 +614,12 @@ export default function ProductosPage() {
     setExportandoExistencias(true);
     const qs = new URLSearchParams();
     if (busqueda) qs.set('q', busqueda);
-    if (filtroMarcaId) qs.set('marcaId', filtroMarcaId);
-    if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
-    if (filtroModeloId) qs.set('modeloId', filtroModeloId);
-    if (filtroTallaId) qs.set('tallaId', filtroTallaId);
-    if (filtroProveedorId) qs.set('proveedorId', filtroProveedorId);
+    // Enviar múltiples IDs separados por coma
+    if (filtroMarcaIds.length > 0) qs.set('marcaId', filtroMarcaIds.join(','));
+    if (filtroCategoriaIds.length > 0) qs.set('categoriaId', filtroCategoriaIds.join(','));
+    if (filtroModeloIds.length > 0) qs.set('modeloId', filtroModeloIds.join(','));
+    if (filtroTallaIds.length > 0) qs.set('tallaId', filtroTallaIds.join(','));
+    if (filtroProveedorIds.length > 0) qs.set('proveedorId', filtroProveedorIds.join(','));
     try {
       await apiDownload(`/productos/reporte-existencias?${qs.toString()}`, `existencias-camino-al-deporte-${Date.now()}.xlsx`);
     } catch (err) {
@@ -256,11 +642,12 @@ export default function ProductosPage() {
     setExportandoPdf(true);
     const qs = new URLSearchParams();
     if (busqueda) qs.set('q', busqueda);
-    if (filtroMarcaId) qs.set('marcaId', filtroMarcaId);
-    if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
-    if (filtroModeloId) qs.set('modeloId', filtroModeloId);
-    if (filtroTallaId) qs.set('tallaId', filtroTallaId);
-    if (filtroProveedorId) qs.set('proveedorId', filtroProveedorId);
+    // Enviar múltiples IDs separados por coma
+    if (filtroMarcaIds.length > 0) qs.set('marcaId', filtroMarcaIds.join(','));
+    if (filtroCategoriaIds.length > 0) qs.set('categoriaId', filtroCategoriaIds.join(','));
+    if (filtroModeloIds.length > 0) qs.set('modeloId', filtroModeloIds.join(','));
+    if (filtroTallaIds.length > 0) qs.set('tallaId', filtroTallaIds.join(','));
+    if (filtroProveedorIds.length > 0) qs.set('proveedorId', filtroProveedorIds.join(','));
     // Sin precios = catálogo de mayoreo: mismas fotos, nombre y tallas
     // disponibles, pero sin revelar el precio de lista (ver
     // ?incluirPrecio= en GET /productos/catalogo-pdf).
@@ -288,11 +675,12 @@ export default function ProductosPage() {
     setCargando(true);
     const qs = new URLSearchParams();
     if (busqueda) qs.set('q', busqueda);
-    if (filtroMarcaId) qs.set('marcaId', filtroMarcaId);
-    if (filtroCategoriaId) qs.set('categoriaId', filtroCategoriaId);
-    if (filtroModeloId) qs.set('modeloId', filtroModeloId);
-    if (filtroTallaId) qs.set('tallaId', filtroTallaId);
-    if (filtroProveedorId) qs.set('proveedorId', filtroProveedorId);
+   // Enviar múltiples IDs separados por coma
+    if (filtroMarcaIds.length > 0) qs.set('marcaId', filtroMarcaIds.join(','));
+    if (filtroCategoriaIds.length > 0) qs.set('categoriaId', filtroCategoriaIds.join(','));
+    if (filtroModeloIds.length > 0) qs.set('modeloId', filtroModeloIds.join(','));
+    if (filtroTallaIds.length > 0) qs.set('tallaId', filtroTallaIds.join(','));
+    if (filtroProveedorIds.length > 0) qs.set('proveedorId', filtroProveedorIds.join(','));
     qs.set('ordenarPor', ordenCampo);
     qs.set('orden', ordenDireccion);
     // Se guarda ANTES de agregar "page"/"limit": es el criterio que se
@@ -337,27 +725,33 @@ export default function ProductosPage() {
   // Inventario); la búsqueda por texto sigue siendo manual (botón/Enter).
   // Cambiar un filtro siempre vuelve a la página 1: la página en la que
   // estabas puede ya no existir con el nuevo filtro aplicado.
-  useEffect(() => {
+ useEffect(() => {
     cargarProductos(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroMarcaId, filtroCategoriaId, filtroModeloId, filtroTallaId, filtroProveedorId, ordenCampo, ordenDireccion]);
-
+  }, [
+    filtroMarcaIds,
+    filtroCategoriaIds,
+    filtroModeloIds,
+    filtroTallaIds,
+    filtroProveedorIds,
+    ordenCampo,
+    ordenDireccion,
+  ]); 
   // Los modelos del filtro dependen de la marca elegida ahí (si no hay
   // ninguna, se listan todos). Al cambiar la marca del filtro se limpia el
   // modelo elegido, porque puede que ya no pertenezca a la marca nueva.
-  useEffect(() => {
-    api<Modelo[]>(`/catalogos/modelos${filtroMarcaId ? `?marcaId=${filtroMarcaId}` : ''}`).then(setModelosFiltro);
-    setFiltroModeloId('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroMarcaId]);
+useEffect(() => {
+    const marcaParam = filtroMarcaIds.length > 0 ? `?marcaId=${filtroMarcaIds.join(',')}` : '';
+    api<Modelo[]>(`/catalogos/modelos${marcaParam}`).then(setModelosFiltro);
+    setFiltroModeloIds([]);
+  }, [filtroMarcaIds]);
 
   function limpiarFiltros() {
     setBusqueda('');
-    setFiltroMarcaId('');
-    setFiltroCategoriaId('');
-    setFiltroModeloId('');
-    setFiltroTallaId('');
-    setFiltroProveedorId('');
+    setFiltroMarcaIds([]);
+    setFiltroCategoriaIds([]);
+    setFiltroModeloIds([]);
+    setFiltroTallaIds([]);
+    setFiltroProveedorIds([]);
     cargarProductos(1);
   }
 
@@ -537,64 +931,59 @@ export default function ProductosPage() {
       </div>
 
       {/* Filtros */}
+       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <FilterMultiSelect
+          label="Marca(s)"
+          options={marcas}
+          value={filtroMarcaIds}
+          onChange={setFiltroMarcaIds}
+          placeholder="Todas las marcas"
+        />
+        
+        <FilterMultiSelect
+          label="Modelo(s)"
+          options={modelosFiltro}
+          value={filtroModeloIds}
+          onChange={setFiltroModeloIds}
+          placeholder="Todos los modelos"
+          disabled={modelosFiltro.length === 0}
+        />
+        
+        <FilterMultiSelect
+          label="Categoría(s)"
+          options={categorias}
+          value={filtroCategoriaIds}
+          onChange={setFiltroCategoriaIds}
+          placeholder="Todas las categorías"
+        />
+        
+        <TallaMultiSelect
+          tallas={tallas}
+          value={filtroTallaIds}
+          onChange={setFiltroTallaIds}
+        />
+        
+        <FilterMultiSelect
+          label="Proveedor(es)"
+          options={proveedores}
+          value={filtroProveedorIds}
+          onChange={setFiltroProveedorIds}
+          placeholder="Todos los proveedores"
+        />
+
+        <div className="flex items-end">
+          {hayFiltrosActivos && (
+            <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="h-9">
+              <X className="w-3.5 h-3.5 mr-1" />
+              Limpiar
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Fila de exportación (sin cambios) */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="w-40">
-          <Select value={filtroMarcaId} onChange={(e) => setFiltroMarcaId(e.target.value)}>
-            <option value="">Todas las marcas</option>
-            {marcas.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nombre}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="w-40">
-          <Select value={filtroModeloId} onChange={(e) => setFiltroModeloId(e.target.value)} disabled={modelosFiltro.length === 0}>
-            <option value="">Todos los modelos</option>
-            {modelosFiltro.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nombre}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="w-40">
-          <Select value={filtroCategoriaId} onChange={(e) => setFiltroCategoriaId(e.target.value)}>
-            <option value="">Todas las categorías</option>
-            {categorias.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="w-40">
-          <Select value={filtroTallaId} onChange={(e) => setFiltroTallaId(e.target.value)}>
-            <option value="">Todas las tallas</option>
-            {tallas.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.tipo}: {t.valor}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="w-44">
-          <Select value={filtroProveedorId} onChange={(e) => setFiltroProveedorId(e.target.value)}>
-            <option value="">Todos los proveedores</option>
-            {proveedores.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </Select>
-        </div>
-        {hayFiltrosActivos && (
-          <Button variant="ghost" size="sm" onClick={limpiarFiltros}>
-            <X className="w-3.5 h-3.5" />
-            Limpiar filtros
-          </Button>
-        )}
-        <div className="ml-auto w-52">
+        <div className="w-52">
           <Select value={vistaPdf} onChange={(e) => setVistaPdf(e.target.value as 'cuadricula' | 'lista')}>
             <option value="cuadricula">Cuadrícula (catálogo visual)</option>
             <option value="lista">Lista con existencias (cantidades)</option>

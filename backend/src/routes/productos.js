@@ -40,12 +40,18 @@ const IMAGENES_INCLUDE = { imagenes: { orderBy: [{ esPrincipal: 'desc' }, { orde
 // que le toca surtir.
 function filtroVariantesDeProveedor(proveedorId) {
   if (!proveedorId) return {};
-  const id = Number(proveedorId);
+  // Soporta múltiples IDs separados por coma
+  const ids = proveedorId.split(',').map(Number).filter(Boolean);
+  if (ids.length === 0) return {};
+  
   return {
     variantes: {
       some: {
         activo: true,
-        OR: [{ proveedorId: id }, { existencias: { some: { proveedorId: id, stockActual: { gt: 0 } } } }],
+        OR: [
+          { proveedorId: { in: ids } },
+          { existencias: { some: { proveedorId: { in: ids }, stockActual: { gt: 0 } } } }
+        ],
       },
     },
   };
@@ -55,21 +61,27 @@ function filtroVariantesDeProveedor(proveedorId) {
 // encabezado del catálogo PDF y del reporte de existencias, para que quien
 // lo recibe sepa qué recorte del catálogo es. Compartido entre las dos
 // rutas para no tener la misma consulta de nombres duplicada dos veces.
+// Arma el texto "Marca: X   ·   Talla: Y   ·   ..." que se muestra en el
+// encabezado del catálogo PDF y del reporte de existencias.
 async function describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q }) {
   const partes = [];
   if (q) partes.push(`Búsqueda: "${q}"`);
-  const [marca, categoria, modelo, talla, proveedor] = await Promise.all([
-    marcaId ? prisma.marca.findUnique({ where: { id: Number(marcaId) } }) : null,
-    categoriaId ? prisma.categoria.findUnique({ where: { id: Number(categoriaId) } }) : null,
-    modeloId ? prisma.modelo.findUnique({ where: { id: Number(modeloId) } }) : null,
-    tallaId ? prisma.talla.findUnique({ where: { id: Number(tallaId) } }) : null,
-    proveedorId ? prisma.proveedor.findUnique({ where: { id: Number(proveedorId) } }) : null,
+  
+  // Ahora soporta arrays de IDs (separados por coma)
+  const [marcas, categorias, modelos, tallas, proveedores] = await Promise.all([
+    marcaId ? prisma.marca.findMany({ where: { id: { in: marcaId.split(',').map(Number).filter(Boolean) } } }) : [],
+    categoriaId ? prisma.categoria.findMany({ where: { id: { in: categoriaId.split(',').map(Number).filter(Boolean) } } }) : [],
+    modeloId ? prisma.modelo.findMany({ where: { id: { in: modeloId.split(',').map(Number).filter(Boolean) } } }) : [],
+    tallaId ? prisma.talla.findMany({ where: { id: { in: tallaId.split(',').map(Number).filter(Boolean) } } }) : [],
+    proveedorId ? prisma.proveedor.findMany({ where: { id: { in: proveedorId.split(',').map(Number).filter(Boolean) } } }) : [],
   ]);
-  if (marca) partes.push(`Marca: ${marca.nombre}`);
-  if (modelo) partes.push(`Modelo: ${modelo.nombre}`);
-  if (categoria) partes.push(`Categoría: ${categoria.nombre}`);
-  if (talla) partes.push(`Talla: ${talla.valor}`);
-  if (proveedor) partes.push(`Proveedor: ${proveedor.nombre}`);
+  
+  if (marcas.length > 0) partes.push(`Marcas: ${marcas.map(m => m.nombre).join(', ')}`);
+  if (modelos.length > 0) partes.push(`Modelos: ${modelos.map(m => m.nombre).join(', ')}`);
+  if (categorias.length > 0) partes.push(`Categorías: ${categorias.map(c => c.nombre).join(', ')}`);
+  if (tallas.length > 0) partes.push(`Tallas: ${tallas.map(t => `${t.tipo}: ${t.valor}`).join(', ')}`);
+  if (proveedores.length > 0) partes.push(`Proveedores: ${proveedores.map(p => p.nombre).join(', ')}`);
+  
   return partes.join('   ·   ');
 }
 
@@ -93,32 +105,79 @@ const CAMPOS_ORDEN = ['nombre', 'precio', 'stock', 'estado'];
 // que en los demás campos de orden, para no duplicar la lógica de filtros.
 async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId, tallaId, proveedorId, q, direccion, pageNum, limitNum, include }) {
   const condiciones = [Prisma.sql`p.activo = true`];
-  if (marcaId) condiciones.push(Prisma.sql`p.marca_id = ${Number(marcaId)}`);
-  if (categoriaId) condiciones.push(Prisma.sql`p.categoria_id = ${Number(categoriaId)}`);
-  if (modeloId) condiciones.push(Prisma.sql`p.modelo_id = ${Number(modeloId)}`);
+  
+  // Soporte para múltiples IDs
+  if (marcaId) {
+    const ids = marcaId.split(',').map(Number).filter(Boolean);
+    if (ids.length === 1) {
+      condiciones.push(Prisma.sql`p.marca_id = ${ids[0]}`);
+    } else if (ids.length > 1) {
+      condiciones.push(Prisma.sql`p.marca_id IN (${Prisma.join(ids)})`);
+    }
+  }
+  
+  if (categoriaId) {
+    const ids = categoriaId.split(',').map(Number).filter(Boolean);
+    if (ids.length === 1) {
+      condiciones.push(Prisma.sql`p.categoria_id = ${ids[0]}`);
+    } else if (ids.length > 1) {
+      condiciones.push(Prisma.sql`p.categoria_id IN (${Prisma.join(ids)})`);
+    }
+  }
+  
+  if (modeloId) {
+    const ids = modeloId.split(',').map(Number).filter(Boolean);
+    if (ids.length === 1) {
+      condiciones.push(Prisma.sql`p.modelo_id = ${ids[0]}`);
+    } else if (ids.length > 1) {
+      condiciones.push(Prisma.sql`p.modelo_id IN (${Prisma.join(ids)})`);
+    }
+  }
+  
   if (tallaId) {
-    condiciones.push(
-      Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id = ${Number(tallaId)} AND activo = true)`
-    );
+    const ids = tallaId.split(',').map(Number).filter(Boolean);
+    if (ids.length === 1) {
+      condiciones.push(
+        Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id = ${ids[0]} AND activo = true)`
+      );
+    } else if (ids.length > 1) {
+      condiciones.push(
+        Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id IN (${Prisma.join(ids)}) AND activo = true)`
+      );
+    }
   }
+  
   if (proveedorId) {
-    // Mismo criterio que filtroVariantesDeProveedor() de arriba (proveedor
-    // "por defecto" de la variante, o ya con stock actual >0 registrado),
-    // pero como subconsulta SQL porque este camino (ordenar por stock) no
-    // pasa por el "where" de Prisma normal.
-    condiciones.push(
-      Prisma.sql`p.id IN (
-        SELECT pv.producto_id FROM producto_variantes pv
-        WHERE pv.activo = true AND (
-          pv.proveedor_id = ${Number(proveedorId)}
-          OR EXISTS (
-            SELECT 1 FROM existencias ex
-            WHERE ex.variante_id = pv.id AND ex.proveedor_id = ${Number(proveedorId)} AND ex.stock_actual > 0
+    const ids = proveedorId.split(',').map(Number).filter(Boolean);
+    if (ids.length === 1) {
+      condiciones.push(
+        Prisma.sql`p.id IN (
+          SELECT pv.producto_id FROM producto_variantes pv
+          WHERE pv.activo = true AND (
+            pv.proveedor_id = ${ids[0]}
+            OR EXISTS (
+              SELECT 1 FROM existencias ex
+              WHERE ex.variante_id = pv.id AND ex.proveedor_id = ${ids[0]} AND ex.stock_actual > 0
+            )
           )
-        )
-      )`
-    );
+        )`
+      );
+    } else if (ids.length > 1) {
+      condiciones.push(
+        Prisma.sql`p.id IN (
+          SELECT pv.producto_id FROM producto_variantes pv
+          WHERE pv.activo = true AND (
+            pv.proveedor_id IN (${Prisma.join(ids)})
+            OR EXISTS (
+              SELECT 1 FROM existencias ex
+              WHERE ex.variante_id = pv.id AND ex.proveedor_id IN (${Prisma.join(ids)}) AND ex.stock_actual > 0
+            )
+          )
+        )`
+      );
+    }
   }
+  
   if (q) condiciones.push(Prisma.sql`p.nombre ILIKE ${`%${String(q)}%`}`);
 
   const whereSql = Prisma.join(condiciones, ' AND ');
@@ -142,8 +201,6 @@ async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId,
   if (ids.length === 0) return { productos: [], total };
 
   const encontrados = await prisma.producto.findMany({ where: { id: { in: ids } }, include });
-  // findMany con "id in [...]" no garantiza el orden de vuelta — se
-  // reacomoda aquí según el orden que ya calculó la consulta SQL de arriba.
   const porId = new Map(encontrados.map((p) => [p.id, p]));
   const productos = ids.map((id) => porId.get(id)).filter(Boolean);
 
@@ -182,18 +239,28 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 
   const pageNum = Math.max(1, Number(page) || 1);
   const limitNum = Math.min(100, Math.max(1, Number(limit) || 30));
-  // ?ordenarPor= nombre|precio|stock|estado (default nombre), ?orden= asc|desc
-  // (default asc) — ver CAMPOS_ORDEN arriba para el porqué de cada caso.
   const campoOrden = CAMPOS_ORDEN.includes(ordenarPor) ? ordenarPor : 'nombre';
   const direccion = orden === 'desc' ? 'desc' : 'asc';
 
+  // Función auxiliar para parsear IDs múltiples
+  const parseIds = (str) => str ? str.split(',').map(Number).filter(Boolean) : [];
+
+  const marcaIds = parseIds(marcaId);
+  const categoriaIds = parseIds(categoriaId);
+  const modeloIds = parseIds(modeloId);
+  const tallaIds = parseIds(tallaId);
+  const proveedorIds = parseIds(proveedorId);
+
   const where = {
     activo: true,
-    ...(marcaId ? { marcaId: Number(marcaId) } : {}),
-    ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
-    ...(modeloId ? { modeloId: Number(modeloId) } : {}),
-    ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
-    ...filtroVariantesDeProveedor(proveedorId),
+    ...(marcaIds.length === 1 ? { marcaId: marcaIds[0] } : {}),
+    ...(marcaIds.length > 1 ? { marcaId: { in: marcaIds } } : {}),
+    ...(categoriaIds.length === 1 ? { categoriaId: categoriaIds[0] } : {}),
+    ...(categoriaIds.length > 1 ? { categoriaId: { in: categoriaIds } } : {}),
+    ...(modeloIds.length === 1 ? { modeloId: modeloIds[0] } : {}),
+    ...(modeloIds.length > 1 ? { modeloId: { in: modeloIds } } : {}),
+    ...(tallaIds.length > 0 ? { variantes: { some: { tallaId: { in: tallaIds }, activo: true } } } : {}),
+    ...(proveedorIds.length > 0 ? filtroVariantesDeProveedor(proveedorId) : {}),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
@@ -276,13 +343,23 @@ const MAX_PRODUCTOS_CATALOGO_PDF = 400;
 router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
   const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q, incluirPrecio, formato, vista } = req.query;
 
+  const parseIds = (str) => str ? str.split(',').map(Number).filter(Boolean) : [];
+  const marcaIds = parseIds(marcaId);
+  const categoriaIds = parseIds(categoriaId);
+  const modeloIds = parseIds(modeloId);
+  const tallaIds = parseIds(tallaId);
+  const proveedorIds = parseIds(proveedorId);
+
   const where = {
     activo: true,
-    ...(marcaId ? { marcaId: Number(marcaId) } : {}),
-    ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
-    ...(modeloId ? { modeloId: Number(modeloId) } : {}),
-    ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
-    ...filtroVariantesDeProveedor(proveedorId),
+    ...(marcaIds.length === 1 ? { marcaId: marcaIds[0] } : {}),
+    ...(marcaIds.length > 1 ? { marcaId: { in: marcaIds } } : {}),
+    ...(categoriaIds.length === 1 ? { categoriaId: categoriaIds[0] } : {}),
+    ...(categoriaIds.length > 1 ? { categoriaId: { in: categoriaIds } } : {}),
+    ...(modeloIds.length === 1 ? { modeloId: modeloIds[0] } : {}),
+    ...(modeloIds.length > 1 ? { modeloId: { in: modeloIds } } : {}),
+    ...(tallaIds.length > 0 ? { variantes: { some: { tallaId: { in: tallaIds }, activo: true } } } : {}),
+    ...(proveedorIds.length > 0 ? filtroVariantesDeProveedor(proveedorId) : {}),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
@@ -304,13 +381,9 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
         where: { activo: true },
         include: {
           talla: true,
-          // Si se filtró por proveedor, aquí también se acotan las
-          // existencias que llegan a catalogoPdf.js a solo las de ESE
-          // proveedor — así "tallas disponibles" en el PDF refleja lo que
-          // de verdad tiene ese proveedor, no el total sumando a todos.
           existencias: {
             select: { stockActual: true },
-            ...(proveedorId ? { where: { proveedorId: Number(proveedorId) } } : {}),
+            ...(proveedorIds.length > 0 ? { where: { proveedorId: { in: proveedorIds } } } : {}),
           },
         },
       },
@@ -319,19 +392,8 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
     orderBy: { nombre: 'asc' },
   });
 
-  // Descripción de los filtros aplicados, para mostrarla en el encabezado
-  // del PDF (así el que lo recibe sabe qué recorte del catálogo es).
   const filtrosTexto = await describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q });
-
-  // ?formato=una-pagina genera un solo PDF largo sin cortes (pensado para
-  // compartir digitalmente); cualquier otro valor (o ausente) usa el
-  // formato multipágina normal, pensado para imprimir.
   const unaPagina = formato === 'una-pagina';
-
-  // ?vista=lista muestra un renglón por producto con la cantidad EXACTA de
-  // cada talla (para mandarle a un proveedor lo que es suyo); cualquier
-  // otro valor (o ausente) usa la cuadrícula visual normal, pensada para
-  // un cliente (que solo necesita saber qué tallas hay, no cuántas piezas).
   const vistaLista = vista === 'lista';
 
   const buffer = await generarCatalogoPdf(productos, {
@@ -366,13 +428,23 @@ router.get('/catalogo-pdf', requireAuth, asyncHandler(async (req, res) => {
 router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) => {
   const { marcaId, categoriaId, modeloId, tallaId, proveedorId, q } = req.query;
 
+  const parseIds = (str) => str ? str.split(',').map(Number).filter(Boolean) : [];
+  const marcaIds = parseIds(marcaId);
+  const categoriaIds = parseIds(categoriaId);
+  const modeloIds = parseIds(modeloId);
+  const tallaIds = parseIds(tallaId);
+  const proveedorIds = parseIds(proveedorId);
+
   const where = {
     activo: true,
-    ...(marcaId ? { marcaId: Number(marcaId) } : {}),
-    ...(categoriaId ? { categoriaId: Number(categoriaId) } : {}),
-    ...(modeloId ? { modeloId: Number(modeloId) } : {}),
-    ...(tallaId ? { variantes: { some: { tallaId: Number(tallaId), activo: true } } } : {}),
-    ...filtroVariantesDeProveedor(proveedorId),
+    ...(marcaIds.length === 1 ? { marcaId: marcaIds[0] } : {}),
+    ...(marcaIds.length > 1 ? { marcaId: { in: marcaIds } } : {}),
+    ...(categoriaIds.length === 1 ? { categoriaId: categoriaIds[0] } : {}),
+    ...(categoriaIds.length > 1 ? { categoriaId: { in: categoriaIds } } : {}),
+    ...(modeloIds.length === 1 ? { modeloId: modeloIds[0] } : {}),
+    ...(modeloIds.length > 1 ? { modeloId: { in: modeloIds } } : {}),
+    ...(tallaIds.length > 0 ? { variantes: { some: { tallaId: { in: tallaIds }, activo: true } } } : {}),
+    ...(proveedorIds.length > 0 ? filtroVariantesDeProveedor(proveedorId) : {}),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };
 
@@ -391,12 +463,9 @@ router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) =>
         where: { activo: true },
         include: {
           talla: true,
-          // Igual que en catalogo-pdf: si se filtró por proveedor, aquí se
-          // acotan las existencias a solo las de ESE proveedor, para que la
-          // cantidad del reporte sea la de él, no el total de todos.
           existencias: {
             include: { sucursal: true },
-            ...(proveedorId ? { where: { proveedorId: Number(proveedorId) } } : {}),
+            ...(proveedorIds.length > 0 ? { where: { proveedorId: { in: proveedorIds } } } : {}),
           },
         },
       },
