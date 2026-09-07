@@ -156,6 +156,11 @@ export const PERMISOS = {
   // manuales, porque normalmente es quien se entera del dato cotizando con
   // un cliente.
   envios: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  // Cambios de producto (no reembolsos, ver ROLES_CAMBIOS en el backend,
+  // routes/cambios.js) — mismos roles que registran ventas; cancelar un
+  // cambio ya registrado sigue siendo exclusivo de ADMIN_PRINCIPAL/
+  // DESARROLLO (lo filtra el backend, no esta lista).
+  cambios: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

@@ -71,6 +71,7 @@ model Usuario {
   // mismo desde el checkout de la tienda en línea.
   pedidosCreadosManualmente Pedido[] @relation("PedidosCreadosManualmente")
   gastosRegistrados         Gasto[]  @relation("GastosRegistrados")
+  cambiosRegistrados        Cambio[]
 
   @@map("usuarios")
 }
@@ -111,6 +112,7 @@ model Sucursal {
   // (que sigue siendo por artículo, sin cambios).
   rutasEnvio      RutaEnvio[]    @relation("RutaOrigen")
   pedidosDespacho Pedido[]       @relation("PedidoDespacho")
+  cambios         Cambio[]
 
   @@map("sucursales")
 }
@@ -285,6 +287,7 @@ model ProductoVariante {
   transferencias TransferenciaInventario[]
   apartadoItems ApartadoItem[]
   pedidoItems   PedidoItem[]
+  cambioItems   CambioItem[]
 
   // Proveedor principal de este SKU específico (una talla/color puede venir
   // de un proveedor distinto al de otra talla del mismo producto). Es el
@@ -312,6 +315,12 @@ enum TipoMovimiento {
   TRANSFERENCIA_ENTRADA
   APARTADO
   PEDIDO_ONLINE
+  // El producto que el cliente devuelve en un cambio (ver modelo Cambio)
+  // regresa a existencias vendibles — salvo que el motivo sea DEFECTUOSO,
+  // caso en el que no se genera este movimiento (ver CambioItem.reingresado).
+  CAMBIO_ENTRADA
+  // El producto nuevo que se lleva el cliente en un cambio.
+  CAMBIO_SALIDA
 }
 
 model MovimientoInventario {
@@ -337,6 +346,10 @@ model MovimientoInventario {
   // Si el movimiento vino de un pedido de la tienda en línea
   pedidoId    Int?             @map("pedido_id")
   pedido      Pedido?          @relation(fields: [pedidoId], references: [id])
+
+  // Si el movimiento vino de un cambio de producto (ver modelo Cambio)
+  cambioId    Int?             @map("cambio_id")
+  cambio      Cambio?          @relation(fields: [cambioId], references: [id])
 
   // De qué proveedor vino este lote (normalmente solo se llena en
   // movimientos tipo ENTRADA). Permite saber exactamente quién surtió cada
@@ -455,6 +468,7 @@ model CuentaTransferencia {
   ventas       Venta[]
   pagosApartado ApartadoPago[]
   pedidos      Pedido[]
+  cambios      Cambio[]
 
   @@map("cuentas_transferencia")
 }
@@ -501,6 +515,7 @@ model Proveedor {
   // a la cuenta de ESTE proveedor (no a la cuenta de la tienda).
   pedidosPagoConfirmado Pedido[] @relation("PedidosConfirmadosProveedor")
   gastos       GastoProveedor[]
+  cambioItems  CambioItem[]
 
   @@map("proveedores")
 }
@@ -705,6 +720,11 @@ model Venta {
   // proveedor equivocado, se corrigió el método de pago, etc. Cada fila es
   // una edición con su motivo, quién la hizo y un snapshot de qué cambió.
   ediciones   VentaEdicion[]
+  // Cambios de producto hechos a partir de un artículo de esta venta (ver
+  // modelo Cambio) — opcional: un cambio puede registrarse sin ligarlo a la
+  // venta original (ej. venta anterior a este módulo, o mostrador sin folio
+  // a la mano).
+  cambios     Cambio[]
   createdAt   DateTime    @default(now()) @map("created_at")
 
   @@map("ventas")
@@ -758,6 +778,116 @@ model VentaEdicion {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("venta_ediciones")
+}
+
+// ---------------------------------------------------------------------------
+// Cambios de producto (no reembolsos)
+// ---------------------------------------------------------------------------
+//
+// Política de negocio: solo se cambia mercancía por mercancía, nunca se
+// devuelve dinero. Un Cambio registra, en una sola operación:
+//  - Uno o más CambioItem con direccion = DEVUELTO: lo que el cliente
+//    regresa (por producto defectuoso, porque no le gustó, o porque no le
+//    quedó la talla — ver MotivoCambio). Si el motivo es DEFECTUOSO, ese
+//    renglón NO vuelve a existencias vendibles (reingresado = false): el
+//    producto se aparta del stock que se puede volver a vender, en vez de
+//    mezclarse con mercancía en buen estado. Con NO_LE_GUSTO/NO_QUEDO sí se
+//    reintegra (reingresado = true), porque el producto está en condiciones
+//    de venderse de nuevo.
+//  - Uno o más CambioItem con direccion = ENTREGADO: el/los producto(s)
+//    nuevo(s) que se lleva el cliente en su lugar (si su stock alcanza).
+//
+// diferencia = totalNuevo - totalDevuelto:
+//  - Si es negativa, el cliente queda con saldo a favor. Por política de
+//    negocio ese saldo se debe cubrir con más producto en la MISMA visita
+//    (agregando más renglones ENTREGADO) — el backend rechaza registrar el
+//    cambio mientras la diferencia siga siendo negativa (ver POST /cambios).
+//    No existe ningún mecanismo de saldo/vale pendiente para usarse después.
+//  - Si es positiva, el cliente paga la diferencia (metodoPago/efectivo o
+//    transferencia con comprobante, igual que en Venta).
+//  - Si es cero, el cambio queda exacto, sin pago de por medio.
+enum MotivoCambio {
+  DEFECTUOSO   // producto dañado o con falla de fábrica
+  NO_LE_GUSTO  // el cliente ya no lo quiere (color, estilo, etc.)
+  NO_QUEDO     // talla incorrecta / no le quedó bien puesto
+}
+
+enum EstadoCambio {
+  COMPLETADO
+  CANCELADO
+}
+
+enum DireccionCambioItem {
+  DEVUELTO   // producto que el cliente regresa
+  ENTREGADO  // producto nuevo que se lleva el cliente
+}
+
+model Cambio {
+  id          Int      @id @default(autoincrement())
+  folio       String   @unique
+  sucursalId  Int      @map("sucursal_id")
+  sucursal    Sucursal @relation(fields: [sucursalId], references: [id])
+  usuarioId   Int      @map("usuario_id")
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
+
+  // Venta de la que proviene el producto devuelto. Opcional: permite
+  // registrar cambios de ventas hechas antes de este módulo, o de
+  // mostrador cuando no se tiene a la mano el folio original.
+  ventaOrigenId Int?   @map("venta_origen_id")
+  ventaOrigen   Venta? @relation(fields: [ventaOrigenId], references: [id])
+
+  cliente         String?
+  clienteTelefono String? @map("cliente_telefono")
+
+  // Suma de los renglones DEVUELTO / ENTREGADO respectivamente, al precio
+  // al que se vendió/se está vendiendo cada uno (ver POST /cambios).
+  totalDevuelto Decimal @map("total_devuelto") @db.Decimal(10, 2)
+  totalNuevo    Decimal @map("total_nuevo") @db.Decimal(10, 2)
+  // totalNuevo - totalDevuelto. Siempre >= 0 al completarse el cambio (ver
+  // comentario arriba del enum MotivoCambio).
+  diferencia    Decimal @default(0) @db.Decimal(10, 2)
+
+  // Solo si diferencia > 0 (el cliente paga la diferencia) — mismo patrón
+  // que Venta.metodoPago/cuentaTransferencia/comprobante.
+  metodoPago            MetodoPago?          @map("metodo_pago")
+  cuentaTransferenciaId Int?                 @map("cuenta_transferencia_id")
+  cuentaTransferencia   CuentaTransferencia? @relation(fields: [cuentaTransferenciaId], references: [id])
+  comprobanteUrl        String?              @map("comprobante_url")
+  comprobantePublicId   String?              @map("comprobante_public_id")
+  efectivoRecibido      Decimal?             @map("efectivo_recibido") @db.Decimal(10, 2)
+
+  notas       String?
+  estado      EstadoCambio           @default(COMPLETADO)
+  items       CambioItem[]
+  movimientos MovimientoInventario[]
+  createdAt   DateTime               @default(now()) @map("created_at")
+
+  @@map("cambios")
+}
+
+model CambioItem {
+  id             Int                 @id @default(autoincrement())
+  cambioId       Int                 @map("cambio_id")
+  cambio         Cambio              @relation(fields: [cambioId], references: [id])
+  direccion      DireccionCambioItem
+  varianteId     Int                 @map("variante_id")
+  variante       ProductoVariante    @relation(fields: [varianteId], references: [id])
+  // De qué bucket de proveedor sale/entra el stock (mismo criterio que
+  // VentaItem.proveedorId) — necesario para ajustar la Existencia correcta.
+  proveedorId    Int?                @map("proveedor_id")
+  proveedor      Proveedor?          @relation(fields: [proveedorId], references: [id])
+  cantidad       Int
+  precioUnitario Decimal             @map("precio_unitario") @db.Decimal(10, 2)
+  subtotal       Decimal             @db.Decimal(10, 2)
+
+  // Solo aplica a renglones DEVUELTO.
+  motivo        MotivoCambio?
+  motivoDetalle String?              @map("motivo_detalle")
+  // Solo aplica a renglones DEVUELTO: si este renglón sí volvió a
+  // existencias vendibles (false cuando motivo = DEFECTUOSO).
+  reingresado   Boolean              @default(true)
+
+  @@map("cambio_items")
 }
 
 // ---------------------------------------------------------------------------
