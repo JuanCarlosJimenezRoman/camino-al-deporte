@@ -33,12 +33,21 @@ export function ProductoThumb({
     );
   }
 
-    const urlConTimestamp = `${url}${url.includes('?') ? '&' : '?'}t=${Date.now()}`;
-
+  // No se agrega cache-busting aquí: Cloudinary ya versiona la URL
+  // (secure_url incluye /v<version>/) cada vez que se sube una foto nueva,
+  // así que la URL cambia sola cuando la foto cambia y el navegador puede
+  // cachear en paz el resto del tiempo. Antes se le pegaba un
+  // `?t=${Date.now()}` en cada render, lo que generaba una URL distinta
+  // cada vez que la tabla se volvía a renderizar (filtros, búsqueda,
+  // abrir/cerrar un producto...) — eso forzaba a recargar TODAS las fotos
+  // de la tabla desde cero en cada cambio, y si el usuario aplicaba otro
+  // filtro antes de que terminaran de cargar, el navegador cancelaba esas
+  // peticiones a medias. Eso es lo que se veía como "a veces no cargan
+  // las fotos al filtrar".
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={urlConTimestamp}
+      src={url}
       alt={alt}
       style={{ width: size, height: size, borderRadius: 6, objectFit: fit, flexShrink: 0 }}
     />
