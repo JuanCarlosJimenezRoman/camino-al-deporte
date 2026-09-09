@@ -236,18 +236,34 @@ function SelectorCantidad({
 // varias, primero despliega los chips de talla para que el cajero elija
 // (no se puede adivinar cuál quiere) — igual que elegir talla en cualquier
 // tienda de tenis, pero pensado para tocarse con el dedo en una tablet.
+// Reemplaza la función TarjetaProductoGrid con esta versión mejorada
+
+// Tarjeta de una tarjeta del catálogo visual. Si el producto tiene una sola
+// talla/variante, tocar la tarjeta la agrega directo al ticket; si tiene
+// varias, primero despliega los chips de talla para que el cajero elija.
+// Si una talla tiene stock de múltiples proveedores, se muestran los
+// proveedores disponibles con su stock.
 function TarjetaProductoGrid({
   producto,
   expandido,
   onClic,
-  onElegirTalla,
+  onElegirVariante,
 }: {
   producto: ProductoAgrupado;
   expandido: boolean;
   onClic: () => void;
-  onElegirTalla: (e: Existencia) => void;
+  onElegirVariante: (e: Existencia) => void;
 }) {
   const multiple = producto.variantes.length > 1;
+  
+  // Agrupar variantes por talla para mostrar proveedores
+  const variantesPorTalla = producto.variantes.reduce((acc, v) => {
+    const talla = v.variante.talla?.valor ?? 'Único';
+    if (!acc.has(talla)) acc.set(talla, []);
+    acc.get(talla)!.push(v);
+    return acc;
+  }, new Map<string, Existencia[]>());
+
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/40">
       <button type="button" onClick={onClic} className="flex flex-1 flex-col gap-2 text-left">
@@ -274,20 +290,49 @@ function TarjetaProductoGrid({
       </div>
       {multiple &&
         (expandido ? (
-          <div className="flex flex-wrap gap-1.5 border-t border-border pt-2">
-            {producto.variantes.map((v) => (
-              <button
-                key={claveExistencia(v)}
-                type="button"
-                onClick={() => onElegirTalla(v)}
-                className="rounded-md border border-border px-2 py-1 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
-              >
-                {v.variante.talla?.valor ?? v.variante.color ?? 'Único'}
-              </button>
-            ))}
+          <div className="space-y-2 border-t border-border pt-2">
+            {Array.from(variantesPorTalla.entries()).map(([talla, existencias]) => {
+              // Si hay más de un proveedor para esta talla, mostrar selector
+              if (existencias.length > 1) {
+                return (
+                  <div key={talla} className="space-y-1">
+                    <div className="text-xs font-medium text-muted-foreground">{talla}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {existencias.map((v) => (
+                        <button
+                          key={claveExistencia(v)}
+                          type="button"
+                          onClick={() => onElegirVariante(v)}
+                          className="rounded-md border border-border px-2 py-1 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
+                        >
+                          {v.proveedor?.nombre || 'Sin proveedor'} 
+                          <span className="text-muted-foreground font-normal">
+                            (Stock: {v.stockActual})
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              // Si solo hay un proveedor, mostrar como chip simple
+              const v = existencias[0];
+              return (
+                <button
+                  key={claveExistencia(v)}
+                  type="button"
+                  onClick={() => onElegirVariante(v)}
+                  className="rounded-md border border-border px-2 py-1 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
+                >
+                  {talla}
+                </button>
+              );
+            })}
           </div>
         ) : (
-          <div className="text-[11px] text-muted-foreground">{producto.variantes.length} tallas · toca para elegir</div>
+          <div className="text-[11px] text-muted-foreground">
+            {producto.variantes.length} tallas · toca para elegir
+          </div>
         ))}
     </div>
   );
@@ -1173,22 +1218,23 @@ export default function VentasPage() {
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
                     {productosVisibles.map((p) => (
-                      <TarjetaProductoGrid
-                        key={p.productoId}
-                        producto={p}
-                        expandido={productoExpandidoId === p.productoId}
-                        onClic={() => {
-                          if (p.variantes.length === 1) {
-                            procesarExistencia(p.variantes[0]);
-                          } else {
-                            setProductoExpandidoId((actual) => (actual === p.productoId ? null : p.productoId));
-                          }
-                        }}
-                        onElegirTalla={(v) => {
-                          procesarExistencia(v);
-                          setProductoExpandidoId(null);
-                        }}
-                      />
+                      // En el render del grid, reemplaza la llamada a TarjetaProductoGrid:
+<TarjetaProductoGrid
+  key={p.productoId}
+  producto={p}
+  expandido={productoExpandidoId === p.productoId}
+  onClic={() => {
+    if (p.variantes.length === 1) {
+      procesarExistencia(p.variantes[0]);
+    } else {
+      setProductoExpandidoId((actual) => (actual === p.productoId ? null : p.productoId));
+    }
+  }}
+  onElegirVariante={(v) => {
+    procesarExistencia(v);
+    setProductoExpandidoId(null);
+  }}
+/>
                     ))}
                   </div>
                 )}
