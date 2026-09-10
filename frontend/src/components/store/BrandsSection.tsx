@@ -18,9 +18,9 @@ export function BrandsSection({ marcas }: { marcas: ConteoNombre[] }) {
           <Link
             key={m.nombre}
             href={`/tienda/productos?marca=${encodeURIComponent(m.nombre)}`}
-            className="group flex flex-col items-start justify-center gap-1 rounded-2xl border border-border px-5 py-6 transition-colors hover:border-foreground"
+            className="group flex flex-col items-start justify-center gap-1 rounded-2xl border border-border px-5 py-6 transition-colors hover:border-gold/50 hover:bg-gold/5"
           >
-            <span className="text-lg font-extrabold uppercase tracking-tight transition-colors group-hover:text-primary sm:text-xl">
+            <span className="text-lg font-extrabold uppercase tracking-tight transition-colors group-hover:text-bronze sm:text-xl">
               {m.nombre}
             </span>
             <span className="text-xs text-muted-foreground">

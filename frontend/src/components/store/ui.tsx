@@ -14,14 +14,15 @@ import { tonoPorStock } from '@/components/ui/status-badge';
 // (tonoPorStock) para que "qué cuenta como stock bajo" nunca se defina dos
 // veces con criterios distintos entre panel y tienda.
 
-// El naranja de marca (--primary) se reserva para el CTA principal y para
-// selección activa (ver sección 4 del brief) — por eso el botón primario ya
-// no es negro, y los chips/tallas seleccionados también usan este color.
+// El dorado de marca (--primary = #F2BA52) es el protagonista del CTA
+// principal: gradiente dorado→bronce con texto tinta (#0D0D0D) para máximo
+// contraste y un halo dorado suave que lo hace "brillar". Los chips/tallas
+// seleccionados heredan el mismo dorado vía bg-primary (ver claseChip).
 export const claseBotonPrimario =
-  'inline-flex items-center justify-center rounded-full bg-primary px-6 py-3.5 text-sm font-semibold uppercase tracking-wide text-primary-foreground transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-40';
+  'group/btn inline-flex items-center justify-center rounded-full bg-gradient-to-br from-gold via-gold to-bronze px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-ink shadow-[0_10px_30px_-10px_rgb(242_186_82/0.7)] transition hover:shadow-[0_14px_36px_-8px_rgb(242_186_82/0.85)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40';
 
 export const claseBotonSecundario =
-  'inline-flex items-center justify-center rounded-full border border-foreground/20 bg-transparent px-6 py-3.5 text-sm font-semibold uppercase tracking-wide text-foreground transition hover:border-foreground disabled:pointer-events-none disabled:opacity-40';
+  'inline-flex items-center justify-center rounded-full border border-foreground/20 bg-transparent px-6 py-3.5 text-sm font-semibold uppercase tracking-wide text-foreground transition hover:border-gold hover:text-bronze disabled:pointer-events-none disabled:opacity-40';
 
 // Botón fantasma para acciones secundarias dentro de tarjetas/paneles (ej.
 // "Vista rápida"), donde un pill con borde se sentiría demasiado pesado.
@@ -41,7 +42,7 @@ export const claseContadorIcono =
 // título) y título de sección (grande, en mayúsculas, sobrio).
 export const claseOjo = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground';
 export const claseTituloSeccion = 'text-lg font-bold uppercase tracking-tight sm:text-xl';
-export const claseTituloHero = 'text-3xl font-extrabold uppercase leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl';
+export const claseTituloHero = 'text-4xl font-black uppercase leading-[0.95] tracking-tight sm:text-5xl lg:text-6xl';
 
 // Campos de formulario (checkout, login, registro) — antes cada pantalla
 // definía su propia versión local de estas dos clases.
@@ -68,7 +69,7 @@ export function claseChip({ seleccionado = false, agotado = false }: { seleccion
 // de "MÁS VENDIDO" u "OFERTA": el catálogo hoy no expone ventas ni precio de
 // comparación, y el brief prohíbe inventar esos datos (ver sección 67).
 const CLASE_BADGE_BASE = 'inline-flex items-center rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide';
-export const claseBadgeNuevo = cn(CLASE_BADGE_BASE, 'bg-foreground text-background');
+export const claseBadgeNuevo = cn(CLASE_BADGE_BASE, 'bg-gold text-ink');
 export const claseBadgeUltimas = cn(CLASE_BADGE_BASE, 'bg-warning text-warning-foreground');
 export const claseBadgeAgotado = cn(CLASE_BADGE_BASE, 'bg-secondary text-muted-foreground');
 

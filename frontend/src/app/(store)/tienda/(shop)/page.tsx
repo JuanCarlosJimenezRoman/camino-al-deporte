@@ -11,6 +11,7 @@ import { BrandsSection } from '@/components/store/BrandsSection';
 import { BenefitsSection } from '@/components/store/StoreFooter';
 import { Testimonios } from '@/components/store/Testimonios';
 import { ProductQuickView } from '@/components/store/ProductQuickView';
+import { Reveal } from '@/components/store/Reveal';
 import { claseBotonPrimario, claseOjo, claseTituloSeccion } from '@/components/store/ui';
 
 // CTA hacia el catálogo completo (con buscador, filtros y "ver más"), que
@@ -129,48 +130,64 @@ function TiendaHomeContenido() {
     <div>
       <HomeHero productoDestacado={productoDestacadoHero} />
 
-      <CategoryGrid categorias={categoriasConImagen} />
+      <Reveal>
+        <CategoryGrid categorias={categoriasConImagen} />
+      </Reveal>
 
-      <ProductSection
-        ojo="Selección de la casa"
-        titulo="Destacados"
-        subtitulo={
-          destacadosCurados
-            ? 'Lo que elegimos resaltar esta temporada.'
-            : 'Una muestra de lo que tenemos, de distintas categorías del catálogo.'
-        }
-        productos={destacados}
-        nuevosIds={nuevosIds}
-        onQuickView={setQuickView}
-        variante="grid"
-      />
+      <Reveal>
+        <ProductSection
+          ojo="Selección de la casa"
+          titulo="Destacados"
+          subtitulo={
+            destacadosCurados
+              ? 'Lo que elegimos resaltar esta temporada.'
+              : 'Una muestra de lo que tenemos, de distintas categorías del catálogo.'
+          }
+          productos={destacados}
+          nuevosIds={nuevosIds}
+          onQuickView={setQuickView}
+          variante="grid"
+        />
+      </Reveal>
 
-      <VerCatalogoCompleto />
+      <Reveal>
+        <VerCatalogoCompleto />
+      </Reveal>
 
-      <ProductSection
-        ojo="Lo último"
-        titulo="Recién llegados"
-        productos={nuevos}
-        nuevosIds={nuevosIds}
-        onQuickView={setQuickView}
-        variante="scroll"
-      />
+      <Reveal>
+        <ProductSection
+          ojo="Lo último"
+          titulo="Recién llegados"
+          productos={nuevos}
+          nuevosIds={nuevosIds}
+          onQuickView={setQuickView}
+          variante="scroll"
+        />
+      </Reveal>
 
-      <ProductSection
-        ojo="Que no se te vayan"
-        titulo="Últimas unidades"
-        subtitulo="Quedan pocas piezas de estos modelos en existencia."
-        productos={ultimas}
-        nuevosIds={nuevosIds}
-        onQuickView={setQuickView}
-        variante="grid"
-      />
+      <Reveal>
+        <ProductSection
+          ojo="Que no se te vayan"
+          titulo="Últimas unidades"
+          subtitulo="Quedan pocas piezas de estos modelos en existencia."
+          productos={ultimas}
+          nuevosIds={nuevosIds}
+          onQuickView={setQuickView}
+          variante="grid"
+        />
+      </Reveal>
 
-      <BrandsSection marcas={marcasHome} />
+      <Reveal>
+        <BrandsSection marcas={marcasHome} />
+      </Reveal>
 
-      <BenefitsSection />
+      <Reveal>
+        <BenefitsSection />
+      </Reveal>
 
-      <Testimonios />
+      <Reveal>
+        <Testimonios />
+      </Reveal>
 
       <ProductQuickView producto={quickView} onClose={() => setQuickView(null)} />
     </div>

@@ -194,7 +194,7 @@ export function CatalogSection({
             placeholder="Buscar productos"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            className="w-full rounded-full border border-border bg-secondary/60 py-3 pl-10 pr-4 text-sm outline-none focus:border-foreground"
+            className="w-full rounded-full border border-border bg-secondary/60 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
           />
         </div>
       </div>
@@ -203,7 +203,7 @@ export function CatalogSection({
         <button
           type="button"
           onClick={() => setPanelAbierto(true)}
-          className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold transition hover:border-foreground"
+          className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-semibold transition hover:border-gold/50 hover:text-bronze"
         >
           <SlidersHorizontal className="h-4 w-4" strokeWidth={1.75} />
           Filtrar y ordenar

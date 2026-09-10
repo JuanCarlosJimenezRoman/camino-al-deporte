@@ -58,7 +58,7 @@ export function ProductCard({
 
   return (
     <Link href={`/tienda/productos/${producto.id}`} className={`group block ${className}`}>
-      <div className="relative mb-3 aspect-square overflow-hidden rounded-2xl bg-secondary">
+      <div className="relative mb-3 aspect-square overflow-hidden rounded-2xl bg-secondary ring-1 ring-transparent transition-all duration-300 group-hover:shadow-[0_16px_40px_-16px_rgb(0_0_0/0.25)] group-hover:ring-gold/40">
         {producto.imagenes?.[0]?.url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -143,7 +143,7 @@ export function ProductCard({
         )}
       </div>
 
-      <p className="truncate text-sm font-semibold leading-tight">{producto.nombre}</p>
+      <p className="truncate text-sm font-semibold leading-tight transition-colors group-hover:text-bronze">{producto.nombre}</p>
       <p className="text-xs text-muted-foreground">{producto.marca?.nombre}</p>
       {/* El estado de stock ya se muestra como badge sobre la foto — repetirlo
           aquí como texto era la misma información dos veces en una tarjeta

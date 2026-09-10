@@ -137,7 +137,7 @@ export function StoreHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-        <div className="h-[3px] w-full bg-primary" aria-hidden="true" />
+        <div className="h-[3px] w-full bg-gradient-to-r from-gold via-bronze to-gold" aria-hidden="true" />
         <TrustBar />
 
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6 lg:px-8">
@@ -152,22 +152,22 @@ export function StoreHeader() {
           </Link>
 
           <nav className="hidden items-center gap-7 text-sm font-medium lg:flex">
-            <Link href="/tienda" className="text-foreground/80 transition-colors hover:text-foreground">
+            <Link href="/tienda" className="text-foreground/80 transition-colors hover:text-bronze">
               Tienda
             </Link>
-            <Link href="/tienda/productos" className="text-foreground/80 transition-colors hover:text-foreground">
+            <Link href="/tienda/productos" className="text-foreground/80 transition-colors hover:text-bronze">
               Catálogo
             </Link>
             {categoriasNav.map((c) => (
               <Link
                 key={c.nombre}
                 href={`/tienda/productos?categoria=${encodeURIComponent(c.nombre)}`}
-                className="text-foreground/80 transition-colors hover:text-foreground"
+                className="text-foreground/80 transition-colors hover:text-bronze"
               >
                 {c.nombre}
               </Link>
             ))}
-            <Link href="/tienda#marcas" className="text-foreground/80 transition-colors hover:text-foreground">
+            <Link href="/tienda#marcas" className="text-foreground/80 transition-colors hover:text-bronze">
               Marcas
             </Link>
           </nav>

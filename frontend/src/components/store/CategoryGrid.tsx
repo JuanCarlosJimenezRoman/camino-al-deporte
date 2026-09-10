@@ -37,7 +37,7 @@ export function CategoryGrid({ categorias }: { categorias: CategoriaConImagen[] 
           <Link
             key={c.nombre}
             href={`/tienda/productos?categoria=${encodeURIComponent(c.nombre)}`}
-            className="group relative aspect-[4/5] overflow-hidden rounded-2xl bg-secondary"
+            className="group relative aspect-[4/5] overflow-hidden rounded-2xl bg-secondary ring-1 ring-transparent transition-shadow duration-300 group-hover:ring-gold/50"
           >
             {c.imagenPortada ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -64,7 +64,7 @@ export function CategoryGrid({ categorias }: { categorias: CategoriaConImagen[] 
                   {c.cantidad} {c.cantidad === 1 ? 'producto' : 'productos'}
                 </p>
               </div>
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/90 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gold text-ink opacity-0 transition-all duration-200 group-hover:opacity-100">
                 <ArrowRight className="h-3.5 w-3.5" strokeWidth={2} />
               </span>
             </div>
