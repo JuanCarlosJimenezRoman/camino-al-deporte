@@ -161,6 +161,12 @@ export const PERMISOS = {
   // cambio ya registrado sigue siendo exclusivo de ADMIN_PRINCIPAL/
   // DESARROLLO (lo filtra el backend, no esta lista).
   cambios: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
+  // Ficha de cliente: datos de contacto, saldo a favor y su historial de
+  // apartados/cambios/ventas — mismos roles que operan el punto de venta.
+  // Ajustar el saldo a mano (ver POST /clientes/:id/ajustar-saldo) sigue
+  // siendo exclusivo de ADMIN_PRINCIPAL/DESARROLLO (lo filtra el backend,
+  // el frontend solo oculta el formulario para los demás roles).
+  clientes: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
 };
 
 export function puedeVer(seccion: keyof typeof PERMISOS, rol: Rol | undefined) {

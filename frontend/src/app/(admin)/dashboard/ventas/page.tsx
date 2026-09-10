@@ -43,6 +43,18 @@ interface Sucursal {
   nombre: string;
 }
 
+// Cliente registrado (opcional en el punto de venta): permite aplicar su
+// saldo a favor como pago (ver Cliente.saldoFavor y
+// docs/CAMBIOS_SALDO_A_FAVOR.md). A diferencia de cliente/clienteTelefono
+// de abajo (texto libre, solo para el ticket), esto liga la venta a un
+// Cliente real.
+interface Cliente {
+  id: number;
+  nombre: string;
+  telefono: string;
+  saldoFavor: string;
+}
+
 interface CuentaTransferencia {
   id: number;
   nombre: string;
@@ -562,6 +574,10 @@ export default function VentasPage() {
   // con "+ Agregar datos del cliente" (ver limpiarSeleccion, que también
   // los vuelve a colapsar en cada venta nueva).
   const [mostrarDatosCliente, setMostrarDatosCliente] = useState(false);
+  // Cliente registrado (opcional): se busca por el mismo teléfono ya
+  // capturado arriba, para poder aplicar su saldo a favor como pago.
+  const [clienteRegistradoSel, setClienteRegistradoSel] = useState<Cliente | null>(null);
+  const [saldoAplicado, setSaldoAplicado] = useState('');
   const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
   const [efectivoRecibido, setEfectivoRecibido] = useState('');
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
@@ -810,6 +826,21 @@ export default function VentasPage() {
     );
   }
 
+  async function buscarClienteRegistrado() {
+    if (!clienteTelefono.trim()) return;
+    try {
+      const resultados = await api<Cliente[]>(`/clientes?q=${encodeURIComponent(clienteTelefono.trim())}`);
+      const exacto = resultados.find((c) => c.telefono === clienteTelefono.trim()) || resultados[0] || null;
+      if (exacto) {
+        setClienteRegistradoSel(exacto);
+      } else {
+        setMensaje('No se encontró un cliente registrado con ese teléfono.');
+      }
+    } catch {
+      setMensaje('No se pudo buscar el cliente registrado.');
+    }
+  }
+
   function limpiarSeleccion() {
     setSeleccion(null);
     setBusqueda('');
@@ -827,6 +858,8 @@ export default function VentasPage() {
     setLibreCantidad('1');
     setErrorLibre('');
     setMostrarDatosCliente(false);
+    setClienteRegistradoSel(null);
+    setSaldoAplicado('');
     setMostrarNota(false);
     setNotaVenta('');
     setProductoExpandidoId(null);
@@ -863,7 +896,16 @@ export default function VentasPage() {
         )
       : 0;
   const totalVenta = subtotalVenta - descuentoMontoPreview;
-  const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - totalVenta : null;
+  // Cuánto del total se cubre con el saldo a favor del cliente registrado
+  // (si se encontró uno) — nunca más de lo que hace falta, ni más de lo que
+  // tiene disponible. Lo que sobra después de eso es lo que de verdad hay
+  // que cobrar en efectivo/tarjeta/transferencia.
+  const saldoDisponibleVenta = clienteRegistradoSel ? Number(clienteRegistradoSel.saldoFavor) : 0;
+  const saldoAplicadoNum = clienteRegistradoSel
+    ? Math.max(0, Math.min(Number(saldoAplicado) || 0, totalVenta, saldoDisponibleVenta))
+    : 0;
+  const restanteVenta = Math.max(Math.round((totalVenta - saldoAplicadoNum) * 100) / 100, 0);
+  const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - restanteVenta : null;
 
   async function registrarVenta() {
     if (carrito.length === 0 || !sucursalId) return;
@@ -876,7 +918,7 @@ export default function VentasPage() {
       return;
     }
     if (metodoPago === 'EFECTIVO') {
-      if (!efectivoRecibido.trim()) {
+      if (!efectivoRecibido.trim() && restanteVenta > 0.004) {
         setMensaje('Captura cuánto efectivo recibiste, para calcular el cambio.');
         return;
       }
@@ -903,6 +945,8 @@ export default function VentasPage() {
         sucursalId: Number(sucursalId),
         cliente: cliente || undefined,
         clienteTelefono: clienteTelefono.trim() || undefined,
+        clienteRegistradoId: clienteRegistradoSel ? clienteRegistradoSel.id : undefined,
+        saldoAplicado: saldoAplicadoNum > 0 ? saldoAplicadoNum : undefined,
         metodoPago,
         cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? Number(cuentaTransferenciaId) : undefined,
         efectivoRecibido: metodoPago === 'EFECTIVO' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
@@ -966,6 +1010,8 @@ export default function VentasPage() {
       limpiarSeleccion();
       setCliente('');
       setClienteTelefono('');
+      setClienteRegistradoSel(null);
+      setSaldoAplicado('');
       setMetodoPago('EFECTIVO');
       setCuentaTransferenciaId('');
       setComprobante(null);
@@ -1578,6 +1624,50 @@ export default function VentasPage() {
                       placeholder="10 dígitos, para mandarle el ticket por WhatsApp"
                     />
                   </div>
+                  {/* Cliente registrado (opcional): si tiene cuenta y saldo a
+                      favor (ver Cliente.saldoFavor), se puede aplicar aquí como
+                      parte del pago — ver docs/CAMBIOS_SALDO_A_FAVOR.md. */}
+                  {clienteRegistradoSel ? (
+                    <div className="rounded-lg border border-border p-2 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span>
+                          Cliente registrado: <strong>{clienteRegistradoSel.nombre}</strong> — saldo a favor:{' '}
+                          {formatoMonedaExacto(clienteRegistradoSel.saldoFavor)}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-primary hover:underline shrink-0"
+                          onClick={() => {
+                            setClienteRegistradoSel(null);
+                            setSaldoAplicado('');
+                          }}
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      {saldoDisponibleVenta > 0 && (
+                        <div>
+                          <label className="text-xs text-muted-foreground">Aplicar saldo a favor como pago</label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={saldoAplicado}
+                            onChange={(e) => setSaldoAplicado(e.target.value)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={buscarClienteRegistrado}
+                      disabled={!clienteTelefono.trim()}
+                      className="text-xs text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+                    >
+                      ¿Tiene cuenta registrada? Buscar saldo a favor por este teléfono
+                    </button>
+                  )}
                 </div>
               )}
 

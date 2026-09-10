@@ -72,6 +72,7 @@ model Usuario {
   pedidosCreadosManualmente Pedido[] @relation("PedidosCreadosManualmente")
   gastosRegistrados         Gasto[]  @relation("GastosRegistrados")
   cambiosRegistrados        Cambio[]
+  movimientosSaldoCliente   MovimientoSaldoCliente[]
 
   @@map("usuarios")
 }
@@ -113,6 +114,7 @@ model Sucursal {
   rutasEnvio      RutaEnvio[]    @relation("RutaOrigen")
   pedidosDespacho Pedido[]       @relation("PedidoDespacho")
   cambios         Cambio[]
+  movimientosSaldoCliente MovimientoSaldoCliente[]
 
   @@map("sucursales")
 }
@@ -725,6 +727,17 @@ model Venta {
   // venta original (ej. venta anterior a este módulo, o mostrador sin folio
   // a la mano).
   cambios     Cambio[]
+  // Cliente registrado (opcional): a diferencia de cliente/clienteTelefono de
+  // arriba (texto libre, para venta de mostrador sin registrar a nadie), este
+  // campo liga a un Cliente real y es lo que permite usar/generar saldo a
+  // favor (ver MovimientoSaldoCliente).
+  clienteRegistradoId Int?     @map("cliente_registrado_id")
+  clienteRegistrado   Cliente? @relation(fields: [clienteRegistradoId], references: [id])
+  // Cuánto del total se pagó con el saldo a favor del cliente — se resta del
+  // total antes de aplicar el método de pago normal por el resto (ver POST
+  // /ventas).
+  saldoAplicado       Decimal  @default(0) @map("saldo_aplicado") @db.Decimal(10, 2)
+  movimientosSaldo    MovimientoSaldoCliente[]
   createdAt   DateTime    @default(now()) @map("created_at")
 
   @@map("ventas")
@@ -836,8 +849,12 @@ model Cambio {
   ventaOrigenId Int?   @map("venta_origen_id")
   ventaOrigen   Venta? @relation(fields: [ventaOrigenId], references: [id])
 
-  cliente         String?
-  clienteTelefono String? @map("cliente_telefono")
+  // Cliente registrado — obligatorio (ver POST /cambios): hacer un cambio
+  // requiere identificar al cliente, mínimo nombre y teléfono, tanto para
+  // trazabilidad como porque el saldo a favor (ver diferencia abajo) se
+  // acumula en su cuenta.
+  clienteId Int     @map("cliente_id")
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
 
   // Suma de los renglones DEVUELTO / ENTREGADO respectivamente, al precio
   // al que se vendió/se está vendiendo cada uno (ver POST /cambios).
@@ -860,6 +877,7 @@ model Cambio {
   estado      EstadoCambio           @default(COMPLETADO)
   items       CambioItem[]
   movimientos MovimientoInventario[]
+  movimientosSaldo MovimientoSaldoCliente[]
   createdAt   DateTime               @default(now()) @map("created_at")
 
   @@map("cambios")
@@ -870,8 +888,15 @@ model CambioItem {
   cambioId       Int                 @map("cambio_id")
   cambio         Cambio              @relation(fields: [cambioId], references: [id])
   direccion      DireccionCambioItem
-  varianteId     Int                 @map("variante_id")
-  variante       ProductoVariante    @relation(fields: [varianteId], references: [id])
+  // Nulo cuando el renglón es un producto NO registrado en el catálogo (ver
+  // descripcionLibre abajo) — mismo patrón que VentaItem (ver migración
+  // 20260901100000_venta_items_libres). Un CambioItem siempre trae
+  // exactamente uno de los dos, reforzado con un CHECK en base de datos.
+  varianteId       Int?                @map("variante_id")
+  variante         ProductoVariante?   @relation(fields: [varianteId], references: [id])
+  // Descripción capturada a mano cuando varianteId es null (producto no
+  // registrado en el catálogo).
+  descripcionLibre String?             @map("descripcion_libre")
   // De qué bucket de proveedor sale/entra el stock (mismo criterio que
   // VentaItem.proveedorId) — necesario para ajustar la Existencia correcta.
   proveedorId    Int?                @map("proveedor_id")
@@ -888,6 +913,44 @@ model CambioItem {
   reingresado   Boolean              @default(true)
 
   @@map("cambio_items")
+}
+
+enum TipoMovimientoSaldo {
+  ABONO
+  CONSUMO
+  REVERSA
+}
+
+// Historial de saldo a favor de un Cliente — se genera cuando un Cambio
+// termina con diferencia negativa (el producto nuevo vale menos que el
+// devuelto: ver POST /cambios) y se consume cuando el cliente lo usa para
+// pagar, total o parcialmente, una Venta o un Cambio futuro (ver
+// Venta.saldoAplicado). Igual que MovimientoInventario para el stock, cada
+// movimiento deja rastro de quién lo generó y cuál quedó el saldo después,
+// para poder auditarlo.
+model MovimientoSaldoCliente {
+  id              Int                 @id @default(autoincrement())
+  clienteId       Int                 @map("cliente_id")
+  cliente         Cliente             @relation(fields: [clienteId], references: [id])
+  tipo            TipoMovimientoSaldo
+  // Siempre positivo; el signo/efecto sobre el saldo lo da "tipo".
+  monto           Decimal             @db.Decimal(10, 2)
+  saldoResultante Decimal             @map("saldo_resultante") @db.Decimal(10, 2)
+
+  // Origen del movimiento — nunca ambos a la vez.
+  cambioId  Int?    @map("cambio_id")
+  cambio    Cambio? @relation(fields: [cambioId], references: [id])
+  ventaId   Int?    @map("venta_id")
+  venta     Venta?  @relation(fields: [ventaId], references: [id])
+
+  usuarioId  Int      @map("usuario_id")
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id])
+  sucursalId Int      @map("sucursal_id")
+  sucursal   Sucursal @relation(fields: [sucursalId], references: [id])
+  notas      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("movimientos_saldo_cliente")
 }
 
 // ---------------------------------------------------------------------------
@@ -930,6 +993,11 @@ model Cliente {
   telefono  String   @unique // clave natural para buscar/evitar duplicar clientes
   email     String?
   notas     String?
+  // Saldo a favor disponible del cliente (ver modelo MovimientoSaldoCliente
+  // para el detalle de cada movimiento) — se genera cuando un Cambio termina
+  // con diferencia negativa y se puede gastar en otro Cambio o en una Venta
+  // (Venta.saldoAplicado). No caduca.
+  saldoFavor Decimal @default(0) @map("saldo_favor") @db.Decimal(10, 2)
 
   // Cuenta de la tienda en línea: un Cliente puede existir solo como
   // registro interno (dado de alta por staff en un apartado, sin password)
@@ -948,6 +1016,9 @@ model Cliente {
   cuponUsos CuponUso[]
   resetTokens ClienteResetToken[]
   favoritos ClienteFavorito[]
+  cambios   Cambio[]
+  ventas    Venta[]
+  movimientosSaldo MovimientoSaldoCliente[]
 
   @@map("clientes")
 }

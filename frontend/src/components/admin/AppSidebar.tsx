@@ -26,6 +26,7 @@ import {
   Wallet,
   Send,
   RefreshCcw,
+  User,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
 import { NavItem } from './NavItem';
@@ -85,6 +86,7 @@ export function AppSidebar({
         puedeVer('ventas', rol) && { href: '/dashboard/ventas', label: 'Ventas', icon: ShoppingCart },
         puedeVer('cambios', rol) && { href: '/dashboard/cambios', label: 'Cambios', icon: RefreshCcw },
         puedeVer('apartados', rol) && { href: '/dashboard/apartados', label: 'Apartados', icon: CalendarClock },
+        puedeVer('clientes', rol) && { href: '/dashboard/clientes', label: 'Clientes', icon: User },
         puedeVer('pedidosOnline', rol) && {
           href: '/dashboard/pedidos-online',
           // Ya no es solo "en línea": también viven aquí los pedidos

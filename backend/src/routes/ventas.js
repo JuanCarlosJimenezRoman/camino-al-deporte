@@ -486,6 +486,23 @@ const ventaSchema = z
     // ticket digital por WhatsApp al terminar la venta. Sin él, la venta se
     // registra igual, solo que no se ofrece el botón de enviar ticket.
     clienteTelefono: z.string().optional(),
+    // Cliente registrado (opcional): liga la venta a un Cliente real para
+    // poder usar/generar saldo a favor (ver Cliente.saldoFavor y
+    // docs/CAMBIOS_SALDO_A_FAVOR.md) — a diferencia de cliente/
+    // clienteTelefono de arriba, que siguen siendo válidos para una venta
+    // de mostrador sin registrar a nadie.
+    clienteRegistradoId: z.number().int().optional(),
+    clienteNuevo: z
+      .object({
+        nombre: z.string().min(1),
+        telefono: z.string().min(1),
+        email: z.string().optional(),
+      })
+      .optional(),
+    // Cuánto del total se paga con el saldo a favor del cliente (ver
+    // arriba) — se resta del total antes de validar/aplicar metodoPago por
+    // el resto. Solo tiene efecto si hay clienteRegistradoId o clienteNuevo.
+    saldoAplicado: z.number().nonnegative().optional(),
     metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']).default('EFECTIVO'),
     cuentaTransferenciaId: z.number().int().optional(),
     // Efectivo que el cliente entregó — solo tiene sentido con EFECTIVO, se
@@ -546,6 +563,9 @@ router.post(
     const {
       cliente,
       clienteTelefono,
+      clienteRegistradoId,
+      clienteNuevo,
+      saldoAplicado,
       metodoPago,
       cuentaTransferenciaId,
       efectivoRecibido,
@@ -678,19 +698,59 @@ router.post(
         descuentoMonto = Math.min(descuentoMonto, subtotal);
         const total = subtotal - descuentoMonto;
 
-        if (metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined && efectivoRecibido < total) {
-          throw new Error(`EFECTIVO_INSUFICIENTE:${(total - efectivoRecibido).toFixed(2)}`);
+        // Cliente registrado (opcional) + saldo a favor aplicado como pago
+        // (ver docs/CAMBIOS_SALDO_A_FAVOR.md). Se resuelve/crea igual que en
+        // POST /apartados y POST /cambios (existente o alta rápida evitando
+        // duplicar por teléfono).
+        let clienteRegistrado = null;
+        if (clienteRegistradoId) {
+          clienteRegistrado = await tx.cliente.findUnique({ where: { id: clienteRegistradoId } });
+          if (!clienteRegistrado) throw new Error('CLIENTE_NO_ENCONTRADO');
+        } else if (clienteNuevo?.telefono) {
+          clienteRegistrado = await tx.cliente.findUnique({ where: { telefono: clienteNuevo.telefono } });
+          if (!clienteRegistrado) {
+            clienteRegistrado = await tx.cliente.create({
+              data: { nombre: clienteNuevo.nombre, telefono: clienteNuevo.telefono, email: clienteNuevo.email || undefined },
+            });
+          }
+        }
+
+        let saldoAplicadoFinal = 0;
+        if (clienteRegistrado && saldoAplicado) {
+          const saldoDisponibleCentavos = Math.round(Number(clienteRegistrado.saldoFavor) * 100);
+          const saldoSolicitadoCentavos = Math.round(saldoAplicado * 100);
+          if (saldoSolicitadoCentavos > saldoDisponibleCentavos) {
+            throw new Error(`SALDO_INSUFICIENTE:${(saldoDisponibleCentavos / 100).toFixed(2)}`);
+          }
+          const totalCentavos = Math.round(total * 100);
+          const aplicadoCentavos = Math.min(saldoSolicitadoCentavos, totalCentavos);
+          if (aplicadoCentavos > 0) {
+            saldoAplicadoFinal = aplicadoCentavos / 100;
+            const nuevoSaldo = Number(clienteRegistrado.saldoFavor) - saldoAplicadoFinal;
+            await tx.cliente.update({ where: { id: clienteRegistrado.id }, data: { saldoFavor: nuevoSaldo } });
+            clienteRegistrado.saldoFavor = nuevoSaldo;
+          }
+        }
+
+        // Lo que falta por cobrar con el método de pago normal, una vez
+        // descontado el saldo a favor aplicado.
+        const restante = Math.round((total - saldoAplicadoFinal) * 100) / 100;
+
+        if (metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined && efectivoRecibido < restante) {
+          throw new Error(`EFECTIVO_INSUFICIENTE:${(restante - efectivoRecibido).toFixed(2)}`);
         }
 
         const folio = `V-${Date.now()}`;
 
-        return tx.venta.create({
+        const creado = await tx.venta.create({
           data: {
             folio,
             sucursalId,
             usuarioId: req.usuario.id,
             cliente,
             clienteTelefono,
+            clienteRegistradoId: clienteRegistrado ? clienteRegistrado.id : null,
+            saldoAplicado: saldoAplicadoFinal,
             metodoPago,
             cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? cuentaTransferenciaId : null,
             comprobanteUrl,
@@ -718,6 +778,7 @@ router.post(
                 proveedor: { select: { id: true, nombre: true } },
               },
             },
+            clienteRegistrado: { select: { id: true, nombre: true, telefono: true, saldoFavor: true } },
             cuentaTransferencia: { select: { nombre: true } },
             sucursal: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
             // Vendedor que registró la venta, para mostrarlo en el ticket
@@ -725,6 +786,25 @@ router.post(
             usuario: { select: { nombre: true } },
           },
         });
+
+        // Movimiento de saldo (ledger, ver MovimientoSaldoCliente) — se crea
+        // hasta ahora porque necesita el id de la venta ya generado.
+        if (saldoAplicadoFinal > 0 && clienteRegistrado) {
+          await tx.movimientoSaldoCliente.create({
+            data: {
+              clienteId: clienteRegistrado.id,
+              tipo: 'CONSUMO',
+              monto: saldoAplicadoFinal,
+              saldoResultante: Number(clienteRegistrado.saldoFavor),
+              ventaId: creado.id,
+              usuarioId: req.usuario.id,
+              sucursalId,
+              notas: `Venta ${creado.folio}: saldo a favor aplicado como pago.`,
+            },
+          });
+        }
+
+        return creado;
       });
 
       // Best-effort y en segundo plano (no se espera aquí): si alguna de las
@@ -801,6 +881,14 @@ router.post(
       if (err.message.startsWith('EFECTIVO_INSUFICIENTE')) {
         return res.status(400).json({ error: `El efectivo recibido no alcanza. Faltan $${err.message.split(':')[1]}.` });
       }
+      if (err.message === 'CLIENTE_NO_ENCONTRADO') {
+        return res.status(404).json({ error: 'Cliente no encontrado.' });
+      }
+      if (err.message.startsWith('SALDO_INSUFICIENTE')) {
+        return res.status(400).json({
+          error: `El cliente solo tiene $${err.message.split(':')[1]} de saldo a favor disponible.`,
+        });
+      }
       throw err;
     }
   })
@@ -816,9 +904,35 @@ router.post(
 
     const venta = await prisma
       .$transaction(async (tx) => {
-        const v = await tx.venta.findUnique({ where: { id: ventaId }, include: { items: true } });
+        const v = await tx.venta.findUnique({
+          where: { id: ventaId },
+          include: { items: true, movimientosSaldo: true },
+        });
         if (!v) throw new Error('VENTA_NO_ENCONTRADA');
         if (v.estado === 'CANCELADA') return v;
+
+        // Si la venta se había pagado (total o parcialmente) con saldo a
+        // favor, se le regresa al cliente — a diferencia de un Cambio, una
+        // Venta nunca GENERA saldo, solo lo consume, así que aquí no hace
+        // falta ningún guard de "ya se gastó": regresarlo siempre es seguro.
+        for (const mov of v.movimientosSaldo) {
+          if (mov.tipo !== 'CONSUMO') continue;
+          const cliente = await tx.cliente.findUnique({ where: { id: mov.clienteId } });
+          const nuevoSaldo = Number(cliente.saldoFavor) + Number(mov.monto);
+          await tx.cliente.update({ where: { id: cliente.id }, data: { saldoFavor: nuevoSaldo } });
+          await tx.movimientoSaldoCliente.create({
+            data: {
+              clienteId: cliente.id,
+              tipo: 'REVERSA',
+              monto: mov.monto,
+              saldoResultante: nuevoSaldo,
+              ventaId: v.id,
+              usuarioId: req.usuario.id,
+              sucursalId: v.sucursalId,
+              notas: `Cancelación venta ${v.folio}: regresa saldo a favor que se había usado.`,
+            },
+          });
+        }
 
         for (const item of v.items) {
           // Renglón "producto no registrado": nunca se descontó inventario
