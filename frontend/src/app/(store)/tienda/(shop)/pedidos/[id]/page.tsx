@@ -294,7 +294,7 @@ export default function PedidoDetallePage() {
               <span
                 key={paso}
                 className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                  i <= pasoActual ? 'bg-foreground text-background' : 'bg-secondary text-muted-foreground'
+                  i <= pasoActual ? 'bg-gold text-ink' : 'bg-secondary text-muted-foreground'
                 }`}
               >
                 {ESTADO_LABEL[paso]}
@@ -437,7 +437,7 @@ export default function PedidoDetallePage() {
                   onChange={(e) => setComentarioResena(e.target.value)}
                   rows={3}
                   placeholder="¿Cómo te fue con tu pedido?"
-                  className="mb-4 w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground"
+                  className="mb-4 w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
                 />
 
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -474,8 +474,8 @@ export default function PedidoDetallePage() {
         </p>
       </div>
 
-      <div className="h-fit rounded-2xl bg-secondary/60 p-5">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide">Artículos</h2>
+      <div className="h-fit rounded-2xl bg-secondary/60 p-5 ring-1 ring-gold/15">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-bronze">Artículos</h2>
         <div className="space-y-3">
           {pedido.items.map((it) => (
             <div key={it.id} className="flex justify-between gap-3 text-sm">

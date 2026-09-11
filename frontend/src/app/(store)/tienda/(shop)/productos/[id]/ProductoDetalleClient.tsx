@@ -215,13 +215,13 @@ export function ProductoDetalleClient({ id }: { id: string }) {
     <div className="pb-28 md:pb-0">
       {/* Breadcrumb discreto (sección 66) */}
       <nav aria-label="Breadcrumb" className="mb-5 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-        <Link href="/tienda" className="hover:text-foreground">
+        <Link href="/tienda" className="hover:text-bronze">
           Inicio
         </Link>
         {producto.categoria && (
           <>
             <ChevronRight className="h-3 w-3" />
-            <Link href={`/tienda/productos?categoria=${encodeURIComponent(producto.categoria.nombre)}`} className="hover:text-foreground">
+            <Link href={`/tienda/productos?categoria=${encodeURIComponent(producto.categoria.nombre)}`} className="hover:text-bronze">
               {producto.categoria.nombre}
             </Link>
           </>
@@ -229,7 +229,7 @@ export function ProductoDetalleClient({ id }: { id: string }) {
         {producto.marca && (
           <>
             <ChevronRight className="h-3 w-3" />
-            <Link href={`/tienda/productos?marca=${encodeURIComponent(producto.marca.nombre)}`} className="hover:text-foreground">
+            <Link href={`/tienda/productos?marca=${encodeURIComponent(producto.marca.nombre)}`} className="hover:text-bronze">
               {producto.marca.nombre}
             </Link>
           </>
@@ -390,8 +390,8 @@ export function ProductoDetalleClient({ id }: { id: string }) {
               sucursal por el momento — no hay un flujo en línea para que el
               cliente lo autogestione, así que se invita a contactar en vez de
               simular un botón que no completaría nada (ver sección 33). */}
-          <div className="mt-4 flex items-start gap-3 rounded-2xl bg-secondary/60 p-4">
-            <CalendarClock className="h-5 w-5 shrink-0 text-foreground" strokeWidth={1.75} />
+          <div className="mt-4 flex items-start gap-3 rounded-2xl bg-secondary/60 p-4 ring-1 ring-gold/15">
+            <CalendarClock className="h-5 w-5 shrink-0 text-bronze" strokeWidth={1.75} />
             <div>
               <p className="text-sm font-semibold">¿Prefieres apartarlo?</p>
               <p className="mt-0.5 text-xs text-muted-foreground">

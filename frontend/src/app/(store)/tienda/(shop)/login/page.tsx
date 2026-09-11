@@ -7,7 +7,7 @@ import { useAuthCliente } from '@/lib/authCliente';
 import { ApiError } from '@/lib/apiTienda';
 import { claseBotonPrimario } from '@/components/store/ui';
 
-const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
+const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20';
 const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 export default function TiendaLoginPage() {

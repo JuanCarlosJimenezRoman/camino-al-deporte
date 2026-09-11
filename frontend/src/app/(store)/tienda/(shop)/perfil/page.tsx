@@ -6,7 +6,7 @@ import { useAuthCliente, Cliente } from '@/lib/authCliente';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { claseBotonPrimario } from '@/components/store/ui';
 
-const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
+const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20';
 const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 export default function PerfilPage() {
@@ -111,7 +111,7 @@ export default function PerfilPage() {
         </div>
 
         {errorDatos && <p className="text-sm text-destructive">{errorDatos}</p>}
-        {mensajeDatos && <p className="text-sm text-primary">{mensajeDatos}</p>}
+        {mensajeDatos && <p className="text-sm text-bronze">{mensajeDatos}</p>}
 
         <button type="submit" className={`${claseBotonPrimario} w-full sm:w-auto`} disabled={guardandoDatos}>
           {guardandoDatos ? 'Guardando...' : 'Guardar datos'}
@@ -155,7 +155,7 @@ export default function PerfilPage() {
         </div>
 
         {errorPassword && <p className="text-sm text-destructive">{errorPassword}</p>}
-        {mensajePassword && <p className="text-sm text-primary">{mensajePassword}</p>}
+        {mensajePassword && <p className="text-sm text-bronze">{mensajePassword}</p>}
 
         <button type="submit" className={`${claseBotonPrimario} w-full sm:w-auto`} disabled={guardandoPassword}>
           {guardandoPassword ? 'Guardando...' : 'Cambiar contraseña'}

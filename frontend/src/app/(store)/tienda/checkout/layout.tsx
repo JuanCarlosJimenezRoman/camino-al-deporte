@@ -10,14 +10,15 @@ export default function CheckoutLayout({ children }: { children: ReactNode }) {
   return (
     <div className="tienda-theme flex min-h-screen flex-col bg-background text-foreground">
       <header className="border-b border-border">
+        <div className="h-[3px] w-full bg-gradient-to-r from-gold via-bronze to-gold" aria-hidden="true" />
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/tienda" className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-full ring-1 ring-border" />
+            <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-full ring-1 ring-gold/30" />
             <span className="text-sm font-extrabold uppercase tracking-tight">Camino al Deporte</span>
           </Link>
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            <ShieldCheck className="h-4 w-4 text-success" strokeWidth={1.75} />
+          <div className="flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-semibold text-bronze">
+            <ShieldCheck className="h-4 w-4 text-gold" strokeWidth={1.75} />
             Compra segura
           </div>
         </div>

@@ -167,7 +167,7 @@ export function FiltrosPanel({
                 placeholder="Mín"
                 value={filtros.precioMin}
                 onChange={(e) => setFiltros({ ...filtros, precioMin: e.target.value })}
-                className="w-full rounded-lg border border-border px-3 py-2.5 text-sm outline-none focus:border-foreground"
+                className="w-full rounded-lg border border-border px-3 py-2.5 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
               <span className="text-muted-foreground">—</span>
               <input
@@ -176,7 +176,7 @@ export function FiltrosPanel({
                 placeholder="Máx"
                 value={filtros.precioMax}
                 onChange={(e) => setFiltros({ ...filtros, precioMax: e.target.value })}
-                className="w-full rounded-lg border border-border px-3 py-2.5 text-sm outline-none focus:border-foreground"
+                className="w-full rounded-lg border border-border px-3 py-2.5 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20"
               />
             </div>
           </div>

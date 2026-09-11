@@ -32,7 +32,7 @@ const ESTADO_ESTILO: Record<string, string> = {
   PENDIENTE_PAGO: 'bg-warning/15 text-warning',
   EN_VALIDACION: 'bg-warning/15 text-warning',
   PAGADO: 'bg-success/15 text-success',
-  ENVIADO: 'bg-primary/15 text-primary',
+  ENVIADO: 'bg-gold/15 text-bronze',
   RECIBIDO: 'bg-success/15 text-success',
   CANCELADO: 'bg-destructive/15 text-destructive',
 };
@@ -101,7 +101,7 @@ export default function MisPedidosPage() {
 
       <div className="divide-y divide-border">
         {pedidos?.map((p) => (
-          <Link key={p.id} href={`/tienda/pedidos/${p.id}`} className="flex items-center gap-4 py-4">
+          <Link key={p.id} href={`/tienda/pedidos/${p.id}`} className="flex items-center gap-4 rounded-xl py-4 transition-colors hover:bg-gold/5">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-semibold">{p.folio}</p>
@@ -124,7 +124,7 @@ export default function MisPedidosPage() {
                       <span className="text-xs text-muted-foreground">Calificado</span>
                     </div>
                   ) : (
-                    <span className="text-xs font-semibold text-primary underline underline-offset-4">Calificar pedido</span>
+                    <span className="text-xs font-semibold text-bronze underline underline-offset-4">Calificar pedido</span>
                   )}
                 </div>
               )}

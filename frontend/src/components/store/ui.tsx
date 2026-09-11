@@ -47,7 +47,7 @@ export const claseTituloHero = 'text-4xl font-black uppercase leading-[0.95] tra
 // Campos de formulario (checkout, login, registro) — antes cada pantalla
 // definía su propia versión local de estas dos clases.
 export const claseCampoTienda =
-  'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none transition-colors focus:border-foreground';
+  'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20';
 export const claseEtiquetaCampo = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 // Chip reutilizado por filtros y por el selector de talla: mismo criterio

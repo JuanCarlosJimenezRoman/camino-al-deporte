@@ -38,7 +38,7 @@ interface CotizacionEnvioLocal {
   opciones: OpcionEnvioLocal[];
 }
 
-const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none focus:border-foreground';
+const campoClase = 'w-full rounded-lg border border-border bg-input px-3.5 py-3 text-sm outline-none transition focus:border-gold focus:ring-2 focus:ring-gold/20';
 const labelClase = 'mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
 export default function CheckoutPage() {
@@ -347,8 +347,8 @@ export default function CheckoutPage() {
         </form>
       </div>
 
-      <div className="order-1 h-fit rounded-2xl bg-secondary/60 p-5 md:order-2">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide">Resumen</h2>
+      <div className="order-1 h-fit rounded-2xl bg-secondary/60 p-5 ring-1 ring-gold/15 md:order-2">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-bronze">Resumen</h2>
         <div className="space-y-3">
           {items.map((i) => (
             <div key={i.varianteId} className="flex justify-between gap-3 text-sm">
@@ -383,7 +383,7 @@ export default function CheckoutPage() {
                   type="button"
                   onClick={aplicarCupon}
                   disabled={validandoCupon || !cuponCodigo.trim()}
-                  className="rounded-lg border border-border px-4 text-sm font-semibold"
+                  className="rounded-lg border border-border px-4 text-sm font-semibold transition hover:border-gold/50 hover:text-bronze"
                 >
                   {validandoCupon ? '...' : 'Aplicar'}
                 </button>

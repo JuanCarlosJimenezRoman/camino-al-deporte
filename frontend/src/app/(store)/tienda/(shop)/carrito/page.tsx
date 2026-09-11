@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Trash2 } from 'lucide-react';
+import { Trash2, ShoppingBag } from 'lucide-react';
 import { useCarrito } from '@/lib/carrito';
 import { useAuthCliente } from '@/lib/authCliente';
 import { Stepper, claseBotonPrimario } from '@/components/store/ui';
@@ -23,7 +23,10 @@ export default function CarritoPage() {
   if (items.length === 0) {
     return (
       <div className="py-16 text-center">
-        <h1 className="text-xl font-extrabold uppercase tracking-tight">Tu bolsa está vacía</h1>
+        <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gold/15 text-bronze ring-1 ring-gold/30">
+          <ShoppingBag className="h-7 w-7" strokeWidth={1.75} />
+        </span>
+        <h1 className="mt-5 text-xl font-extrabold uppercase tracking-tight">Tu bolsa está vacía</h1>
         <p className="mt-2 text-sm text-muted-foreground">Explora el catálogo y encuentra tu próximo par.</p>
         <Link href="/tienda" className={`${claseBotonPrimario} mt-6 inline-flex`}>
           Ver catálogo
@@ -39,7 +42,7 @@ export default function CarritoPage() {
       <div className="divide-y divide-border">
         {items.map((i) => (
           <div key={i.varianteId} className="flex gap-4 py-5">
-            <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-secondary sm:h-28 sm:w-28">
+            <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-secondary ring-1 ring-gold/15 sm:h-28 sm:w-28">
               {i.imagenUrl && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={i.imagenUrl} alt="" className="h-full w-full object-cover" />

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Heart } from 'lucide-react';
 import { useAuthCliente } from '@/lib/authCliente';
 import { useFavoritos } from '@/lib/favoritos';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
@@ -45,6 +46,9 @@ export default function FavoritosPage() {
 
       {visibles && visibles.length === 0 && (
         <div className="flex flex-col items-start gap-4 py-8">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-gold/15 text-bronze ring-1 ring-gold/30">
+            <Heart className="h-5 w-5" strokeWidth={1.75} />
+          </span>
           <p className="text-sm text-muted-foreground">Todavía no has guardado ningún producto.</p>
           <Link href="/tienda" className={claseBotonPrimario}>
             Ver catálogo
