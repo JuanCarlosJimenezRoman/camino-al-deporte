@@ -135,11 +135,23 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer }) {
   // Caja de énfasis con el TOTAL.
   dibujarCajaMonto(doc, { left, right, etiqueta: 'Total', valor: `$${moneda(venta.total)}` });
 
+  // Si el cliente cubrió parte (o todo) con su saldo a favor (ver
+  // Cliente.saldoFavor / Venta.saldoAplicado), se descuenta aquí antes de
+  // mostrar el método de pago del restante — mismo criterio que
+  // restanteVenta en el punto de venta (ver ventas/page.tsx).
+  const saldoAplicado = Number(venta.saldoAplicado || 0);
+  const restante = Math.max(Math.round((Number(venta.total) - saldoAplicado) * 100) / 100, 0);
+  if (saldoAplicado > 0) {
+    filaMonto('Saldo a favor aplicado', `-$${moneda(saldoAplicado)}`, { color: PALETA.exito });
+    filaMonto('Restante a pagar', `$${moneda(restante)}`, { boldValor: true });
+  }
+
   // Método de pago y, si fue en efectivo, cuánto se recibió y el cambio
-  // que se dio.
+  // que se dio — sobre el restante después del saldo aplicado, nunca sobre
+  // el total de la venta (si no, el cambio saldría mal cuando se usó saldo).
   filaMonto('Método de pago', ETIQUETA_METODO_PAGO[venta.metodoPago] || venta.metodoPago);
   if (venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null) {
-    const cambio = Number(venta.efectivoRecibido) - Number(venta.total);
+    const cambio = Number(venta.efectivoRecibido) - restante;
     filaMonto('Efectivo recibido', `$${moneda(venta.efectivoRecibido)}`);
     filaMonto('Cambio', `$${moneda(cambio)}`, { boldValor: true });
   }

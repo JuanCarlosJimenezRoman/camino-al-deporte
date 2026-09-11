@@ -63,6 +63,10 @@ interface Venta {
   descuentoTipo: 'PORCENTAJE' | 'MONTO' | null;
   descuentoValor: string | null;
   descuentoMotivo: string | null;
+  // Cuánto del total se cubrió con saldo a favor del cliente (ver
+  // Cliente.saldoFavor / Venta.saldoAplicado) — el resto se pagó con
+  // metodoPago normal.
+  saldoAplicado: string;
   createdAt: string;
   usuario: { nombre: string };
   sucursal: { nombre: string };
@@ -404,7 +408,14 @@ export default function HistorialVentasPage() {
                       </td>
                       <td>{v.sucursal?.nombre}</td>
                       <td>{v.cliente || '—'}</td>
-                      <td className="font-medium tabular-nums">{formatoMonedaExacto(v.total)}</td>
+                      <td className="font-medium tabular-nums">
+                        {formatoMonedaExacto(v.total)}
+                        {Number(v.saldoAplicado) > 0 && (
+                          <div className="text-[11px] font-normal text-success">
+                            -{formatoMonedaExacto(v.saldoAplicado)} saldo
+                          </div>
+                        )}
+                      </td>
                       <td className="text-xs">
                         {etiquetaMetodoPago(v.metodoPago)}
                         {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}

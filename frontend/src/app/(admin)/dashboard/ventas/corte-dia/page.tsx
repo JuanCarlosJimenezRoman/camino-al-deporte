@@ -80,6 +80,10 @@ interface CorteDia {
   sucursalId: number | null;
   totalVentas: number;
   totalGeneral: number;
+  // Cuánto de totalGeneral se cubrió con saldo a favor de clientes (ver
+  // Venta.saldoAplicado) — ya está descontado de porMetodoPago/
+  // porCuentaTransferencia, se muestra aparte solo como referencia.
+  saldoAplicadoTotal: number;
   porMetodoPago: Record<string, number>;
   porCuentaTransferencia: Record<string, number>;
   canceladas: { cantidad: number; total: number };
@@ -187,6 +191,13 @@ export default function CorteDelDiaPage() {
             <MetricCard title="Efectivo" value={formatoMonedaExacto(corte.porMetodoPago.EFECTIVO || 0)} icon={Banknote} />
             <MetricCard title="Tarjeta" value={formatoMonedaExacto(corte.porMetodoPago.TARJETA || 0)} icon={CreditCard} />
           </div>
+
+          {corte.saldoAplicadoTotal > 0 && (
+            <p className="text-xs text-muted-foreground">
+              De lo anterior, {formatoMonedaExacto(corte.saldoAplicadoTotal)} se cubrieron con saldo a favor de
+              clientes (ya descontado de Efectivo/Tarjeta/Transferencias arriba — ese dinero no entró hoy).
+            </p>
+          )}
 
           <div className="card">
             <h2 className="text-base font-semibold mb-3">

@@ -110,6 +110,10 @@ interface Venta {
   // Efectivo entregado por el cliente, solo con metodoPago = EFECTIVO — se
   // usa para mostrar el cambio dado en el ticket.
   efectivoRecibido: string | null;
+  // Cuánto del total se pagó con el saldo a favor del cliente registrado
+  // (ver Cliente.saldoFavor) — se resta del total antes del método de pago
+  // normal; ver restanteVenta más abajo y docs/CAMBIOS_SALDO_A_FAVOR.md.
+  saldoAplicado: string;
   // Número que se muestra como "contáctanos" dentro del ticket: el WhatsApp
   // propio de la sucursal si lo tiene, si no el general de la tienda. Ya
   // viene resuelto desde el backend (ver GET/POST /ventas).
@@ -432,9 +436,14 @@ function construirTicketTexto(venta: Venta, notaExtra?: string): string {
     .join('\n');
   const etiquetaPago = METODOS_PAGO.find((m) => m.valor === venta.metodoPago)?.etiqueta || venta.metodoPago;
   const descuentoMonto = Number(venta.descuentoMonto || 0);
+  // Si se aplicó saldo a favor, el método de pago normal solo cubre el
+  // restante — el cambio se calcula sobre eso, nunca sobre venta.total
+  // (si no, saldría mal cada vez que se usó saldo).
+  const saldoAplicado = Number(venta.saldoAplicado || 0);
+  const restante = Math.max(Math.round((Number(venta.total) - saldoAplicado) * 100) / 100, 0);
   const cambio =
     venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null
-      ? Number(venta.efectivoRecibido) - Number(venta.total)
+      ? Number(venta.efectivoRecibido) - restante
       : null;
 
   return [
@@ -451,6 +460,8 @@ function construirTicketTexto(venta: Venta, notaExtra?: string): string {
       ? `Descuento${venta.descuentoTipo === 'PORCENTAJE' ? ` (${venta.descuentoValor}%)` : ''}: -$${descuentoMonto.toFixed(2)}`
       : '',
     `Total: $${venta.total}`,
+    saldoAplicado > 0 ? `Saldo a favor aplicado: -$${saldoAplicado.toFixed(2)}` : '',
+    saldoAplicado > 0 ? `Restante a pagar: $${restante.toFixed(2)}` : '',
     `Método de pago: ${etiquetaPago}`,
     venta.efectivoRecibido != null ? `Efectivo recibido: $${Number(venta.efectivoRecibido).toFixed(2)}` : '',
     cambio !== null ? `Cambio: $${cambio.toFixed(2)}` : '',
@@ -1583,8 +1594,22 @@ export default function VentasPage() {
                   )}
                   <div className="flex justify-between items-baseline">
                     <span className="text-sm font-medium text-muted-foreground">Total</span>
-                    <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(totalVenta)}</span>
+                    <span className={`font-bold tabular-nums ${saldoAplicadoNum > 0 ? 'text-lg' : 'text-2xl'}`}>
+                      {formatoMonedaExacto(totalVenta)}
+                    </span>
                   </div>
+                  {saldoAplicadoNum > 0 && (
+                    <>
+                      <div className="flex justify-between text-xs text-success mt-1">
+                        <span>Saldo a favor aplicado</span>
+                        <span className="tabular-nums">-{formatoMonedaExacto(saldoAplicadoNum)}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline mt-1">
+                        <span className="text-sm font-medium text-muted-foreground">Restante a pagar</span>
+                        <span className="text-2xl font-bold tabular-nums">{formatoMonedaExacto(restanteVenta)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1707,10 +1732,10 @@ export default function VentasPage() {
                   />
                   {carrito.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(totalVenta.toFixed(2))}>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(restanteVenta.toFixed(2))}>
                         Exacto
                       </Button>
-                      {billetesSugeridos(totalVenta).map((b) => (
+                      {billetesSugeridos(restanteVenta).map((b) => (
                         <Button key={b} type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(String(b))}>
                           ${b}
                         </Button>
@@ -1908,6 +1933,9 @@ export default function VentasPage() {
                   <div className="w-24 shrink-0 text-right">
                     <div className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(v.total)}</div>
                     <div className="text-xs text-muted-foreground">{etiquetaMetodoPago(v.metodoPago)}</div>
+                    {Number(v.saldoAplicado) > 0 && (
+                      <div className="text-[11px] text-success">-{formatoMonedaExacto(v.saldoAplicado)} saldo</div>
+                    )}
                   </div>
                   <div className="w-16 shrink-0 text-right text-xs">
                     {linkTicket && (

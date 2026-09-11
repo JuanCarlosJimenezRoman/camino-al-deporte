@@ -344,14 +344,25 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
   const porMetodoPago = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0 };
   const porCuenta = {};
   let totalGeneral = 0;
+  let saldoAplicadoTotal = 0;
 
   for (const v of completadas) {
     const monto = Number(v.total);
+    const saldoAplicadoVenta = Number(v.saldoAplicado || 0);
     totalGeneral += monto;
-    porMetodoPago[v.metodoPago] = (porMetodoPago[v.metodoPago] || 0) + monto;
+    saldoAplicadoTotal += saldoAplicadoVenta;
+    // Lo que de verdad entró por ese método de pago es el total MENOS lo que
+    // se haya cubierto con saldo a favor del cliente (ver Venta.saldoAplicado):
+    // ese dinero no es efectivo/tarjeta/transferencia de hoy, ya había
+    // "entrado" antes (cuando se generó el saldo en un Cambio) o es solo un
+    // descuento contra una cuenta interna. Sin este ajuste, una venta pagada
+    // en parte con saldo infla el efectivo/tarjeta del corte con dinero que
+    // nunca llegó físicamente ese día.
+    const montoCobrado = Math.max(Math.round((monto - saldoAplicadoVenta) * 100) / 100, 0);
+    porMetodoPago[v.metodoPago] = (porMetodoPago[v.metodoPago] || 0) + montoCobrado;
     if (v.metodoPago === 'TRANSFERENCIA' && v.cuentaTransferencia) {
       const clave = v.cuentaTransferencia.nombre;
-      porCuenta[clave] = (porCuenta[clave] || 0) + monto;
+      porCuenta[clave] = (porCuenta[clave] || 0) + montoCobrado;
     }
   }
 
@@ -370,6 +381,10 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     sucursalId: sucursalId || null,
     totalVentas: completadas.length,
     totalGeneral,
+    // Cuánto de totalGeneral se cubrió con saldo a favor de clientes (no es
+    // dinero recibido hoy) — totalGeneral - saldoAplicadoTotal es lo que sí
+    // debió entrar por algún método de pago (ya reflejado en porMetodoPago).
+    saldoAplicadoTotal: Math.round(saldoAplicadoTotal * 100) / 100,
     porMetodoPago,
     porCuentaTransferencia: porCuenta,
     canceladas: {
