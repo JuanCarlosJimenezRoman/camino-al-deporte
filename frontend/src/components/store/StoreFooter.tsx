@@ -36,8 +36,8 @@ export function StoreFooter() {
     <footer className="bg-ink text-ink-foreground">
       <div className="h-[3px] w-full bg-gradient-to-r from-gold via-bronze to-gold" aria-hidden="true" />
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="lg:col-span-1">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4 lg:gap-10">
+          <div className="col-span-2 lg:col-span-1">
             <div className="flex items-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo-mark.png" alt="" className="h-8 w-8 rounded-full ring-1 ring-white/15" />
@@ -103,7 +103,7 @@ export function StoreFooter() {
             </ul>
           </div>
 
-          <div>
+          <div className="col-span-2 lg:col-span-1">
             <p className="mb-4 text-xs font-bold uppercase tracking-wider text-gold">Confianza</p>
             <ul className="space-y-2.5 text-sm text-white/70">
               <li className="flex items-center gap-2">
