@@ -143,6 +143,10 @@ export const PERMISOS = {
   // Cupones de la tienda en línea: mismos roles que administran cuentas de
   // transferencia (información financiera/promocional sensible).
   cupones: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  // Análisis de inventario (stock por marca/modelo/categoría/talla/proveedor
+  // y sucursal, para decidir reabastos) — mismos roles que administran
+  // inventario (ver GET /inventario/analisis en el backend).
+  inventarioAnalisis: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
   // Dashboard de reportes/estimaciones de ventas: mismos roles que registran
   // ventas (ver GET /reportes/* en el backend) — ADMIN_PRINCIPAL/DESARROLLO
   // ven todas las sucursales, VENTAS ve acotado a la suya.

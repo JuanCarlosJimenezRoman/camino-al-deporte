@@ -195,6 +195,221 @@ router.get('/bajo-stock', requireAuth, asyncHandler(async (req, res) => {
   res.json(bajoStock);
 }));
 
+// GET /inventario/analisis?sucursalId=&limite=
+// Desglose del stock actual por marca, modelo, categoría, talla, proveedor y
+// sucursal — para apoyar decisiones de reabasto ("qué mandar a pedir por
+// sucursal"), no de ventas (para eso está GET /reportes/*). Incluye totales
+// de piezas/valor y un listado de variantes por debajo de su stock mínimo
+// (sugerencia de reorden). El stock por proveedor se agrega desde los buckets
+// de existencias (ver GET /existencias), porque el stock real vive partido
+// por proveedor y no por el proveedor "por defecto" de la variante.
+router.get(
+  '/analisis',
+  requireAuth,
+  requireRole(...ROLES_INVENTARIO),
+  asyncHandler(async (req, res) => {
+    const sucursalId = req.query.sucursalId ? Number(req.query.sucursalId) : null;
+    const limite = Math.min(Math.max(Number(req.query.limite) || 15, 1), 50);
+
+    const [sucursales, variantes] = await Promise.all([
+      prisma.sucursal.findMany({ where: { activo: true }, select: { id: true, nombre: true } }),
+      prisma.productoVariante.findMany({
+        where: { activo: true, producto: { activo: true } },
+        select: {
+          id: true,
+          sku: true,
+          color: true,
+          talla: { select: { valor: true, tipo: true } },
+          producto: {
+            select: {
+              id: true,
+              nombre: true,
+              precioCompra: true,
+              precioVenta: true,
+              marca: { select: { id: true, nombre: true } },
+              modelo: { select: { id: true, nombre: true } },
+              categoria: { select: { id: true, nombre: true } },
+            },
+          },
+          existencias: {
+            where: sucursalId ? { sucursalId } : {},
+            select: {
+              sucursalId: true,
+              proveedor: { select: { id: true, nombre: true } },
+              stockActual: true,
+              stockMinimo: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const nombreSucursal = new Map(sucursales.map((s) => [s.id, s.nombre]));
+    const redondear = (n) => Math.round(n * 100) / 100;
+
+    const porMarca = new Map();
+    const porModelo = new Map();
+    const porCategoria = new Map();
+    const porTalla = new Map();
+    const porProveedor = new Map();
+    const porSucursal = new Map();
+
+    const totales = { piezas: 0, valorCompra: 0, valorVenta: 0, productos: 0, variantes: 0 };
+    const productosVistos = new Set();
+    const variantesVistas = new Set();
+    const bajoMinimo = [];
+
+    for (const v of variantes) {
+      const producto = v.producto;
+      const precioCompra = Number(producto.precioCompra || 0);
+      const precioVenta = Number(producto.precioVenta || 0);
+      const stockTotal = v.existencias.reduce((s, ex) => s + ex.stockActual, 0);
+
+      totales.piezas += stockTotal;
+      totales.valorCompra += stockTotal * precioCompra;
+      totales.valorVenta += stockTotal * precioVenta;
+      productosVistos.add(producto.id);
+      variantesVistas.add(v.id);
+
+      const marca = producto.marca;
+      const modelo = producto.modelo;
+      const categoria = producto.categoria;
+      const talla = v.talla;
+
+      // Acumuladores por catálogo: cada variante aporta su stock total una vez.
+      const tocar = (mapa, clave, fila) => {
+        const r = mapa.get(clave) || fila;
+        r.piezas += stockTotal;
+        r.valorCompra += stockTotal * precioCompra;
+        r.productos.add(producto.id);
+        r.variantes.add(v.id);
+        mapa.set(clave, r);
+      };
+
+      if (marca) {
+        tocar(porMarca, marca.id, {
+          id: marca.id, nombre: marca.nombre, piezas: 0, valorCompra: 0,
+          productos: new Set(), variantes: new Set(), debajoMinimo: 0,
+        });
+      }
+      if (modelo) {
+        tocar(porModelo, modelo.id, {
+          id: modelo.id, nombre: modelo.nombre, marca: marca?.nombre ?? null,
+          piezas: 0, valorCompra: 0, productos: new Set(), variantes: new Set(), debajoMinimo: 0,
+        });
+      }
+      if (categoria) {
+        tocar(porCategoria, categoria.id, {
+          id: categoria.id, nombre: categoria.nombre, piezas: 0, valorCompra: 0,
+          productos: new Set(), variantes: new Set(), debajoMinimo: 0,
+        });
+      }
+      if (talla) {
+        const clave = `${talla.tipo}|${talla.valor}`;
+        tocar(porTalla, clave, {
+          valor: talla.valor, tipo: talla.tipo, piezas: 0, valorCompra: 0,
+          productos: new Set(), variantes: new Set(), debajoMinimo: 0,
+        });
+      }
+
+      // Stock real por proveedor y por sucursal, desde los buckets — y detección
+      // de bajo stock por (variante, sucursal), que es la política real de
+      // reorden (el mínimo es por talla+sucursal, ver PUT /minimo).
+      const bucketsPorSucursal = new Map();
+      for (const ex of v.existencias) {
+        const prov = ex.proveedor;
+        const claveProv = prov?.id ?? 'sin-proveedor';
+        const rp = porProveedor.get(claveProv) || {
+          id: prov?.id ?? null, nombre: prov?.nombre || 'Sin proveedor',
+          piezas: 0, valorCompra: 0, productos: new Set(), variantes: new Set(),
+        };
+        rp.piezas += ex.stockActual;
+        rp.valorCompra += ex.stockActual * precioCompra;
+        rp.productos.add(producto.id);
+        rp.variantes.add(v.id);
+        porProveedor.set(claveProv, rp);
+
+        const rs = porSucursal.get(ex.sucursalId) || {
+          id: ex.sucursalId, nombre: nombreSucursal.get(ex.sucursalId) || `Sucursal ${ex.sucursalId}`,
+          piezas: 0, valorCompra: 0, valorVenta: 0,
+        };
+        rs.piezas += ex.stockActual;
+        rs.valorCompra += ex.stockActual * precioCompra;
+        rs.valorVenta += ex.stockActual * precioVenta;
+        porSucursal.set(ex.sucursalId, rs);
+
+        if (!bucketsPorSucursal.has(ex.sucursalId)) bucketsPorSucursal.set(ex.sucursalId, []);
+        bucketsPorSucursal.get(ex.sucursalId).push(ex);
+      }
+
+      for (const [sucId, buckets] of bucketsPorSucursal) {
+        const stockSuc = buckets.reduce((s, b) => s + b.stockActual, 0);
+        const minimoSuc = buckets.reduce((m, b) => Math.max(m, b.stockMinimo), 0);
+        if (minimoSuc > 0 && stockSuc <= minimoSuc) {
+          bajoMinimo.push({
+            varianteId: v.id,
+            producto: producto.nombre,
+            marcaId: marca?.id ?? null,
+            marca: marca?.nombre ?? null,
+            modelo: modelo?.nombre ?? null,
+            categoria: categoria?.nombre ?? null,
+            talla: talla ? `${talla.tipo}: ${talla.valor}` : null,
+            color: v.color,
+            sku: v.sku,
+            sucursalId: sucId,
+            sucursal: nombreSucursal.get(sucId) || null,
+            stock: stockSuc,
+            minimo: minimoSuc,
+            faltante: minimoSuc - stockSuc,
+          });
+
+          // Suma "debajoMinimo" a los acumuladores de catálogo correspondientes.
+          if (marca) porMarca.get(marca.id).debajoMinimo += 1;
+          if (modelo) porModelo.get(modelo.id).debajoMinimo += 1;
+          if (categoria) porCategoria.get(categoria.id).debajoMinimo += 1;
+          if (talla) porTalla.get(`${talla.tipo}|${talla.valor}`).debajoMinimo += 1;
+        }
+      }
+    }
+
+    const finalizar = (mapa) =>
+      [...mapa.values()].map((r) => ({
+        id: r.id,
+        nombre: r.nombre,
+        valor: r.valor,
+        tipo: r.tipo,
+        marca: r.marca,
+        piezas: r.piezas,
+        valorCompra: redondear(r.valorCompra),
+        productos: r.productos instanceof Set ? r.productos.size : r.productos,
+        variantes: r.variantes instanceof Set ? r.variantes.size : r.variantes,
+        debajoMinimo: r.debajoMinimo || 0,
+      }));
+
+    const porPiezasDesc = (a, b) => b.piezas - a.piezas;
+
+    res.json({
+      sucursalId,
+      totales: {
+        piezas: totales.piezas,
+        valorCompra: redondear(totales.valorCompra),
+        valorVenta: redondear(totales.valorVenta),
+        productos: productosVistos.size,
+        variantes: variantesVistas.size,
+      },
+      porMarca: finalizar(porMarca).sort(porPiezasDesc),
+      porModelo: finalizar(porModelo).sort(porPiezasDesc),
+      porCategoria: finalizar(porCategoria).sort(porPiezasDesc),
+      porTalla: finalizar(porTalla).sort(porPiezasDesc),
+      porProveedor: finalizar(porProveedor).sort(porPiezasDesc),
+      porSucursal: [...porSucursal.values()]
+        .map((r) => ({ ...r, valorCompra: redondear(r.valorCompra), valorVenta: redondear(r.valorVenta) }))
+        .sort(porPiezasDesc),
+      bajoMinimo: bajoMinimo.sort((a, b) => b.faltante - a.faltante).slice(0, limite),
+    });
+  })
+);
+
 // POST /inventario/movimientos - registrar entrada/salida/ajuste de stock en
 // una sucursal.
 //
