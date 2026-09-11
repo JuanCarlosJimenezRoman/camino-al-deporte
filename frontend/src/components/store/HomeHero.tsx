@@ -31,7 +31,7 @@ export function HomeHero({ productoDestacado }: { productoDestacado: ProductoCat
         <div className="relative grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
           <div>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
-              <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
+              {/* <Sparkles className="h-3.5 w-3.5" strokeWidth={2} /> */}
               Camino al Deporte
             </span>
 
