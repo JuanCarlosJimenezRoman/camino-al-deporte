@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ImageOff, Truck, RotateCcw, CalendarClock, ChevronRight } from 'lucide-react';
+import { Truck, RotateCcw, CalendarClock, ChevronRight } from 'lucide-react';
 import { apiTienda, ApiError } from '@/lib/apiTienda';
 import { useCarrito } from '@/lib/carrito';
 import { useCatalogo, ProductoCatalogo } from '@/lib/catalogo';
 import { toast } from '@/components/ui/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Stepper, claseBotonPrimario, claseBotonSecundario, claseChip, PriceTag, estadoStockTienda } from '@/components/store/ui';
-import { imagenProducto, imagenMiniatura } from '@/lib/imagenCloudinary';
+import { imagenProducto, imagenMiniatura, IMAGEN_PLACEHOLDER } from '@/lib/imagenCloudinary';
 import { Testimonios } from '@/components/store/Testimonios';
 import { ProductSection } from '@/components/store/ProductSection';
 import { ProductQuickView } from '@/components/store/ProductQuickView';
@@ -302,10 +302,11 @@ export function ProductoDetalleClient({ id }: { id: string }) {
               )}
             </>
           ) : (
-            // Placeholder elegante — nunca una imagen rota (sección 28).
-            <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-2xl bg-secondary text-muted-foreground">
-              <ImageOff className="h-8 w-8" strokeWidth={1.5} />
-              <p className="text-xs">Sin fotografías disponibles</p>
+            // Placeholder de respaldo — nunca una imagen rota ni un hueco
+            // vacío (sección 28): se usa la imagen fija public/img.jpg.
+            <div className="aspect-square w-full overflow-hidden rounded-2xl bg-secondary">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={IMAGEN_PLACEHOLDER} alt={producto.nombre} className="h-full w-full object-cover" />
             </div>
           )}
         </div>

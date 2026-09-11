@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/use-toast';
 import { useCarrito } from '@/lib/carrito';
-import { imagenProducto } from '@/lib/imagenCloudinary';
+import { imagenProducto, IMAGEN_PLACEHOLDER } from '@/lib/imagenCloudinary';
 import { ProductoCatalogo } from '@/lib/catalogo';
 import { claseBotonPrimario, claseBotonSecundario, claseChip, PriceTag, estadoStockTienda } from './ui';
 
@@ -70,7 +70,8 @@ export function ProductQuickView({
                 className="h-full w-full object-cover sm:rounded-l-card"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">Sin foto</div>
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={IMAGEN_PLACEHOLDER} alt={producto.nombre} className="h-full w-full object-cover sm:rounded-l-card" />
             )}
           </div>
 

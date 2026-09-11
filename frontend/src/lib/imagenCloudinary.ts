@@ -1,3 +1,9 @@
+// Imagen de respaldo para productos/categorías que todavía no tienen foto
+// propia (public/img.jpg). Se usa como placeholder en cards, quick view,
+// detalle, categorías, búsqueda y carrito para que nunca se vea un hueco
+// vacío ni un "Sin foto" de texto plano.
+export const IMAGEN_PLACEHOLDER = '/img.jpg';
+
 // Aplica transformaciones de Cloudinary "al vuelo" insertándolas en la URL,
 // sin tocar el archivo original ni el backend. Sirve para normalizar fotos
 // de catálogo que fueron subidas con distinto encuadre/zoom (funciona incluso

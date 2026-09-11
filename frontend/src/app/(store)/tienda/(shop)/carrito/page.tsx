@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Trash2, ShoppingBag } from 'lucide-react';
 import { useCarrito } from '@/lib/carrito';
 import { useAuthCliente } from '@/lib/authCliente';
+import { IMAGEN_PLACEHOLDER } from '@/lib/imagenCloudinary';
 import { Stepper, claseBotonPrimario } from '@/components/store/ui';
 
 export default function CarritoPage() {
@@ -43,10 +44,8 @@ export default function CarritoPage() {
         {items.map((i) => (
           <div key={i.varianteId} className="flex gap-4 py-5">
             <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-secondary ring-1 ring-gold/15 sm:h-28 sm:w-28">
-              {i.imagenUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={i.imagenUrl} alt="" className="h-full w-full object-cover" />
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={i.imagenUrl || IMAGEN_PLACEHOLDER} alt="" className="h-full w-full object-cover" />
             </div>
             <div className="flex flex-1 flex-col justify-between">
               <div className="flex justify-between gap-3">

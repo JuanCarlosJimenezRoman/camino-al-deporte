@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { MouseEvent } from 'react';
 import { Heart, Eye } from 'lucide-react';
-import { imagenCatalogo } from '@/lib/imagenCloudinary';
+import { imagenCatalogo, IMAGEN_PLACEHOLDER } from '@/lib/imagenCloudinary';
 import { useFavoritos } from '@/lib/favoritos';
 import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
@@ -68,7 +68,8 @@ export function ProductCard({
             className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">Sin foto</div>
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={IMAGEN_PLACEHOLDER} alt={producto.nombre} loading="lazy" className="h-full w-full object-cover" />
         )}
 
         {agotado && <div className="absolute inset-0 bg-background/50" aria-hidden="true" />}

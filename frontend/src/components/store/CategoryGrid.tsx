@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
-import { imagenCatalogo, imagenPortadaCategoria } from '@/lib/imagenCloudinary';
+import { imagenCatalogo, imagenPortadaCategoria, IMAGEN_PLACEHOLDER } from '@/lib/imagenCloudinary';
 import { claseOjo, claseTituloSeccion } from './ui';
 
 export interface CategoriaConImagen {
@@ -54,7 +54,8 @@ export function CategoryGrid({ categorias }: { categorias: CategoriaConImagen[] 
                 className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
               />
             ) : (
-              <div className="h-full w-full bg-gradient-to-br from-secondary to-border" />
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={IMAGEN_PLACEHOLDER} alt="" className="h-full w-full object-cover" />
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-black/0 transition-opacity duration-150 group-hover:from-black/65" />
             <div className="absolute inset-x-0 bottom-0 flex items-end justify-between p-3.5">

@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { Search, X } from 'lucide-react';
 import { cn, useDelayedUnmount, useMounted } from '@/lib/utils';
 import { useCatalogo, ProductoCatalogo } from '@/lib/catalogo';
-import { imagenMiniatura } from '@/lib/imagenCloudinary';
+import { imagenMiniatura, IMAGEN_PLACEHOLDER } from '@/lib/imagenCloudinary';
 import { PriceTag, estadoStockTienda } from './ui';
 
 const LIMITE_RESULTADOS = 6;
@@ -37,14 +37,12 @@ function ResultadoFila({ producto, onClick }: { producto: ProductoCatalogo; onCl
       className="flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-secondary"
     >
       <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-secondary">
-        {producto.imagenes?.[0]?.url && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imagenMiniatura(producto.imagenes[0].url)}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        )}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={producto.imagenes?.[0]?.url ? imagenMiniatura(producto.imagenes[0].url) : IMAGEN_PLACEHOLDER}
+          alt=""
+          className="h-full w-full object-cover"
+        />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold leading-tight">{producto.nombre}</p>
