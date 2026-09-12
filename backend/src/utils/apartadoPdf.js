@@ -26,6 +26,7 @@ const {
   PALETA,
   moneda,
   generarBarcodeBuffer,
+  obtenerLogoBuffer,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,
@@ -42,7 +43,7 @@ const COL_IMPORTE = 90;
 // Dibuja el comprobante completo sobre "doc" (que ya trae su tamaño de
 // página definido) — se usa tanto para medir el alto necesario como para
 // generar el PDF real (ver generarComprobanteApartado más abajo).
-function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whatsappContacto, barcodeBuffer }) {
+function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whatsappContacto, barcodeBuffer, logoBuffer }) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
   const contentWidth = right - left;
@@ -59,6 +60,7 @@ function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whats
     lineaContacto: apartado.sucursalVenta?.telefono
       ? `${apartado.sucursalVenta.nombre || ''}${apartado.sucursalVenta.nombre ? ' · ' : ''}Tel: ${apartado.sucursalVenta.telefono}`
       : apartado.sucursalVenta?.nombre,
+    logoBuffer,
   });
   dibujarSeparador(doc, { left, right });
 
@@ -194,9 +196,10 @@ function dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whats
  */
 async function generarComprobanteApartado(apartado, pagadoTotal, montoEsteEvento, whatsappContacto) {
   const barcodeBuffer = await generarBarcodeBuffer(apartado.folio);
+  const logoBuffer = await obtenerLogoBuffer();
 
   const dibujar = (doc) =>
-    dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whatsappContacto, barcodeBuffer });
+    dibujarComprobante(doc, { apartado, pagadoTotal, montoEsteEvento, whatsappContacto, barcodeBuffer, logoBuffer });
 
   // Paso 1: medir cuánto contenido hay (número de artículos, si hay
   // abonos previos, etc. varía en cada apartado y no se sabe de antemano).

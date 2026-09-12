@@ -13,6 +13,7 @@
 
 const PDFDocument = require('pdfkit');
 const bwipjs = require('bwip-js');
+const prisma = require('../db');
 
 // Ancho fijo de página (el mismo ancho que A5) y margen — el ALTO ya no es
 // fijo: se calcula en cada documento con medirAltoContenido() para que el
@@ -59,27 +60,75 @@ async function generarBarcodeBuffer(folio) {
   }
 }
 
-// Franja de color + insignia con iniciales + nombre del negocio + subtítulo
-// (p. ej. "TICKET DE COMPRA") + una línea opcional de contacto (sucursal,
-// teléfono). Deja doc.y listo para seguir dibujando debajo.
-function dibujarEncabezado(doc, { left, right, subtitulo, lineaContacto, titulo = 'CAMINO AL DEPORTE' }) {
+// Logo del ticket/comprobante: se lee de ConfiguracionTienda.logoTicketUrl y
+// se descarga como buffer. Es best-effort (si no hay logo configurado, o la
+// descarga falla, se regresa null y dibujarEncabezado cae a la insignia con
+// iniciales). Se cachea unos minutos en memoria para no descargar el logo en
+// cada venta/apartado/cambio.
+let logoCache = { url: null, buffer: null, at: 0 };
+const LOGO_CACHE_TTL = 5 * 60 * 1000;
+
+// Pide el logo desde Cloudinary en PNG (y tamaño acotado) sin importar en qué
+// formato se subió — pdfkit solo soporta JPEG/PNG, no WebP/HEIC/etc.
+function urlLogoParaPdf(url) {
+  if (!url || !url.includes('/upload/')) return url;
+  return url.replace('/upload/', '/upload/w_256,h_256,c_limit,f_png/');
+}
+
+async function obtenerLogoBuffer() {
+  try {
+    const config = await prisma.configuracionTienda.findFirst();
+    const url = config?.logoTicketUrl || null;
+    if (!url) return null;
+
+    const ahora = Date.now();
+    if (logoCache.url === url && logoCache.buffer && ahora - logoCache.at < LOGO_CACHE_TTL) {
+      return logoCache.buffer;
+    }
+
+    const resp = await fetch(urlLogoParaPdf(url));
+    if (!resp.ok) return null;
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    logoCache = { url, buffer, at: ahora };
+    return buffer;
+  } catch (err) {
+    console.error('No se pudo cargar el logo del ticket:', err.message);
+    return null;
+  }
+}
+
+// Franja de color + insignia con iniciales (o logo, si ya se configuró) +
+// nombre del negocio + subtítulo (p. ej. "TICKET DE COMPRA") + una línea
+// opcional de contacto (sucursal, teléfono). Deja doc.y listo para seguir
+// dibujando debajo.
+function dibujarEncabezado(doc, { left, right, subtitulo, lineaContacto, titulo = 'CAMINO AL DEPORTE', logoBuffer = null }) {
   const contentWidth = right - left;
 
   // Franja superior: se dibuja a lo ancho de TODA la página (no solo el
   // área de contenido), por eso usa doc.page.width en vez de "right".
   doc.rect(0, 0, doc.page.width, 10).fill(PALETA.primario);
 
-  // Insignia con las iniciales del negocio. Para usar un logo real:
-  //   doc.image('ruta/a/tu/logo.png', cx - 26, doc.y, { width: 52, height: 52 });
-  const radio = 24;
   const cx = left + contentWidth / 2;
   const yInsignia = doc.y + 6;
-  doc.fillColor(PALETA.acento);
-  doc.circle(cx, yInsignia + radio, radio).fill();
-  doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(17);
-  doc.text('CD', cx - radio, yInsignia + radio - 8, { width: radio * 2, align: 'center' });
-  doc.y = yInsignia + radio * 2 + 8;
-  doc.x = left;
+
+  if (logoBuffer) {
+    // Logo real (imagen subida desde el panel): se dibuja centrado. Se usa
+    // un cuadrado fijo; si el logo no es cuadrado, se estira — para que
+    // quede proporcionado conviene subir un logo cuadrado (o casi).
+    const tam = 52;
+    doc.image(logoBuffer, cx - tam / 2, yInsignia, { width: tam, height: tam });
+    doc.y = yInsignia + tam + 8;
+    doc.x = left;
+  } else {
+    // Insignia con las iniciales del negocio (respaldo cuando no hay logo).
+    const radio = 24;
+    doc.fillColor(PALETA.acento);
+    doc.circle(cx, yInsignia + radio, radio).fill();
+    doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(17);
+    doc.text('CD', cx - radio, yInsignia + radio - 8, { width: radio * 2, align: 'center' });
+    doc.y = yInsignia + radio * 2 + 8;
+    doc.x = left;
+  }
 
   doc.fillColor(PALETA.primarioOscuro).font('Helvetica-Bold').fontSize(17);
   doc.text(titulo, left, doc.y, { width: contentWidth, align: 'center' });
@@ -259,6 +308,7 @@ module.exports = {
   PALETA,
   moneda,
   generarBarcodeBuffer,
+  obtenerLogoBuffer,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,

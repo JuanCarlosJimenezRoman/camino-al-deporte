@@ -1763,6 +1763,13 @@ model ConfiguracionTienda {
   // sobreescriba este valor global cuando no sea null, sin cambiar el
   // significado de este campo.
   envioDinamicoActivo Boolean @default(false) @map("envio_dinamico_activo")
+  // Logo opcional que se muestra en el ticket/comprobante digital (PDF) en
+  // lugar de la insignia con iniciales. Se sube desde Métodos de pago →
+  // "Logo del ticket" y se guarda en Cloudinary (carpeta
+  // camino-al-deporte/logo). Si es null, el PDF dibuja la insignia con las
+  // iniciales del negocio (ver utils/ticketEstilo.js).
+  logoTicketUrl       String? @map("logo_ticket_url")
+  logoTicketPublicId  String? @map("logo_ticket_public_id")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("configuracion_tienda")

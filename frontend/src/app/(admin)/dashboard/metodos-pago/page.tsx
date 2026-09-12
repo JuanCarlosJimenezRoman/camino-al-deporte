@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError } from '@/lib/api';
+import { api, apiUpload, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 
 interface CuentaTransferencia {
@@ -48,12 +48,136 @@ export default function MetodosPagoPage() {
       <WhatsappTiendaCard />
 
       <div style={{ marginTop: 20 }}>
+        <LogoTicketCard />
+      </div>
+
+      <div style={{ marginTop: 20 }}>
         <CuentasTransferenciaCard />
       </div>
 
       {puedeVer('proveedores', usuario?.rol) && (
         <div style={{ marginTop: 20 }}>
           <ProveedoresCuentasCard />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Logo del ticket/comprobante digital (PDF). Si no se sube ninguno, el
+// ticket sigue dibujando la insignia con las iniciales del negocio. Se guarda
+// en Cloudinary vía POST /configuracion-tienda/logo (ver routes correspond).
+// ---------------------------------------------------------------------------
+
+function LogoTicketCard() {
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [subiendo, setSubiendo] = useState(false);
+  const [quitando, setQuitando] = useState(false);
+  const [mensaje, setMensaje] = useState<string | null>(null);
+
+  function cargar() {
+    api<{ logoTicketUrl: string | null }>('/configuracion-tienda')
+      .then((data) => setLogoUrl(data.logoTicketUrl || null))
+      .catch(() => {})
+      .finally(() => setCargando(false));
+  }
+
+  useEffect(() => {
+    cargar();
+  }, []);
+
+  async function subirLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0];
+    if (!archivo) return;
+    setMensaje(null);
+    setSubiendo(true);
+    try {
+      const formData = new FormData();
+      formData.append('logo', archivo);
+      const res = await apiUpload<{ logoTicketUrl: string | null }>('/configuracion-tienda/logo', formData);
+      setLogoUrl(res.logoTicketUrl || null);
+      setMensaje('Logo guardado.');
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'No se pudo subir el logo.');
+    } finally {
+      setSubiendo(false);
+      e.target.value = '';
+    }
+  }
+
+  async function quitarLogo() {
+    setMensaje(null);
+    setQuitando(true);
+    try {
+      await api('/configuracion-tienda/logo', { method: 'DELETE' });
+      setLogoUrl(null);
+      setMensaje('Logo quitado. El ticket volverá a mostrar las iniciales.');
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'No se pudo quitar el logo.');
+    } finally {
+      setQuitando(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2 style={{ fontSize: 15, marginBottom: 4 }}>Logo del ticket</h2>
+      <p style={{ color: 'var(--color-muted)', fontSize: 13, marginBottom: 12 }}>
+        Imagen que aparece en el encabezado del ticket de venta y de los comprobantes de apartado/cambio
+        (en lugar de la insignia con iniciales). Conviene subir un logo cuadrado (o casi) en PNG/JPG.
+      </p>
+
+      {cargando ? (
+        <p style={{ fontSize: 13, color: 'var(--color-muted)' }}>Cargando...</p>
+      ) : (
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt="Logo del ticket"
+              style={{ width: 64, height: 64, objectFit: 'contain', border: '1px solid var(--color-border)', borderRadius: 8, background: '#fff' }}
+            />
+          ) : (
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px dashed var(--color-border)',
+                borderRadius: 8,
+                fontSize: 20,
+                fontWeight: 700,
+                color: 'var(--color-muted)',
+              }}
+            >
+              CD
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label className="btn" style={{ cursor: 'pointer' }}>
+              {subiendo ? 'Subiendo...' : logoUrl ? 'Reemplazar logo' : 'Subir logo'}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={subirLogo}
+                disabled={subiendo}
+                style={{ display: 'none' }}
+              />
+            </label>
+            {logoUrl && (
+              <button className="btn-secondary btn" onClick={quitarLogo} disabled={quitando}>
+                {quitando ? 'Quitando...' : 'Quitar logo'}
+              </button>
+            )}
+          </div>
+
+          {mensaje && <span style={{ fontSize: 13 }}>{mensaje}</span>}
         </div>
       )}
     </div>

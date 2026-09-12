@@ -26,6 +26,7 @@ const {
   PALETA,
   moneda,
   generarBarcodeBuffer,
+  obtenerLogoBuffer,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,
@@ -48,7 +49,7 @@ const COL_IMPORTE = 90;
 // contenido (ver medirAltoContenido en ticketEstilo.js) y para generar el
 // PDF real — así el alto calculado siempre coincide exactamente con lo que
 // se dibuja después.
-function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer }) {
+function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, logoBuffer }) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
   const contentWidth = right - left;
@@ -63,6 +64,7 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer }) {
     right,
     subtitulo: 'TICKET DE COMPRA',
     lineaContacto: venta.sucursal?.telefono ? `${venta.sucursal.nombre || ''}${venta.sucursal.nombre ? ' · ' : ''}Tel: ${venta.sucursal.telefono}` : venta.sucursal?.nombre,
+    logoBuffer,
   });
   dibujarSeparador(doc, { left, right });
 
@@ -186,8 +188,11 @@ async function generarTicketPdf(venta, items, whatsappContacto) {
   // para insertarlo como cualquier otra imagen del documento. Si por lo que
   // sea falla, el ticket se genera igual, solo sin el código de barras.
   const barcodeBuffer = await generarBarcodeBuffer(venta.folio);
+  // Logo del ticket (opcional): si no hay uno configurado, regresa null y el
+  // encabezado dibuja la insignia con iniciales.
+  const logoBuffer = await obtenerLogoBuffer();
 
-  const dibujar = (doc) => dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer });
+  const dibujar = (doc) => dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, logoBuffer });
 
   // Paso 1: se dibuja una vez en una página de prueba muy alta, solo para
   // medir hasta dónde llega el contenido (depende de cuántos artículos

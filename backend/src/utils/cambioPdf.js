@@ -19,6 +19,7 @@ const {
   PALETA,
   moneda,
   generarBarcodeBuffer,
+  obtenerLogoBuffer,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,
@@ -88,7 +89,7 @@ function dibujarTablaItems(doc, { left, right, contentWidth, titulo, items, conM
   });
 }
 
-function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer }) {
+function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer, logoBuffer }) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
   const contentWidth = right - left;
@@ -104,6 +105,7 @@ function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcode
     right,
     subtitulo: 'COMPROBANTE DE CAMBIO',
     lineaContacto: cambio.sucursal?.nombre,
+    logoBuffer,
   });
   dibujarSeparador(doc, { left, right });
 
@@ -213,12 +215,13 @@ function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcode
  */
 async function generarComprobanteCambio(cambio) {
   const barcodeBuffer = await generarBarcodeBuffer(cambio.folio);
+  const logoBuffer = await obtenerLogoBuffer();
 
   const movimientos = cambio.movimientosSaldo || [];
   const saldoGenerado = movimientos.filter((m) => m.tipo === 'ABONO').reduce((acc, m) => acc + Number(m.monto), 0);
   const saldoAplicado = movimientos.filter((m) => m.tipo === 'CONSUMO').reduce((acc, m) => acc + Number(m.monto), 0);
 
-  const dibujar = (doc) => dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer });
+  const dibujar = (doc) => dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer, logoBuffer });
 
   const alto = await medirAltoContenido(dibujar);
 
