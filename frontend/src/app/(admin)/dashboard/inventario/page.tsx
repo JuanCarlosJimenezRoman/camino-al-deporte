@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useBranch } from '@/lib/branchContext';
@@ -82,7 +83,20 @@ interface Existencia {
 type GrupoVariante = { variante: Existencia['variante']; buckets: Existencia[] };
 type GrupoProducto = { producto: Existencia['variante']['producto']; variantes: GrupoVariante[] };
 
+// useSearchParams (para poder llegar ya filtrado con ?q=... desde, p. ej.,
+// "Ir a Inventario" en la ficha de un producto) exige un límite de Suspense
+// alrededor en build de producción — mismo patrón que la ficha del producto
+// (productos/[id]/page.tsx) y las páginas de tienda/login.
 export default function InventarioPage() {
+  return (
+    <Suspense fallback={null}>
+      <InventarioContenido />
+    </Suspense>
+  );
+}
+
+function InventarioContenido() {
+  const searchParams = useSearchParams();
   const { usuario } = useAuth();
   // La sucursal que se está viendo ahora la controla el selector global del
   // topbar (ver lib/branchContext.tsx) — Inventario es una vista de
@@ -103,11 +117,10 @@ export default function InventarioPage() {
   // Búsqueda por texto (SKU o producto). Se puede pre-llenar desde la URL con
   // ?q=... (p. ej. al llegar desde "Ir a Inventario" en la ficha de un
   // producto, que trae el nombre del producto para que la lista ya quede
-  // filtrada a ese producto).
-  const [busqueda, setBusqueda] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return new URLSearchParams(window.location.search).get('q') ?? '';
-  });
+  // filtrada a ese producto). Se lee con useSearchParams (no window.location)
+  // para que el valor esté disponible también en la navegación por cliente,
+  // no solo al recargar la página.
+  const [busqueda, setBusqueda] = useState(() => searchParams.get('q') ?? '');
   const [cargando, setCargando] = useState(true);
 
   // Catálogos y filtros extra para encontrar más rápido qué tallas/marcas/
