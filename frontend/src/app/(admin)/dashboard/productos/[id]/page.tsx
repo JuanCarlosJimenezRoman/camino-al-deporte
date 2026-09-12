@@ -1124,7 +1124,7 @@ function ProductoDetalleContenido() {
             <p className="text-sm text-muted-foreground">Existencias por sucursal y proveedor.</p>
             {puedeVerMovimientos && (
               <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard/inventario">
+                <Link href={`/dashboard/inventario?q=${encodeURIComponent(producto.nombre)}`}>
                   <ExternalLink className="w-3.5 h-3.5" />
                   Ir a Inventario
                 </Link>

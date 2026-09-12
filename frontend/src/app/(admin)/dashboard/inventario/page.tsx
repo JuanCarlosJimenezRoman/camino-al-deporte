@@ -100,7 +100,14 @@ export default function InventarioPage() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [existencias, setExistencias] = useState<Existencia[]>([]);
-  const [busqueda, setBusqueda] = useState('');
+  // Búsqueda por texto (SKU o producto). Se puede pre-llenar desde la URL con
+  // ?q=... (p. ej. al llegar desde "Ir a Inventario" en la ficha de un
+  // producto, que trae el nombre del producto para que la lista ya quede
+  // filtrada a ese producto).
+  const [busqueda, setBusqueda] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('q') ?? '';
+  });
   const [cargando, setCargando] = useState(true);
 
   // Catálogos y filtros extra para encontrar más rápido qué tallas/marcas/
