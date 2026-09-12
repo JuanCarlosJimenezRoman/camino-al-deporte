@@ -157,11 +157,19 @@ async function ordenarProductosPorStock({ where, marcaId, categoriaId, modeloId,
     const ids = tallaId.split(',').map(Number).filter(Boolean);
     if (ids.length === 1) {
       condiciones.push(
-        Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id = ${ids[0]} AND activo = true)`
+        Prisma.sql`p.id IN (
+          SELECT pv.producto_id FROM producto_variantes pv
+          WHERE pv.talla_id = ${ids[0]} AND pv.activo = true
+            AND EXISTS (SELECT 1 FROM existencias ex WHERE ex.variante_id = pv.id AND ex.stock_actual > 0)
+        )`
       );
     } else if (ids.length > 1) {
       condiciones.push(
-        Prisma.sql`p.id IN (SELECT producto_id FROM producto_variantes WHERE talla_id IN (${Prisma.join(ids)}) AND activo = true)`
+        Prisma.sql`p.id IN (
+          SELECT pv.producto_id FROM producto_variantes pv
+          WHERE pv.talla_id IN (${Prisma.join(ids)}) AND pv.activo = true
+            AND EXISTS (SELECT 1 FROM existencias ex WHERE ex.variante_id = pv.id AND ex.stock_actual > 0)
+        )`
       );
     }
   }
@@ -286,7 +294,21 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     ...(categoriaIds.length > 1 ? { categoriaId: { in: categoriaIds } } : {}),
     ...(modeloIds.length === 1 ? { modeloId: modeloIds[0] } : {}),
     ...(modeloIds.length > 1 ? { modeloId: { in: modeloIds } } : {}),
-    ...(tallaIds.length > 0 ? { variantes: { some: { tallaId: { in: tallaIds }, activo: true } } } : {}),
+    // Filtro por talla: solo productos con esa talla CON stock > 0 (no basta
+    // con que la talla exista en el catálogo — si ya se vendió todo, no debe
+    // aparecer como "disponible"). Mismo criterio que el catálogo PDF y el
+    // reporte de existencias (ver más abajo).
+    ...(tallaIds.length > 0
+      ? {
+          variantes: {
+            some: {
+              tallaId: { in: tallaIds },
+              activo: true,
+              existencias: { some: { stockActual: { gt: 0 } } },
+            },
+          },
+        }
+      : {}),
     ...(proveedorIds.length > 0 ? filtroVariantesDeProveedor(proveedorId) : {}),
     ...(q ? { nombre: { contains: String(q), mode: 'insensitive' } } : {}),
   };

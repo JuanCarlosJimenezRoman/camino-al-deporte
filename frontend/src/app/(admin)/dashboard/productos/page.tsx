@@ -1,6 +1,6 @@
 'use client';
 
-import { cloneElement, createContext, isValidElement, useContext, useEffect, useState, type ReactNode } from 'react';
+import { cloneElement, createContext, isValidElement, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -23,7 +23,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { api, apiDownload, ApiError } from '@/lib/api';
-import { guardarListaNavegacion } from '@/lib/navegacionProductos';
+import { guardarListaNavegacion, guardarFiltrosProductos, leerFiltrosProductos, type FiltrosProductos } from '@/lib/navegacionProductos';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { Imagen } from '@/components/admin/GaleriaFotos';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
@@ -516,8 +516,15 @@ export default function ProductosPage() {
   // acciones solo debe ofrecerlo a quien realmente puede usarlo.
   const puedeArchivar = usuario?.rol === 'ADMIN_PRINCIPAL' || usuario?.rol === 'DESARROLLO';
 
+  // Filtros/orden/página que quedaron guardados en la sesión (ver
+  // lib/navegacionProductos.ts): se leen una sola vez para restaurar la
+  // lista tal como estaba al entrar a un producto y volver.
+  const [filtrosPrevios] = useState<FiltrosProductos | null>(() =>
+    typeof window !== 'undefined' ? leerFiltrosProductos() : null
+  );
+
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [busqueda, setBusqueda] = useState('');
+  const [busqueda, setBusqueda] = useState(filtrosPrevios?.busqueda ?? '');
   const [cargando, setCargando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
 
@@ -536,11 +543,11 @@ export default function ProductosPage() {
   const [modelosFiltro, setModelosFiltro] = useState<Modelo[]>([]);
 
   // Filtros del listado (además de la búsqueda por texto que ya existía)
- const [filtroMarcaIds, setFiltroMarcaIds] = useState<string[]>([]);
-  const [filtroCategoriaIds, setFiltroCategoriaIds] = useState<string[]>([]);
-  const [filtroModeloIds, setFiltroModeloIds] = useState<string[]>([]);
-  const [filtroTallaIds, setFiltroTallaIds] = useState<string[]>([]);
-  const [filtroProveedorIds, setFiltroProveedorIds] = useState<string[]>([]);
+ const [filtroMarcaIds, setFiltroMarcaIds] = useState<string[]>(filtrosPrevios?.marcaIds ?? []);
+  const [filtroCategoriaIds, setFiltroCategoriaIds] = useState<string[]>(filtrosPrevios?.categoriaIds ?? []);
+  const [filtroModeloIds, setFiltroModeloIds] = useState<string[]>(filtrosPrevios?.modeloIds ?? []);
+  const [filtroTallaIds, setFiltroTallaIds] = useState<string[]>(filtrosPrevios?.tallaIds ?? []);
+  const [filtroProveedorIds, setFiltroProveedorIds] = useState<string[]>(filtrosPrevios?.proveedorIds ?? []);
 
   const hayFiltrosActivos = Boolean(
     filtroMarcaIds.length > 0 ||
@@ -566,7 +573,7 @@ export default function ProductosPage() {
 
   // Paginación: con el catálogo creciendo (600+ productos) traer todo de una
   // vez volvía lento tanto el backend como el render de la tabla.
-  const [pagina, setPagina] = useState(1);
+  const [pagina, setPagina] = useState(filtrosPrevios?.pagina ?? 1);
   const [totalPaginas, setTotalPaginas] = useState(1);
   const [totalProductos, setTotalProductos] = useState(0);
 
@@ -577,8 +584,8 @@ export default function ProductosPage() {
   // ver etiquetaPorStock) porque el estado que se muestra es una función
   // directa del stock total.
   type CampoOrden = 'nombre' | 'precio' | 'stock' | 'estado';
-  const [ordenCampo, setOrdenCampo] = useState<CampoOrden>('nombre');
-  const [ordenDireccion, setOrdenDireccion] = useState<'asc' | 'desc'>('asc');
+  const [ordenCampo, setOrdenCampo] = useState<CampoOrden>((filtrosPrevios?.ordenCampo as CampoOrden) || 'nombre');
+  const [ordenDireccion, setOrdenDireccion] = useState<'asc' | 'desc'>(filtrosPrevios?.ordenDireccion ?? 'asc');
 
   function alternarOrden(campo: CampoOrden) {
     if (ordenCampo === campo) {
@@ -725,8 +732,17 @@ export default function ProductosPage() {
   // Inventario); la búsqueda por texto sigue siendo manual (botón/Enter).
   // Cambiar un filtro siempre vuelve a la página 1: la página en la que
   // estabas puede ya no existir con el nuevo filtro aplicado.
+  // La PRIMERA carga (al entrar/volver) respeta la página que quedó
+  // guardada en la sesión, para no perder la posición al volver de un
+  // producto — a partir de ahí, cualquier cambio de filtro/orden reinicia a
+  // la página 1.
+ const primeraCarga = useRef(true);
  useEffect(() => {
-    cargarProductos(1);
+    cargarProductos(primeraCarga.current ? pagina : 1);
+    primeraCarga.current = false;
+    // `pagina` se usa solo para respetar la posición guardada en la primera
+    // carga; no debe disparar una recarga cuando cambia después.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     filtroMarcaIds,
     filtroCategoriaIds,
@@ -735,14 +751,47 @@ export default function ProductosPage() {
     filtroProveedorIds,
     ordenCampo,
     ordenDireccion,
-  ]); 
+  ]);
+
+  // Guarda el estado del listado (filtros, orden, página y búsqueda) para
+  // restaurarlo al volver de la vista de un producto.
+  useEffect(() => {
+    guardarFiltrosProductos({
+      busqueda,
+      marcaIds: filtroMarcaIds,
+      categoriaIds: filtroCategoriaIds,
+      modeloIds: filtroModeloIds,
+      tallaIds: filtroTallaIds,
+      proveedorIds: filtroProveedorIds,
+      ordenCampo,
+      ordenDireccion,
+      pagina,
+    });
+  }, [
+    busqueda,
+    filtroMarcaIds,
+    filtroCategoriaIds,
+    filtroModeloIds,
+    filtroTallaIds,
+    filtroProveedorIds,
+    ordenCampo,
+    ordenDireccion,
+    pagina,
+  ]);
   // Los modelos del filtro dependen de la marca elegida ahí (si no hay
   // ninguna, se listan todos). Al cambiar la marca del filtro se limpia el
   // modelo elegido, porque puede que ya no pertenezca a la marca nueva.
+  // En la PRIMERA carga no se limpia: si venía un modelo guardado de la
+  // sesión, hay que respetarlo (no borrarlo apenas al entrar).
+  const primeraCargaModelos = useRef(true);
 useEffect(() => {
     const marcaParam = filtroMarcaIds.length > 0 ? `?marcaId=${filtroMarcaIds.join(',')}` : '';
     api<Modelo[]>(`/catalogos/modelos${marcaParam}`).then(setModelosFiltro);
-    setFiltroModeloIds([]);
+    if (primeraCargaModelos.current) {
+      primeraCargaModelos.current = false;
+    } else {
+      setFiltroModeloIds([]);
+    }
   }, [filtroMarcaIds]);
 
   function limpiarFiltros() {
@@ -778,10 +827,16 @@ useEffect(() => {
   }
 
   function stockTotal(p: Producto) {
-    return p.variantes.reduce(
-      (total, v) => total + v.existencias.reduce((s, ex) => s + ex.stockActual, 0),
-      0
-    );
+    // Si hay un filtro de talla(s) activo, la columna "Stock" muestra solo
+    // el stock de esas tallas (no el total del producto), para que el número
+    // corresponda a lo que realmente se está filtrando.
+    const tallasFiltradas = new Set(filtroTallaIds.map(Number));
+    return p.variantes.reduce((total, v) => {
+      if (tallasFiltradas.size > 0 && !(v.talla && tallasFiltradas.has(v.talla.id))) {
+        return total;
+      }
+      return total + v.existencias.reduce((s, ex) => s + ex.stockActual, 0);
+    }, 0);
   }
 
   // SKU(s) de fábrica del producto, para verlo en la tabla principal sin

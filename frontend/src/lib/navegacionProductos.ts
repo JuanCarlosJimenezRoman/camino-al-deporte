@@ -45,3 +45,47 @@ export function leerListaNavegacion(): ListaNavegacionProductos | null {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Filtros/orden/página del listado de Productos, persistidos en sessionStorage
+// para que al entrar a un producto y volver a la lista se conserve lo que se
+// estaba viendo (qué filtros y orden había, y en qué página se estaba) — ver
+// /dashboard/productos/page.tsx, que los guarda al cambiar y los restaura al
+// montar.
+// ---------------------------------------------------------------------------
+
+const CLAVE_FILTROS = 'productos_filtros';
+
+export interface FiltrosProductos {
+  busqueda: string;
+  marcaIds: string[];
+  categoriaIds: string[];
+  modeloIds: string[];
+  tallaIds: string[];
+  proveedorIds: string[];
+  ordenCampo: string;
+  ordenDireccion: 'asc' | 'desc';
+  pagina: number;
+}
+
+export function guardarFiltrosProductos(f: FiltrosProductos) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(CLAVE_FILTROS, JSON.stringify(f));
+  } catch {
+    // No es crítico: si falla, simplemente no se recuerdan los filtros.
+  }
+}
+
+export function leerFiltrosProductos(): FiltrosProductos | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const crudo = sessionStorage.getItem(CLAVE_FILTROS);
+    if (!crudo) return null;
+    const datos = JSON.parse(crudo);
+    if (!datos) return null;
+    return datos as FiltrosProductos;
+  } catch {
+    return null;
+  }
+}
