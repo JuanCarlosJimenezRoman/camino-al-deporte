@@ -38,6 +38,18 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   res.json(await obtenerOCrear());
 }));
 
+// GET /configuracion-tienda/publica - identidad de la marca del negocio SIN
+// autenticación, para que la pantalla de login y otras vistas públicas puedan
+// mostrar el nombre/logo configurados (white-label). No expone nada sensible.
+router.get('/publica', asyncHandler(async (req, res) => {
+  const config = await prisma.configuracionTienda.findFirst();
+  res.json({
+    nombreNegocio: config?.nombreNegocio || 'Camino al Deporte',
+    iniciales: config?.iniciales || 'CD',
+    logoTicketUrl: config?.logoTicketUrl || null,
+  });
+}));
+
 const schema = z.object({
   whatsappTienda: z.string().optional().nullable(),
   // ID de WhatsApp Business Platform (Cloud API) usado como respaldo
@@ -51,6 +63,9 @@ const schema = z.object({
   // fijo); en true, cotiza contra el catálogo de envíos v2 cuando el
   // cliente elige un destino dentro de Oaxaca.
   envioDinamicoActivo: z.boolean().optional(),
+  // Identidad de la marca (white-label).
+  nombreNegocio: z.string().trim().min(1).optional(),
+  iniciales: z.string().trim().max(6).optional(),
 });
 
 // PUT /configuracion-tienda
@@ -71,6 +86,12 @@ router.put('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (
       ...(('costoEnvio' in req.body) ? { costoEnvio: parsed.data.costoEnvio ?? 0 } : {}),
       ...(('envioDinamicoActivo' in req.body)
         ? { envioDinamicoActivo: parsed.data.envioDinamicoActivo ?? false }
+        : {}),
+      ...(('nombreNegocio' in req.body)
+        ? { nombreNegocio: parsed.data.nombreNegocio ?? 'Camino al Deporte' }
+        : {}),
+      ...(('iniciales' in req.body)
+        ? { iniciales: parsed.data.iniciales ?? 'CD' }
         : {}),
     },
   });

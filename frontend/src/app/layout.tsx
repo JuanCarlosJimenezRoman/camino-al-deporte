@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/themeContext';
+import { ConfigNegocioProvider } from '@/lib/configNegocio';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import './globals.css';
 
@@ -74,7 +75,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <ConfigNegocioProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </ConfigNegocioProvider>
         </ThemeProvider>
         <ServiceWorkerRegister />
       </body>

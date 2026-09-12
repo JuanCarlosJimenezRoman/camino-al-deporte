@@ -28,8 +28,10 @@ import {
   RefreshCcw,
   User,
   PieChart,
+  Settings,
 } from 'lucide-react';
 import { useAuth, puedeVer, Rol } from '@/lib/auth';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import { NavItem } from './NavItem';
 
 interface NavLink {
@@ -56,6 +58,7 @@ export function AppSidebar({
 }) {
   const { usuario } = useAuth();
   const rol = usuario?.rol as Rol | undefined;
+  const { config } = useConfigNegocio();
 
   const secciones: Seccion[] = [
     {
@@ -137,6 +140,11 @@ export function AppSidebar({
     {
       titulo: 'Organización',
       items: [
+        puedeVer('configuracion', rol) && {
+          href: '/dashboard/configuracion',
+          label: 'Configuración',
+          icon: Settings,
+        },
         puedeVer('sucursales', rol) && { href: '/dashboard/sucursales', label: 'Sucursales', icon: Store },
         puedeVer('cuentasTransferencia', rol) && {
           href: '/dashboard/metodos-pago',
@@ -175,12 +183,12 @@ export function AppSidebar({
           <div className="flex items-center gap-2.5 overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/logo-camino-al-deporte.jpg"
-              alt="Camino al Deporte"
+              src={config.logoUrl || '/logo-camino-al-deporte.jpg'}
+              alt={config.nombre}
               className="w-8 h-8 rounded-lg object-cover shrink-0"
             />
             <span className={`font-semibold text-sm leading-tight truncate ${collapsed ? 'md:hidden' : ''}`}>
-              Camino al Deporte
+              {config.nombre}
             </span>
           </div>
           <button onClick={onCloseMobile} className="md:hidden p-1.5 rounded-md hover:bg-secondary">

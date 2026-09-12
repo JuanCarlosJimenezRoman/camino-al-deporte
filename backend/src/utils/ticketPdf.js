@@ -26,7 +26,7 @@ const {
   PALETA,
   moneda,
   generarBarcodeBuffer,
-  obtenerLogoBuffer,
+  obtenerMarca,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,
@@ -49,7 +49,7 @@ const COL_IMPORTE = 90;
 // contenido (ver medirAltoContenido en ticketEstilo.js) y para generar el
 // PDF real — así el alto calculado siempre coincide exactamente con lo que
 // se dibuja después.
-function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, logoBuffer }) {
+function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, marca }) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
   const contentWidth = right - left;
@@ -64,7 +64,9 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, log
     right,
     subtitulo: 'TICKET DE COMPRA',
     lineaContacto: venta.sucursal?.telefono ? `${venta.sucursal.nombre || ''}${venta.sucursal.nombre ? ' · ' : ''}Tel: ${venta.sucursal.telefono}` : venta.sucursal?.nombre,
-    logoBuffer,
+    titulo: marca.nombre,
+    iniciales: marca.iniciales,
+    logoBuffer: marca.logoBuffer,
   });
   dibujarSeparador(doc, { left, right });
 
@@ -174,7 +176,7 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, log
 
   doc.x = left;
   dibujarSeparador(doc, { left, right, punteado: true });
-  dibujarPieLegal(doc, { left, right, mensajeExtra: 'Conserve este ticket como comprobante.' });
+  dibujarPieLegal(doc, { left, right, mensajeExtra: 'Conserve este ticket como comprobante.', nombreNegocio: marca.nombre });
 }
 
 /**
@@ -188,11 +190,11 @@ async function generarTicketPdf(venta, items, whatsappContacto) {
   // para insertarlo como cualquier otra imagen del documento. Si por lo que
   // sea falla, el ticket se genera igual, solo sin el código de barras.
   const barcodeBuffer = await generarBarcodeBuffer(venta.folio);
-  // Logo del ticket (opcional): si no hay uno configurado, regresa null y el
-  // encabezado dibuja la insignia con iniciales.
-  const logoBuffer = await obtenerLogoBuffer();
+  // Identidad de la marca (nombre/iniciales/logo) desde Configuración: si no
+  // hay logo, el encabezado dibuja la insignia con iniciales.
+  const marca = await obtenerMarca();
 
-  const dibujar = (doc) => dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, logoBuffer });
+  const dibujar = (doc) => dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, marca });
 
   // Paso 1: se dibuja una vez en una página de prueba muy alta, solo para
   // medir hasta dónde llega el contenido (depende de cuántos artículos

@@ -112,6 +112,9 @@ export const PERMISOS = {
   ventas: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'VENTAS'] as Rol[],
   usuarios: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   camposPersonalizados: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
+  // Página de configuración de la marca (nombre, iniciales, logo y, a
+  // futuro, más ajustes white-label) — solo administración.
+  configuracion: ['ADMIN_PRINCIPAL', 'DESARROLLO'] as Rol[],
   sucursales: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO', 'VENTAS', 'CONSULTA'] as Rol[],
   transferencias: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],
   catalogos: ['ADMIN_PRINCIPAL', 'DESARROLLO', 'INVENTARIO'] as Rol[],

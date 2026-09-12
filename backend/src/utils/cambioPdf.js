@@ -19,7 +19,7 @@ const {
   PALETA,
   moneda,
   generarBarcodeBuffer,
-  obtenerLogoBuffer,
+  obtenerMarca,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,
@@ -89,7 +89,7 @@ function dibujarTablaItems(doc, { left, right, contentWidth, titulo, items, conM
   });
 }
 
-function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer, logoBuffer }) {
+function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer, marca }) {
   const left = doc.page.margins.left;
   const right = doc.page.width - doc.page.margins.right;
   const contentWidth = right - left;
@@ -105,7 +105,9 @@ function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcode
     right,
     subtitulo: 'COMPROBANTE DE CAMBIO',
     lineaContacto: cambio.sucursal?.nombre,
-    logoBuffer,
+    titulo: marca.nombre,
+    iniciales: marca.iniciales,
+    logoBuffer: marca.logoBuffer,
   });
   dibujarSeparador(doc, { left, right });
 
@@ -204,7 +206,7 @@ function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcode
 
   doc.x = left;
   dibujarSeparador(doc, { left, right, punteado: true });
-  dibujarPieLegal(doc, { left, right, mensajeExtra: 'Conserva este comprobante.' });
+  dibujarPieLegal(doc, { left, right, mensajeExtra: 'Conserva este comprobante.', nombreNegocio: marca.nombre });
 }
 
 /**
@@ -215,13 +217,13 @@ function dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcode
  */
 async function generarComprobanteCambio(cambio) {
   const barcodeBuffer = await generarBarcodeBuffer(cambio.folio);
-  const logoBuffer = await obtenerLogoBuffer();
+  const marca = await obtenerMarca();
 
   const movimientos = cambio.movimientosSaldo || [];
   const saldoGenerado = movimientos.filter((m) => m.tipo === 'ABONO').reduce((acc, m) => acc + Number(m.monto), 0);
   const saldoAplicado = movimientos.filter((m) => m.tipo === 'CONSUMO').reduce((acc, m) => acc + Number(m.monto), 0);
 
-  const dibujar = (doc) => dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer, logoBuffer });
+  const dibujar = (doc) => dibujarComprobante(doc, { cambio, saldoGenerado, saldoAplicado, barcodeBuffer, marca });
 
   const alto = await medirAltoContenido(dibujar);
 

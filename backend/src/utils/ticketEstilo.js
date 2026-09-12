@@ -75,17 +75,13 @@ function urlLogoParaPdf(url) {
   return url.replace('/upload/', '/upload/w_256,h_256,c_limit,f_png/');
 }
 
-async function obtenerLogoBuffer() {
+async function descargarLogoBuffer(url) {
+  if (!url) return null;
+  const ahora = Date.now();
+  if (logoCache.url === url && logoCache.buffer && ahora - logoCache.at < LOGO_CACHE_TTL) {
+    return logoCache.buffer;
+  }
   try {
-    const config = await prisma.configuracionTienda.findFirst();
-    const url = config?.logoTicketUrl || null;
-    if (!url) return null;
-
-    const ahora = Date.now();
-    if (logoCache.url === url && logoCache.buffer && ahora - logoCache.at < LOGO_CACHE_TTL) {
-      return logoCache.buffer;
-    }
-
     const resp = await fetch(urlLogoParaPdf(url));
     if (!resp.ok) return null;
     const buffer = Buffer.from(await resp.arrayBuffer());
@@ -97,11 +93,28 @@ async function obtenerLogoBuffer() {
   }
 }
 
+// Identidad de la marca (white-label): nombre, iniciales y logo del negocio,
+// leídos de ConfiguracionTienda. Es lo que usa dibujarEncabezado()/dibujarPie
+// en lugar de "Camino al Deporte"/"CD" fijos. Se llama una vez por documento.
+async function obtenerMarca() {
+  try {
+    const config = await prisma.configuracionTienda.findFirst();
+    const nombre = config?.nombreNegocio || 'Camino al Deporte';
+    const iniciales = config?.iniciales || 'CD';
+    const logoBuffer = await descargarLogoBuffer(config?.logoTicketUrl || null);
+    return { nombre, iniciales, logoBuffer };
+  } catch (err) {
+    console.error('No se pudo leer la configuración de la marca:', err.message);
+    return { nombre: 'Camino al Deporte', iniciales: 'CD', logoBuffer: null };
+  }
+}
+
 // Franja de color + insignia con iniciales (o logo, si ya se configuró) +
 // nombre del negocio + subtítulo (p. ej. "TICKET DE COMPRA") + una línea
 // opcional de contacto (sucursal, teléfono). Deja doc.y listo para seguir
-// dibujando debajo.
-function dibujarEncabezado(doc, { left, right, subtitulo, lineaContacto, titulo = 'CAMINO AL DEPORTE', logoBuffer = null }) {
+// dibujando debajo. titulo/iniciales vienen de obtenerMarca() (Configuración);
+// los valores por defecto son los de Camino al Deporte.
+function dibujarEncabezado(doc, { left, right, subtitulo, lineaContacto, titulo = 'CAMINO AL DEPORTE', iniciales = 'CD', logoBuffer = null }) {
   const contentWidth = right - left;
 
   // Franja superior: se dibuja a lo ancho de TODA la página (no solo el
@@ -112,8 +125,8 @@ function dibujarEncabezado(doc, { left, right, subtitulo, lineaContacto, titulo 
   const yInsignia = doc.y + 6;
 
   if (logoBuffer) {
-    // Logo real (imagen subida desde el panel): se dibuja centrado. Se usa
-    // un cuadrado fijo; si el logo no es cuadrado, se estira — para que
+    // Logo real (imagen subida desde Configuración): se dibuja centrado. Se
+    // usa un cuadrado fijo; si el logo no es cuadrado, se estira — para que
     // quede proporcionado conviene subir un logo cuadrado (o casi).
     const tam = 52;
     doc.image(logoBuffer, cx - tam / 2, yInsignia, { width: tam, height: tam });
@@ -125,13 +138,13 @@ function dibujarEncabezado(doc, { left, right, subtitulo, lineaContacto, titulo 
     doc.fillColor(PALETA.acento);
     doc.circle(cx, yInsignia + radio, radio).fill();
     doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(17);
-    doc.text('CD', cx - radio, yInsignia + radio - 8, { width: radio * 2, align: 'center' });
+    doc.text(String(iniciales || 'CD').toUpperCase(), cx - radio, yInsignia + radio - 8, { width: radio * 2, align: 'center' });
     doc.y = yInsignia + radio * 2 + 8;
     doc.x = left;
   }
 
   doc.fillColor(PALETA.primarioOscuro).font('Helvetica-Bold').fontSize(17);
-  doc.text(titulo, left, doc.y, { width: contentWidth, align: 'center' });
+  doc.text(String(titulo).toUpperCase(), left, doc.y, { width: contentWidth, align: 'center' });
 
   if (subtitulo) {
     doc.moveDown(0.1);
@@ -248,10 +261,12 @@ function dibujarBarcode(doc, { left, contentWidth, buffer }) {
 
 // Aviso legal (este documento no sustituye una factura/CFDI) + un mensaje
 // extra opcional (p. ej. "Conserve este ticket como comprobante.").
-function dibujarPieLegal(doc, { left, right, mensajeExtra } = {}) {
+// nombreNegocio viene de obtenerMarca() (Configuración) — así el texto del
+// pie cambia con la marca y no queda fijo en "Camino al Deporte".
+function dibujarPieLegal(doc, { left, right, mensajeExtra, nombreNegocio = 'Camino al Deporte' } = {}) {
   const width = right - left;
   doc.fillColor(PALETA.textoMuted).font('Helvetica').fontSize(7);
-  doc.text('Este documento es un comprobante interno de Camino al Deporte — no es un CFDI ni un comprobante fiscal.', left, doc.y, {
+  doc.text(`Este documento es un comprobante interno de ${nombreNegocio} — no es un CFDI ni un comprobante fiscal.`, left, doc.y, {
     width,
     align: 'center',
   });
@@ -308,7 +323,7 @@ module.exports = {
   PALETA,
   moneda,
   generarBarcodeBuffer,
-  obtenerLogoBuffer,
+  obtenerMarca,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,

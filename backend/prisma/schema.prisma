@@ -1764,12 +1764,17 @@ model ConfiguracionTienda {
   // significado de este campo.
   envioDinamicoActivo Boolean @default(false) @map("envio_dinamico_activo")
   // Logo opcional que se muestra en el ticket/comprobante digital (PDF) en
-  // lugar de la insignia con iniciales. Se sube desde Métodos de pago →
-  // "Logo del ticket" y se guarda en Cloudinary (carpeta
-  // camino-al-deporte/logo). Si es null, el PDF dibuja la insignia con las
-  // iniciales del negocio (ver utils/ticketEstilo.js).
+  // lugar de la insignia con iniciales. Se sube desde Configuración → "Logo"
+  // y se guarda en Cloudinary (carpeta camino-al-deporte/logo). Si es null, el
+  // PDF dibuja la insignia con las iniciales (ver utils/ticketEstilo.js).
   logoTicketUrl       String? @map("logo_ticket_url")
   logoTicketPublicId  String? @map("logo_ticket_public_id")
+  // Identidad de la marca del negocio (white-label): el sistema deja de
+  // asumir "Camino al Deporte" y usa estos valores en tickets/comprobantes y
+  // en el panel/tienda. Permite reutilizar la app para otro negocio solo
+  // cambiando esta configuración.
+  nombreNegocio String @default("Camino al Deporte") @map("nombre_negocio")
+  iniciales     String @default("CD") @map("iniciales")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("configuracion_tienda")
