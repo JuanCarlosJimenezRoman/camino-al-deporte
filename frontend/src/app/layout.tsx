@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/themeContext';
 import { ConfigNegocioProvider } from '@/lib/configNegocio';
+import { obtenerIdentidadNegocio } from '@/lib/identidadNegocio';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 import './globals.css';
 
@@ -18,26 +19,30 @@ const inter = Inter({
   display: 'swap',
 });
 
-export const metadata: Metadata = {
-  title: 'Camino al Deporte',
-  description: 'Gestión de inventarios y ventas',
-  manifest: '/manifest.webmanifest',
-  appleWebApp: {
-    // Habilita modo standalone en iOS/iPadOS (Safari ignora varios campos
-    // del manifest, así que esto es lo que realmente oculta la barra de
-    // Safari cuando se agrega a la pantalla de inicio).
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'Camino al Deporte',
-  },
-  icons: {
-    icon: [
-      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-    ],
-    apple: '/icons/apple-touch-icon.png',
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { nombre: nombreNegocio } = await obtenerIdentidadNegocio();
+
+  return {
+    title: nombreNegocio,
+    description: 'Gestión de inventarios y ventas',
+    manifest: '/manifest.webmanifest',
+    appleWebApp: {
+      // Habilita modo standalone en iOS/iPadOS (Safari ignora varios campos
+      // del manifest, así que esto es lo que realmente oculta la barra de
+      // Safari cuando se agrega a la pantalla de inicio).
+      capable: true,
+      statusBarStyle: 'default',
+      title: nombreNegocio,
+    },
+    icons: {
+      icon: [
+        { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+      ],
+      apple: '/icons/apple-touch-icon.png',
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',

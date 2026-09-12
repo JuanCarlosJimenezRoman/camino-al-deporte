@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { ProductoDetalleClient } from './ProductoDetalleClient';
+import { obtenerIdentidadNegocio } from '@/lib/identidadNegocio';
 
 // Server Component: solo se encarga de metadata/SEO (sección 25, 54 y 55
 // del brief — title, description, canonical, Open Graph, JSON-LD) leyendo
@@ -32,15 +33,18 @@ async function obtenerProducto(id: string): Promise<ProductoSEO | null> {
 }
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const producto = await obtenerProducto(params.id);
+  const [producto, { nombre: nombreNegocio }] = await Promise.all([
+    obtenerProducto(params.id),
+    obtenerIdentidadNegocio(),
+  ]);
   if (!producto) {
-    return { title: 'Producto | Camino al Deporte' };
+    return { title: `Producto | ${nombreNegocio}` };
   }
 
-  const titulo = `${producto.nombre}${producto.marca ? ` — ${producto.marca.nombre}` : ''} | Camino al Deporte`;
+  const titulo = `${producto.nombre}${producto.marca ? ` — ${producto.marca.nombre}` : ''} | ${nombreNegocio}`;
   const descripcion =
     producto.descripcion?.slice(0, 160) ||
-    `${producto.nombre}${producto.marca ? ` de ${producto.marca.nombre}` : ''}, disponible en Camino al Deporte.`;
+    `${producto.nombre}${producto.marca ? ` de ${producto.marca.nombre}` : ''}, disponible en ${nombreNegocio}.`;
   const imagen = producto.imagenes?.[0]?.url;
   const url = SITE_URL ? `${SITE_URL}/tienda/productos/${producto.id}` : undefined;
 

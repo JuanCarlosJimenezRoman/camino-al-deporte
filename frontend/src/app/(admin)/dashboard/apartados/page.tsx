@@ -22,6 +22,7 @@ import {
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearFecha } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -278,7 +279,7 @@ function formatearTelefonoWhatsapp(telefono: string): string {
   return digitos;
 }
 
-function construirComprobanteTexto(apartado: Apartado, montoEvento: number | null): string {
+function construirComprobanteTexto(apartado: Apartado, montoEvento: number | null, nombreNegocio: string): string {
   const articulos = apartado.items
     .map((it) => {
       const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
@@ -288,7 +289,7 @@ function construirComprobanteTexto(apartado: Apartado, montoEvento: number | nul
   const esAnticipo = montoEvento != null && Math.abs(apartado.pagado - montoEvento) < 0.01;
 
   return [
-    'Comprobante de apartado — Camino al Deporte',
+    `Comprobante de apartado — ${nombreNegocio}`,
     `Folio: ${apartado.folio}`,
     `Fecha: ${formatearFechaHora(apartado.createdAt)}`,
     apartado.sucursalVenta?.nombre ? `Sucursal: ${apartado.sucursalVenta.nombre}` : '',
@@ -311,15 +312,16 @@ function construirComprobanteTexto(apartado: Apartado, montoEvento: number | nul
   ].join('\n');
 }
 
-function construirLinkComprobante(apartado: Apartado, montoEvento: number | null): string | null {
+function construirLinkComprobante(apartado: Apartado, montoEvento: number | null, nombreNegocio: string): string | null {
   if (!apartado.cliente?.telefono) return null;
   const numero = formatearTelefonoWhatsapp(apartado.cliente.telefono);
   if (!numero) return null;
-  return `https://wa.me/${numero}?text=${encodeURIComponent(construirComprobanteTexto(apartado, montoEvento))}`;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(construirComprobanteTexto(apartado, montoEvento, nombreNegocio))}`;
 }
 
 export default function ApartadosPage() {
   const { usuario } = useAuth();
+  const { config } = useConfigNegocio();
   const esAdmin = usuario?.rol === 'ADMIN_PRINCIPAL' || usuario?.rol === 'DESARROLLO';
 
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
@@ -440,7 +442,7 @@ export default function ApartadosPage() {
           setMensaje(null);
           setTicketPdfUrl(creado.ticketPdfUrl || null);
           const montoEvento = creado.pagos?.[0] ? Number(creado.pagos[0].monto) : null;
-          setTicketLink(autoEnviado ? null : construirLinkComprobante(creado, montoEvento));
+          setTicketLink(autoEnviado ? null : construirLinkComprobante(creado, montoEvento, config.nombre));
           cargar();
         }}
       />
@@ -615,6 +617,7 @@ function ApartadoFila({
   cuentas: CuentaTransferencia[];
   onCambio: () => void;
 }) {
+  const { config } = useConfigNegocio();
   const [monto, setMonto] = useState('');
   const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('EFECTIVO');
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
@@ -674,7 +677,7 @@ function ApartadoFila({
           : `Abono registrado.${motivo}`
       );
       setTicketPdfUrl(actualizado.ticketPdfUrl || null);
-      setTicketLink(autoEnviado ? null : construirLinkComprobante(actualizado, montoNum));
+      setTicketLink(autoEnviado ? null : construirLinkComprobante(actualizado, montoNum, config.nombre));
       onCambio();
     } catch (err) {
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar el abono.');

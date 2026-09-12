@@ -29,6 +29,7 @@ import {
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearHora, formatoMonedaExacto } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
@@ -423,7 +424,7 @@ function formatearTelefonoWhatsapp(telefono: string): string {
   return digitos;
 }
 
-function construirTicketTexto(venta: Venta, notaExtra?: string): string {
+function construirTicketTexto(venta: Venta, nombreNegocio: string, notaExtra?: string): string {
   const articulos = venta.items
     .map((it) => {
       if (!it.variante) {
@@ -447,7 +448,7 @@ function construirTicketTexto(venta: Venta, notaExtra?: string): string {
       : null;
 
   return [
-    'Ticket de compra — Camino al Deporte',
+    `Ticket de compra — ${nombreNegocio}`,
     `Folio: ${venta.folio}`,
     `Fecha: ${formatearFechaHora(venta.createdAt)}`,
     venta.sucursal?.nombre ? `Sucursal: ${venta.sucursal.nombre}` : '',
@@ -476,11 +477,11 @@ function construirTicketTexto(venta: Venta, notaExtra?: string): string {
   ].join('\n');
 }
 
-function construirLinkTicket(venta: Venta, notaExtra?: string): string | null {
+function construirLinkTicket(venta: Venta, nombreNegocio: string, notaExtra?: string): string | null {
   if (!venta.clienteTelefono) return null;
   const numero = formatearTelefonoWhatsapp(venta.clienteTelefono);
   if (!numero) return null;
-  return `https://wa.me/${numero}?text=${encodeURIComponent(construirTicketTexto(venta, notaExtra))}`;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(construirTicketTexto(venta, nombreNegocio, notaExtra))}`;
 }
 
 // Fuerza la descarga del PDF (en vez de solo abrirlo en una pestaña) para
@@ -509,6 +510,7 @@ function construirLinkDescargaTicket(ticketPdfUrl: string, folio?: string | null
 
 export default function VentasPage() {
   const { usuario } = useAuth();
+  const { config } = useConfigNegocio();
   // El vendedor (VENTAS) solo puede vender desde su propia sucursal
   // asignada; el selector se bloquea para ese rol. Admin/desarrollo sí
   // pueden elegir cualquier sucursal. Esto también se valida en el backend
@@ -1016,7 +1018,7 @@ export default function VentasPage() {
         // que ir a revisar los logs del backend.
         const motivo = creada.clienteTelefono && creada.ticketDigital?.error ? ` (${creada.ticketDigital.error})` : '';
         setMensaje(`${baseMensaje}${motivo}`);
-        setTicketLink(construirLinkTicket(creada, notaVenta));
+        setTicketLink(construirLinkTicket(creada, config.nombre, notaVenta));
       }
       limpiarSeleccion();
       setCliente('');
@@ -1907,7 +1909,7 @@ export default function VentasPage() {
           <div className="rounded-lg border border-border divide-y divide-border">
             {ventasHoy.map((v) => {
               const primerItem = v.items?.[0];
-              const linkTicket = construirLinkTicket(v);
+              const linkTicket = construirLinkTicket(v, config.nombre);
               return (
                 <div key={v.id} className="flex items-center gap-2.5 px-3 py-2.5">
                   <ProductoThumb

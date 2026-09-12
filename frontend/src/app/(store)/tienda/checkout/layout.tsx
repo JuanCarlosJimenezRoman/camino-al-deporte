@@ -1,12 +1,20 @@
+'use client';
+
 import Link from 'next/link';
 import { ShieldCheck } from 'lucide-react';
 import { ReactNode } from 'react';
+import { useConfigNegocio } from '@/lib/configNegocio';
 
 // Header minimalista del checkout (sección 42 del brief): solo logo + un
 // mensaje de confianza, sin navegación, buscador, favoritos ni carrito —
 // nada que distraiga de completar el pedido. Sin footer tampoco, a
 // propósito (sección 73: la estructura del checkout no incluye uno).
+//
+// Nombre/logo salen de useConfigNegocio() (white-label, ver lib/configNegocio.tsx)
+// en vez de quedar fijos — igual que StoreHeader/StoreFooter/HomeHero.
 export default function CheckoutLayout({ children }: { children: ReactNode }) {
+  const { config } = useConfigNegocio();
+
   return (
     <div className="tienda-theme flex min-h-screen flex-col bg-background text-foreground">
       <header className="border-b border-border">
@@ -14,8 +22,12 @@ export default function CheckoutLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4 sm:px-6">
           <Link href="/tienda" className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-full ring-1 ring-gold/30" />
-            <span className="text-sm font-extrabold uppercase tracking-tight">Camino al Deporte</span>
+            <img
+              src={config.logoUrl || '/logo-mark.png'}
+              alt={config.nombre}
+              className="h-7 w-7 rounded-full object-cover ring-1 ring-gold/30"
+            />
+            <span className="text-sm font-extrabold uppercase tracking-tight">{config.nombre}</span>
           </Link>
           <div className="flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-xs font-semibold text-bronze">
             <ShieldCheck className="h-4 w-4 text-gold" strokeWidth={1.75} />

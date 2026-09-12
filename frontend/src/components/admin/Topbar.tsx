@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { LogOut, Menu, User as UserIcon, Settings, Search, HelpCircle, ChevronRight, Sun, Moon } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/themeContext';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -62,9 +63,10 @@ function iniciales(nombre: string) {
 export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
   const { usuario, logout } = useAuth();
   const { tema, alternarTema } = useTheme();
+  const { config } = useConfigNegocio();
   const pathname = usePathname();
   const router = useRouter();
-  const titulo = TITULOS[pathname] || 'Camino al Deporte';
+  const titulo = TITULOS[pathname] || config.nombre;
   const esInicio = pathname === '/dashboard';
   const [buscadorAbierto, setBuscadorAbierto] = useState(false);
 

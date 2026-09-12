@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { formatearFecha } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { useBranch } from '@/lib/branchContext';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -232,6 +233,7 @@ function construirActividad(ventas: VentaResumen[], apartados: ApartadoResumen[]
 
 export default function DashboardHome() {
   const { usuario } = useAuth();
+  const { config } = useConfigNegocio();
   const rol = usuario?.rol;
   const { sucursales, sucursalId: sucursalTopbar, puedeVerTodas } = useBranch();
 
@@ -376,7 +378,7 @@ export default function DashboardHome() {
           <h1 className="text-[26px] sm:text-[28px] font-semibold leading-tight tracking-tight">
             {saludo}, {primerNombre}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Esto es lo que está pasando hoy en Camino al Deporte.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Esto es lo que está pasando hoy en {config.nombre}.</p>
         </div>
         <div className="flex items-center gap-1 self-start rounded-lg border border-border bg-secondary/50 p-1">
           {OPCIONES_PERIODO.map((opt) => (

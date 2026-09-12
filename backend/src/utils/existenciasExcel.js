@@ -10,15 +10,28 @@
 // sistema — típicamente un proveedor preguntando "qué tienes de lo mío" —
 // sin tener que darle acceso al panel.
 const XLSX = require('xlsx');
+const prisma = require('../db');
+
+// Nombre del negocio para el encabezado del reporte — igual que
+// utils/ticketEstilo.js#obtenerMarca, para que no quede fijo en
+// "Camino al Deporte" cuando este código corre para otro negocio.
+async function obtenerNombreNegocio() {
+  try {
+    const config = await prisma.configuracionTienda.findFirst();
+    return config?.nombreNegocio || 'Camino al Deporte';
+  } catch (err) {
+    return 'Camino al Deporte';
+  }
+}
 
 /**
  * @param {Array} productos - productos con marca, modelo, categoria y
  *   variantes[] (con talla y existencias[] con sucursal), igual al include
  *   de GET /productos/reporte-existencias.
  * @param {{filtrosTexto?: string}} [opciones]
- * @returns {Buffer}
+ * @returns {Promise<Buffer>}
  */
-function generarReporteExistencias(productos, { filtrosTexto = '' } = {}) {
+async function generarReporteExistencias(productos, { filtrosTexto = '' } = {}) {
   const filas = [];
   let totalPiezas = 0;
 
@@ -47,8 +60,9 @@ function generarReporteExistencias(productos, { filtrosTexto = '' } = {}) {
     }
   }
 
+  const nombreNegocio = await obtenerNombreNegocio();
   const fecha = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
-  const filasResumen = [['Reporte de existencias — Camino al Deporte'], [`Generado: ${fecha}`]];
+  const filasResumen = [[`Reporte de existencias — ${nombreNegocio}`], [`Generado: ${fecha}`]];
   if (filtrosTexto) filasResumen.push([filtrosTexto]);
   filasResumen.push([]);
   filasResumen.push(['Productos con existencia', new Set(filas.map((f) => f.producto)).size]);

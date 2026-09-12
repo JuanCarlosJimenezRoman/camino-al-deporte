@@ -643,10 +643,10 @@ router.get('/reporte-existencias', requireAuth, asyncHandler(async (req, res) =>
   }
 
   const filtrosTexto = await describirFiltros({ marcaId, categoriaId, modeloId, tallaId, proveedorId, q });
-  const buffer = generarReporteExistencias(productosConStock, { filtrosTexto });
+  const buffer = await generarReporteExistencias(productosConStock, { filtrosTexto });
 
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename="existencias-camino-al-deporte-${Date.now()}.xlsx"`);
+  res.setHeader('Content-Disposition', `attachment; filename="existencias-${Date.now()}.xlsx"`);
   res.send(buffer);
 }));
 

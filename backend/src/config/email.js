@@ -12,6 +12,7 @@
 // whatsapp.js, para que un canal sin configurar nunca tumbe la petición.
 
 const nodemailer = require('nodemailer');
+const prisma = require('../db');
 
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
@@ -21,6 +22,20 @@ let transporter = null;
 
 function emailApiConfigurada() {
   return Boolean(EMAIL_USER && EMAIL_APP_PASSWORD);
+}
+
+// Nombre del negocio para el CUERPO del correo (distinto de
+// EMAIL_FROM_NOMBRE, que es el nombre del remitente y se fija por variable
+// de entorno): se lee de ConfiguracionTienda, igual que
+// utils/ticketEstilo.js#obtenerMarca, para que el texto no quede fijo en
+// "Camino al Deporte" cuando este código corre para otro negocio.
+async function obtenerNombreNegocio() {
+  try {
+    const config = await prisma.configuracionTienda.findFirst();
+    return config?.nombreNegocio || 'Camino al Deporte';
+  } catch (err) {
+    return 'Camino al Deporte';
+  }
 }
 
 // El transporter se crea una sola vez (perezoso, en el primer envío) y se
@@ -57,18 +72,19 @@ async function enviarCodigoRecuperacionEmail({ email, nombre, codigo, vigenciaMi
   }
 
   try {
+    const nombreNegocio = await obtenerNombreNegocio();
     await obtenerTransporter().sendMail({
       from: `"${EMAIL_FROM_NOMBRE}" <${EMAIL_USER}>`,
       to: email,
       subject: 'Tu código para restablecer tu contraseña',
       text:
         `Hola${nombre ? ' ' + nombre : ''},\n\n` +
-        `Recibimos una solicitud para restablecer tu contraseña en Camino al Deporte.\n\n` +
+        `Recibimos una solicitud para restablecer tu contraseña en ${nombreNegocio}.\n\n` +
         `Tu código es: ${codigo}\n\n` +
         `Este código es válido por ${vigenciaMin} minutos. Si tú no pediste esto, puedes ignorar este correo.`,
       html:
         `<p>Hola${nombre ? ' ' + nombre : ''},</p>` +
-        `<p>Recibimos una solicitud para restablecer tu contraseña en Camino al Deporte.</p>` +
+        `<p>Recibimos una solicitud para restablecer tu contraseña en ${nombreNegocio}.</p>` +
         `<p style="font-size:28px;font-weight:bold;letter-spacing:0.2em;margin:24px 0;">${codigo}</p>` +
         `<p>Este código es válido por ${vigenciaMin} minutos. Si tú no pediste esto, puedes ignorar este correo.</p>`,
     });
