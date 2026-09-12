@@ -1,5 +1,8 @@
+'use client';
+
 import Link from 'next/link';
 import { Truck, ShieldCheck, MapPin } from 'lucide-react';
+import { useConfigNegocio } from '@/lib/configNegocio';
 
 // Beneficios/confianza (sección 8 y 70 del brief) — mismas afirmaciones que
 // la barra de confianza del header, sin inventar nada nuevo (envíos,
@@ -32,6 +35,8 @@ export function BenefitsSection() {
 // para cerrar la tienda con la marca en primer plano en vez de un pie gris
 // discreto.
 export function StoreFooter() {
+  const { config } = useConfigNegocio();
+
   return (
     <footer className="bg-ink text-ink-foreground">
       <div className="h-[3px] w-full bg-gradient-to-r from-gold via-bronze to-gold" aria-hidden="true" />
@@ -40,8 +45,12 @@ export function StoreFooter() {
           <div className="col-span-2 lg:col-span-1">
             <div className="flex items-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo-mark.png" alt="" className="h-8 w-8 rounded-full ring-1 ring-white/15" />
-              <span className="text-sm font-extrabold uppercase tracking-tight text-white">Camino al Deporte</span>
+              <img
+                src={config.logoUrl || '/logo-mark.png'}
+                alt={config.nombre}
+                className="h-8 w-8 rounded-full object-cover ring-1 ring-white/15"
+              />
+              <span className="text-sm font-extrabold uppercase tracking-tight text-white">{config.nombre}</span>
             </div>
             <p className="mt-3 max-w-xs text-sm text-white/60">
               Tenis y artículos deportivos, con tienda en línea y sucursales físicas.
@@ -120,7 +129,7 @@ export function StoreFooter() {
         </div>
 
         <div className="mt-10 flex flex-col gap-3 border-t border-white/10 pt-6 text-xs text-white/50 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {new Date().getFullYear()} Camino al Deporte.</p>
+          <p>© {new Date().getFullYear()} {config.nombre}.</p>
           <p>Envíos a todo México · Compra segura</p>
         </div>
       </div>

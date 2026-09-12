@@ -22,6 +22,7 @@ import { useCarrito } from '@/lib/carrito';
 import { useFavoritos } from '@/lib/favoritos';
 import { useCatalogo } from '@/lib/catalogo';
 import { useTheme } from '@/lib/themeContext';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -128,6 +129,7 @@ function CuentaMenu() {
 export function StoreHeader() {
   const { cliente, cargando, logout } = useAuthCliente();
   const { categorias } = useCatalogo();
+  const { config } = useConfigNegocio();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [buscadorAbierto, setBuscadorAbierto] = useState(false);
   const cerrar = () => setMenuAbierto(false);
@@ -147,8 +149,12 @@ export function StoreHeader() {
 
           <Link href="/tienda" className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo-mark.png" alt="" className="h-7 w-7 rounded-full ring-1 ring-border sm:h-8 sm:w-8" />
-            <span className="text-sm font-extrabold uppercase tracking-tight sm:text-base">Camino al Deporte</span>
+            <img
+              src={config.logoUrl || '/logo-mark.png'}
+              alt={config.nombre}
+              className="h-7 w-7 rounded-full object-cover ring-1 ring-border sm:h-8 sm:w-8"
+            />
+            <span className="text-sm font-extrabold uppercase tracking-tight sm:text-base">{config.nombre}</span>
           </Link>
 
           <nav className="hidden items-center gap-7 text-sm font-medium lg:flex">

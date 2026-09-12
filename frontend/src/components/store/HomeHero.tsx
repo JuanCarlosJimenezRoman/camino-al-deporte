@@ -1,7 +1,10 @@
+'use client';
+
 import Link from 'next/link';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { imagenProducto } from '@/lib/imagenCloudinary';
 import { ProductoCatalogo } from '@/lib/catalogo';
+import { useConfigNegocio } from '@/lib/configNegocio';
 import { claseBotonPrimario, claseBotonSecundario } from './ui';
 
 // Hero del catálogo (sección 10 del brief): sin banners genéricos ni
@@ -17,6 +20,7 @@ import { claseBotonPrimario, claseBotonSecundario } from './ui';
 // en mayúsculas, el CTA lleva gradiente dorado, y la foto va con un halo
 // dorado que la hace flotar.
 export function HomeHero({ productoDestacado }: { productoDestacado: ProductoCatalogo | null }) {
+  const { config } = useConfigNegocio();
   const imagen = productoDestacado?.imagenes?.[0]?.url;
 
   return (
@@ -33,7 +37,7 @@ export function HomeHero({ productoDestacado }: { productoDestacado: ProductoCat
         <div className="relative grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
           <div>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-bronze dark:text-gold">
-              Camino al Deporte
+              {config.nombre}
             </span>
 
             <h1 className="mt-5 text-4xl font-black uppercase leading-[0.95] tracking-tight sm:text-5xl lg:text-6xl">
