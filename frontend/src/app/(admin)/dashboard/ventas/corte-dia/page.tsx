@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Receipt, DollarSign, Banknote, CreditCard, Wallet, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatearHora, formatoMonedaExacto } from '@/lib/utils';
+import { formatearHora, formatoMonedaExacto, ZONA_HORARIA_NEGOCIO } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { PageHeader } from '@/components/ui/page-header';
 import { Input } from '@/components/ui/input';
@@ -101,7 +101,7 @@ interface CorteDia {
 }
 
 function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA', { timeZone: ZONA_HORARIA_NEGOCIO });
 }
 
 function etiquetaMetodoPago(v: VentaResumen['metodoPago']) {
