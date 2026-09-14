@@ -72,6 +72,15 @@ interface Venta {
   sucursal: { nombre: string };
   cuentaTransferencia: { nombre: string } | null;
   items: VentaItem[];
+  // Pago combinado (ver POST /ventas y dashboard/ventas/page.tsx) — cuando
+  // es true, PATCH /ventas/:id/editar todavía no permite editar esta venta
+  // (ver abrirEdicion abajo), y el desglose real está en "pagos".
+  pagoMixto: boolean;
+  pagos?: {
+    metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+    monto: string;
+    cuentaTransferencia?: { nombre: string } | null;
+  }[];
 }
 
 interface Historial {
@@ -119,8 +128,15 @@ const ETIQUETAS_CAMPO: Record<string, string> = {
   total: 'Total',
 };
 
-function etiquetaMetodoPago(v: Venta['metodoPago']) {
+function etiquetaMetodoPagoSimple(v: Venta['metodoPago']) {
   return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
+}
+
+function etiquetaMetodoPago(venta: Pick<Venta, 'metodoPago' | 'pagoMixto' | 'pagos'>) {
+  if (venta.pagoMixto && venta.pagos?.length) {
+    return `Combinado (${venta.pagos.map((p) => etiquetaMetodoPagoSimple(p.metodoPago)).join(' + ')})`;
+  }
+  return etiquetaMetodoPagoSimple(venta.metodoPago);
 }
 
 function valorLegible(v: unknown) {
@@ -417,7 +433,7 @@ export default function HistorialVentasPage() {
                         )}
                       </td>
                       <td className="text-xs">
-                        {etiquetaMetodoPago(v.metodoPago)}
+                        {etiquetaMetodoPago(v)}
                         {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
                       </td>
                       <td>
@@ -428,10 +444,17 @@ export default function HistorialVentasPage() {
                       {esAdmin && (
                         <td>
                           {v.estado === 'COMPLETADA' && (
-                            <Button variant="ghost" size="sm" onClick={() => abrirEdicion(v)}>
-                              <Pencil className="w-3.5 h-3.5" />
-                              Editar
-                            </Button>
+                            v.pagoMixto ? (
+                              // Fuera de alcance por ahora (ver PATCH
+                              // /ventas/:id/editar): esta venta se cobró
+                              // combinando métodos de pago.
+                              <span className="text-[11px] text-muted-foreground">Pago combinado, no editable</span>
+                            ) : (
+                              <Button variant="ghost" size="sm" onClick={() => abrirEdicion(v)}>
+                                <Pencil className="w-3.5 h-3.5" />
+                                Editar
+                              </Button>
+                            )
                           )}
                         </td>
                       )}

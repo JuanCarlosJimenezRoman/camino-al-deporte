@@ -153,11 +153,29 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
   // Método de pago y, si fue en efectivo, cuánto se recibió y el cambio
   // que se dio — sobre el restante después del saldo aplicado, nunca sobre
   // el total de la venta (si no, el cambio saldría mal cuando se usó saldo).
-  filaMonto('Método de pago', ETIQUETA_METODO_PAGO[venta.metodoPago] || venta.metodoPago);
-  if (venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null) {
-    const cambio = Number(venta.efectivoRecibido) - restante;
-    filaMonto('Efectivo recibido', `$${moneda(venta.efectivoRecibido)}`);
-    filaMonto('Cambio', `$${moneda(cambio)}`, { boldValor: true });
+  //
+  // Pago combinado (ver Venta.pagoMixto en schema.prisma): en vez de una
+  // sola línea "Método de pago", se muestra una línea por cada método con
+  // cuánto le tocó, y el cambio (si alguna pata fue en efectivo) se calcula
+  // solo sobre el monto de esa pata, no sobre el restante completo.
+  if (venta.pagoMixto && venta.pagos?.length) {
+    filaMonto('Método de pago', 'Combinado', { boldValor: true });
+    for (const pago of venta.pagos) {
+      const etiquetaPata = ETIQUETA_METODO_PAGO[pago.metodoPago] || pago.metodoPago;
+      filaMonto(etiquetaPata, `$${moneda(pago.monto)}`);
+      if (pago.metodoPago === 'EFECTIVO' && pago.efectivoRecibido != null) {
+        const cambioPata = Number(pago.efectivoRecibido) - Number(pago.monto);
+        filaMonto('  Efectivo recibido', `$${moneda(pago.efectivoRecibido)}`);
+        filaMonto('  Cambio', `$${moneda(cambioPata)}`, { boldValor: true });
+      }
+    }
+  } else {
+    filaMonto('Método de pago', ETIQUETA_METODO_PAGO[venta.metodoPago] || venta.metodoPago);
+    if (venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null) {
+      const cambio = Number(venta.efectivoRecibido) - restante;
+      filaMonto('Efectivo recibido', `$${moneda(venta.efectivoRecibido)}`);
+      filaMonto('Cambio', `$${moneda(cambio)}`, { boldValor: true });
+    }
   }
 
   dibujarSeparador(doc, { left, right });
@@ -180,7 +198,7 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
 }
 
 /**
- * @param {{folio: string, createdAt: Date|string, total: number|string, metodoPago: string, cliente?: string|null, sucursal?: {nombre?: string, telefono?: string|null}, usuario?: {nombre?: string}, descuentoTipo?: string|null, descuentoValor?: number|string|null, descuentoMonto?: number|string, descuentoMotivo?: string|null, efectivoRecibido?: number|string|null}} venta
+ * @param {{folio: string, createdAt: Date|string, total: number|string, metodoPago: string, cliente?: string|null, sucursal?: {nombre?: string, telefono?: string|null}, usuario?: {nombre?: string}, descuentoTipo?: string|null, descuentoValor?: number|string|null, descuentoMonto?: number|string, descuentoMotivo?: string|null, efectivoRecibido?: number|string|null, pagoMixto?: boolean, pagos?: {metodoPago: string, monto: number|string, efectivoRecibido?: number|string|null}[]}} venta
  * @param {Array<{descripcion: string, cantidad: number, precioUnitario: number|string, subtotal: number|string}>} items
  * @param {string|null} [whatsappContacto] - número a mostrar como "dudas o cambios"
  * @returns {Promise<Buffer>}

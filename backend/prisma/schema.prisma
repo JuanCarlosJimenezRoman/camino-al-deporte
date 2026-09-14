@@ -468,6 +468,7 @@ model CuentaTransferencia {
   createdAt    DateTime @default(now()) @map("created_at")
 
   ventas       Venta[]
+  ventaPagos   VentaPago[]
   pagosApartado ApartadoPago[]
   pedidos      Pedido[]
   cambios      Cambio[]
@@ -740,7 +741,54 @@ model Venta {
   movimientosSaldo    MovimientoSaldoCliente[]
   createdAt   DateTime    @default(now()) @map("created_at")
 
+  // Si es true, esta venta se cobró combinando dos métodos de pago (ej.
+  // parte en efectivo, parte con tarjeta) — ver POST /ventas. En ese caso
+  // metodoPago/cuentaTransferenciaId/efectivoRecibido de arriba quedan con
+  // el método "dominante" (el de mayor monto) solo para no dejar vacíos los
+  // reportes/pantallas que todavía no conocen el desglose real, pero el
+  // detalle exacto (cada método con su propio monto) vive en la relación
+  // `pagos` de abajo — esa es la fuente de verdad para cuadrar caja
+  // (ver GET /ventas/corte-dia y reportes/por-metodo-pago). Solo se puede
+  // generar así al registrar la venta: por ahora no se puede editar una
+  // venta con pago mixto desde PATCH /ventas/:id/editar (ver ahí).
+  pagoMixto   Boolean     @default(false) @map("pago_mixto")
+  pagos       VentaPago[]
+
   @@map("ventas")
+}
+
+// Un método de pago usado dentro de una venta con pago mixto (ver
+// Venta.pagoMixto arriba) — solo existen filas aquí cuando la venta se
+// cobró combinando dos métodos distintos en el punto de venta (ej. $200 en
+// efectivo + $300 con tarjeta); una venta "normal" (un solo método) no
+// crea ninguna fila aquí, sigue usando los campos de Venta directamente.
+// Por ahora el punto de venta permite combinar máximo 2 métodos por venta,
+// así que en la práctica esta relación tiene 0 (venta normal) o 2 filas
+// (venta mixta) — el modelo no impone ese límite, solo la ruta POST /ventas.
+model VentaPago {
+  id     Int    @id @default(autoincrement())
+  ventaId Int   @map("venta_id")
+  venta   Venta @relation(fields: [ventaId], references: [id])
+
+  metodoPago MetodoPago @map("metodo_pago")
+  // Cuánto de esta venta se cobró con este método (no es el total de la
+  // venta, es solo la porción que le tocó a este método).
+  monto      Decimal    @db.Decimal(10, 2)
+
+  // Solo aplica cuando metodoPago = TRANSFERENCIA, igual que en Venta.
+  cuentaTransferenciaId Int?                  @map("cuenta_transferencia_id")
+  cuentaTransferencia   CuentaTransferencia?  @relation(fields: [cuentaTransferenciaId], references: [id])
+  comprobanteUrl        String?               @map("comprobante_url")
+  comprobantePublicId   String?               @map("comprobante_public_id")
+
+  // Solo aplica cuando metodoPago = EFECTIVO, igual que en Venta: cuánto
+  // efectivo entregó el cliente para esta porción, para poder mostrar el
+  // cambio dado en el ticket.
+  efectivoRecibido Decimal? @map("efectivo_recibido") @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("venta_pagos")
 }
 
 model VentaItem {

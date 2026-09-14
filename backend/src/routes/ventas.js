@@ -113,6 +113,7 @@ router.get('/', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler(async (r
       usuario: { select: { nombre: true } },
       sucursal: { select: { nombre: true, telefono: true } },
       cuentaTransferencia: { select: { nombre: true } },
+      pagos: { select: { metodoPago: true, monto: true, cuentaTransferencia: { select: { nombre: true } }, efectivoRecibido: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -275,6 +276,12 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
       include: {
         sucursal: { select: { nombre: true } },
         cuentaTransferencia: { select: { nombre: true } },
+        // Desglose real cuando pagoMixto=true — ver el ajuste de
+        // porMetodoPago/porCuenta más abajo, que reparte el monto de una
+        // venta mixta entre sus métodos reales en vez de meterlo todo en
+        // el bucket de metodoPago (que en una venta mixta solo trae el
+        // método "dominante", ver POST /ventas).
+        pagos: { select: { metodoPago: true, monto: true, cuentaTransferencia: { select: { nombre: true } } } },
         usuario: { select: { nombre: true } },
         // Se necesita el detalle de artículos para armar el desglose de
         // "Productos vendidos" de abajo (producto + proveedor + una foto
@@ -359,10 +366,27 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     // en parte con saldo infla el efectivo/tarjeta del corte con dinero que
     // nunca llegó físicamente ese día.
     const montoCobrado = Math.max(Math.round((monto - saldoAplicadoVenta) * 100) / 100, 0);
-    porMetodoPago[v.metodoPago] = (porMetodoPago[v.metodoPago] || 0) + montoCobrado;
-    if (v.metodoPago === 'TRANSFERENCIA' && v.cuentaTransferencia) {
-      const clave = v.cuentaTransferencia.nombre;
-      porCuenta[clave] = (porCuenta[clave] || 0) + montoCobrado;
+    // Venta con pago combinado (ver POST /ventas): montoCobrado ya es
+    // exactamente la suma de sus "pagos" (se validó así al registrarla), así
+    // que aquí se reparte tal cual entre sus métodos reales, en vez de
+    // meterlo todo en v.metodoPago (que en una venta mixta solo trae el
+    // método "dominante" — meterlo todo ahí inflaría ese método y dejaría
+    // el efectivo en caja mal calculado).
+    if (v.pagoMixto && v.pagos.length > 0) {
+      for (const p of v.pagos) {
+        const montoPata = Number(p.monto);
+        porMetodoPago[p.metodoPago] = (porMetodoPago[p.metodoPago] || 0) + montoPata;
+        if (p.metodoPago === 'TRANSFERENCIA' && p.cuentaTransferencia) {
+          const clave = p.cuentaTransferencia.nombre;
+          porCuenta[clave] = (porCuenta[clave] || 0) + montoPata;
+        }
+      }
+    } else {
+      porMetodoPago[v.metodoPago] = (porMetodoPago[v.metodoPago] || 0) + montoCobrado;
+      if (v.metodoPago === 'TRANSFERENCIA' && v.cuentaTransferencia) {
+        const clave = v.cuentaTransferencia.nombre;
+        porCuenta[clave] = (porCuenta[clave] || 0) + montoCobrado;
+      }
     }
   }
 
@@ -442,6 +466,7 @@ router.get(
         usuario: { select: { nombre: true } },
         sucursal: { select: { nombre: true, telefono: true } },
         cuentaTransferencia: { select: { nombre: true } },
+        pagos: { select: { metodoPago: true, monto: true, cuentaTransferencia: { select: { nombre: true } }, efectivoRecibido: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -493,6 +518,19 @@ const ventaItemSchema = z
     path: ['varianteId'],
   });
 
+// Una "pata" de pago combinado (ver Venta.pagoMixto en schema.prisma):
+// exactamente igual de forma a los campos sueltos metodoPago/
+// cuentaTransferenciaId/efectivoRecibido de arriba, pero con su propio
+// "monto" — cuánto de la venta le toca cobrar a este método en particular.
+// Por ahora el punto de venta solo permite combinar exactamente 2 métodos
+// distintos por venta (ver el arreglo "pagos" en ventaSchema abajo).
+const pagoVentaSchema = z.object({
+  metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']),
+  monto: z.number().positive(),
+  cuentaTransferenciaId: z.number().int().optional(),
+  efectivoRecibido: z.number().nonnegative().optional(),
+});
+
 const ventaSchema = z
   .object({
     sucursalId: z.number().int().optional(),
@@ -524,6 +562,14 @@ const ventaSchema = z
     // usa nada más para calcular y guardar el cambio dado (se muestra en el
     // ticket digital).
     efectivoRecibido: z.number().nonnegative().optional(),
+    // Pago combinado (opcional): cuando el cajero divide el cobro entre dos
+    // métodos distintos (ej. $200 en efectivo + $300 con tarjeta), se manda
+    // este arreglo con exactamente 2 patas EN VEZ de usar metodoPago/
+    // cuentaTransferenciaId/efectivoRecibido de arriba (que en ese caso el
+    // servidor ignora por completo — ver POST /ventas). La suma de los
+    // montos se valida contra el total ya adentro de la transacción, una
+    // vez calculado el descuento y el saldo a favor aplicado.
+    pagos: z.array(pagoVentaSchema).length(2).optional(),
     // Descuento libre que el vendedor puede capturar al cobrar (opcional).
     // descuentoValor es el % o el monto tal cual lo tecleó el cajero, según
     // descuentoTipo — el monto real en pesos (descuentoMonto) lo calcula y
@@ -533,7 +579,15 @@ const ventaSchema = z
     descuentoMotivo: z.string().optional(),
     items: z.array(ventaItemSchema).min(1),
   })
-  .refine((d) => d.metodoPago !== 'TRANSFERENCIA' || !!d.cuentaTransferenciaId, {
+  .refine((d) => !d.pagos || d.pagos[0].metodoPago !== d.pagos[1].metodoPago, {
+    message: 'Las dos patas de un pago combinado deben ser métodos distintos.',
+    path: ['pagos'],
+  })
+  .refine((d) => !d.pagos || d.pagos.every((p) => p.metodoPago !== 'TRANSFERENCIA' || !!p.cuentaTransferenciaId), {
+    message: 'cuentaTransferenciaId es requerido en la pata cuyo método de pago es transferencia.',
+    path: ['pagos'],
+  })
+  .refine((d) => d.pagos || d.metodoPago !== 'TRANSFERENCIA' || !!d.cuentaTransferenciaId, {
     message: 'cuentaTransferenciaId es requerido cuando el método de pago es transferencia.',
     path: ['cuentaTransferenciaId'],
   })
@@ -584,6 +638,7 @@ router.post(
       metodoPago,
       cuentaTransferenciaId,
       efectivoRecibido,
+      pagos,
       descuentoTipo,
       descuentoValor,
       descuentoMotivo,
@@ -605,11 +660,17 @@ router.post(
       return res.status(400).json({ error: 'sucursalId es requerido.' });
     }
 
-    // Validar cuenta de transferencia y, si aplica, subir el comprobante.
+    // Validar cuenta de transferencia y, si aplica, subir el comprobante. Con
+    // pago combinado (pagos), a lo más una de las dos patas es TRANSFERENCIA
+    // (el refine de ventaSchema ya obliga a que las dos patas sean métodos
+    // distintos) — se sube un solo comprobante para esa pata, igual que con
+    // un solo método.
+    const pataTransferencia = pagos ? pagos.find((p) => p.metodoPago === 'TRANSFERENCIA') : null;
     let comprobanteUrl = null;
     let comprobantePublicId = null;
-    if (metodoPago === 'TRANSFERENCIA') {
-      const cuenta = await prisma.cuentaTransferencia.findUnique({ where: { id: cuentaTransferenciaId } });
+    if (pagos ? pataTransferencia : metodoPago === 'TRANSFERENCIA') {
+      const cuentaTransferenciaIdAValidar = pataTransferencia ? pataTransferencia.cuentaTransferenciaId : cuentaTransferenciaId;
+      const cuenta = await prisma.cuentaTransferencia.findUnique({ where: { id: cuentaTransferenciaIdAValidar } });
       if (!cuenta || !cuenta.activo) {
         return res.status(400).json({ error: 'La cuenta de transferencia indicada no existe o está inactiva.' });
       }
@@ -751,7 +812,43 @@ router.post(
         // descontado el saldo a favor aplicado.
         const restante = Math.round((total - saldoAplicadoFinal) * 100) / 100;
 
-        if (metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined && efectivoRecibido < restante) {
+        // Método(s) de pago definitivos: el de siempre, o las dos patas de
+        // un pago combinado — se resuelven aquí, ya con "restante" en mano,
+        // porque solo hasta ahora se sabe cuánto hay que cobrar de verdad
+        // (después de descuento y saldo a favor aplicado).
+        let metodoPagoFinal = metodoPago;
+        let cuentaTransferenciaIdFinal = metodoPago === 'TRANSFERENCIA' ? cuentaTransferenciaId : null;
+        let efectivoRecibidoFinal = metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined ? efectivoRecibido : null;
+        let pagoMixtoFinal = false;
+        let pagosData = null;
+
+        if (pagos) {
+          const sumaPagos = Math.round(pagos.reduce((acc, p) => acc + p.monto, 0) * 100) / 100;
+          if (Math.abs(sumaPagos - restante) > 0.004) {
+            throw new Error(`PAGOS_NO_CUADRAN:${(restante - sumaPagos).toFixed(2)}`);
+          }
+          const pataEfectivo = pagos.find((p) => p.metodoPago === 'EFECTIVO');
+          if (pataEfectivo && pataEfectivo.efectivoRecibido !== undefined && pataEfectivo.efectivoRecibido < pataEfectivo.monto) {
+            throw new Error(`EFECTIVO_INSUFICIENTE:${(pataEfectivo.monto - pataEfectivo.efectivoRecibido).toFixed(2)}`);
+          }
+          // "Dominante" = la pata de mayor monto, solo para dejar algo
+          // sensato en el metodoPago de siempre (pantallas/reportes que
+          // todavía no conocen el desglose real — ver Venta.pagoMixto en
+          // schema.prisma). El desglose exacto se guarda en pagosData.
+          const dominante = pagos[0].monto >= pagos[1].monto ? pagos[0] : pagos[1];
+          metodoPagoFinal = dominante.metodoPago;
+          cuentaTransferenciaIdFinal = pataTransferencia ? pataTransferencia.cuentaTransferenciaId : null;
+          efectivoRecibidoFinal = pataEfectivo && pataEfectivo.efectivoRecibido !== undefined ? pataEfectivo.efectivoRecibido : null;
+          pagoMixtoFinal = true;
+          pagosData = pagos.map((p) => ({
+            metodoPago: p.metodoPago,
+            monto: p.monto,
+            cuentaTransferenciaId: p.metodoPago === 'TRANSFERENCIA' ? p.cuentaTransferenciaId : null,
+            comprobanteUrl: p.metodoPago === 'TRANSFERENCIA' ? comprobanteUrl : null,
+            comprobantePublicId: p.metodoPago === 'TRANSFERENCIA' ? comprobantePublicId : null,
+            efectivoRecibido: p.metodoPago === 'EFECTIVO' && p.efectivoRecibido !== undefined ? p.efectivoRecibido : null,
+          }));
+        } else if (metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined && efectivoRecibido < restante) {
           throw new Error(`EFECTIVO_INSUFICIENTE:${(restante - efectivoRecibido).toFixed(2)}`);
         }
 
@@ -766,8 +863,8 @@ router.post(
             clienteTelefono,
             clienteRegistradoId: clienteRegistrado ? clienteRegistrado.id : null,
             saldoAplicado: saldoAplicadoFinal,
-            metodoPago,
-            cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? cuentaTransferenciaId : null,
+            metodoPago: metodoPagoFinal,
+            cuentaTransferenciaId: cuentaTransferenciaIdFinal,
             comprobanteUrl,
             comprobantePublicId,
             total,
@@ -775,7 +872,11 @@ router.post(
             descuentoValor: descuentoTipo ? descuentoValor : null,
             descuentoMonto,
             descuentoMotivo: descuentoTipo ? descuentoMotivo || null : null,
-            efectivoRecibido: metodoPago === 'EFECTIVO' && efectivoRecibido !== undefined ? efectivoRecibido : null,
+            efectivoRecibido: efectivoRecibidoFinal,
+            pagoMixto: pagoMixtoFinal,
+            // Solo se crean filas aquí cuando sí es un pago combinado
+            // (pagosData es null en una venta normal de un solo método).
+            ...(pagosData ? { pagos: { create: pagosData } } : {}),
             items: { create: itemsData },
           },
           include: {
@@ -795,6 +896,10 @@ router.post(
             },
             clienteRegistrado: { select: { id: true, nombre: true, telefono: true, saldoFavor: true } },
             cuentaTransferencia: { select: { nombre: true } },
+            // Desglose real cuando pagoMixto=true (ver arriba) — el
+            // frontend lo usa para el ticket y el aviso de "venta
+            // registrada" (cambio a dar, si alguna pata fue en efectivo).
+            pagos: { select: { metodoPago: true, monto: true, cuentaTransferencia: { select: { nombre: true } }, efectivoRecibido: true } },
             sucursal: { select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } },
             // Vendedor que registró la venta, para mostrarlo en el ticket
             // digital.
@@ -895,6 +1000,11 @@ router.post(
       }
       if (err.message.startsWith('EFECTIVO_INSUFICIENTE')) {
         return res.status(400).json({ error: `El efectivo recibido no alcanza. Faltan $${err.message.split(':')[1]}.` });
+      }
+      if (err.message.startsWith('PAGOS_NO_CUADRAN')) {
+        const diferencia = Number(err.message.split(':')[1]);
+        const detalle = diferencia > 0 ? `faltan $${diferencia.toFixed(2)}` : `sobran $${Math.abs(diferencia).toFixed(2)}`;
+        return res.status(400).json({ error: `Los montos del pago combinado no suman el total de la venta: ${detalle}.` });
       }
       if (err.message === 'CLIENTE_NO_ENCONTRADO') {
         return res.status(404).json({ error: 'Cliente no encontrado.' });
@@ -1090,6 +1200,13 @@ router.patch(
         const ventaActual = await tx.venta.findUnique({ where: { id: ventaId }, include: { items: true } });
         if (!ventaActual) throw new Error('VENTA_NO_ENCONTRADA');
         if (ventaActual.estado !== 'COMPLETADA') throw new Error('VENTA_NO_EDITABLE');
+        // Esta ruta solo maneja un método de pago (ver ventaEdicionSchema
+        // arriba): si se dejara editar aquí, "metodoPago" pisaría el
+        // desglose real sin borrar las filas de VentaPago, dejando el
+        // corte de caja inconsistente. Fuera de alcance por ahora (ver
+        // POST /ventas, donde se genera un pago combinado) — hay que
+        // cancelarla y volver a registrarla si algo salió mal.
+        if (ventaActual.pagoMixto) throw new Error('VENTA_PAGO_MIXTO_NO_EDITABLE');
 
         const itemsPorId = new Map(ventaActual.items.map((it) => [it.id, it]));
         if (datos.items.length !== ventaActual.items.length || datos.items.some((it) => !itemsPorId.has(it.id))) {
@@ -1333,6 +1450,11 @@ router.patch(
       if (err.message === 'VENTA_NO_ENCONTRADA') return res.status(404).json({ error: 'Venta no encontrada.' });
       if (err.message === 'VENTA_NO_EDITABLE') {
         return res.status(400).json({ error: 'Solo se pueden editar ventas completadas (no canceladas).' });
+      }
+      if (err.message === 'VENTA_PAGO_MIXTO_NO_EDITABLE') {
+        return res.status(400).json({
+          error: 'Esta venta se cobró combinando métodos de pago y todavía no se puede editar desde aquí. Cancélala y regístrala de nuevo si necesitas corregirla.',
+        });
       }
       if (err.message === 'ITEMS_INVALIDOS') {
         return res.status(400).json({ error: 'La lista de artículos no coincide con los de la venta original.' });

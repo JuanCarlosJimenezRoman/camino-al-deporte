@@ -111,6 +111,17 @@ interface Venta {
   // Efectivo entregado por el cliente, solo con metodoPago = EFECTIVO — se
   // usa para mostrar el cambio dado en el ticket.
   efectivoRecibido: string | null;
+  // Pago combinado (ver POST /ventas en el backend): cuando es true, el
+  // desglose real está en "pagos" (2 filas), y metodoPago/efectivoRecibido
+  // de arriba solo traen el método "dominante" (el de mayor monto) como
+  // referencia — no basta para mostrar cuánto se cobró de cada método.
+  pagoMixto: boolean;
+  pagos?: {
+    metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+    monto: string;
+    cuentaTransferencia?: { nombre: string } | null;
+    efectivoRecibido?: string | null;
+  }[];
   // Cuánto del total se pagó con el saldo a favor del cliente registrado
   // (ver Cliente.saldoFavor) — se resta del total antes del método de pago
   // normal; ver restanteVenta más abajo y docs/CAMBIOS_SALDO_A_FAVOR.md.
@@ -407,8 +418,18 @@ const ESTADO_TONO: Record<string, 'success' | 'destructive' | 'neutral'> = {
   CANCELADA: 'destructive',
 };
 
-function etiquetaMetodoPago(v: Venta['metodoPago']) {
+function etiquetaMetodoPagoSimple(v: Venta['metodoPago']) {
   return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
+}
+
+// A diferencia de etiquetaMetodoPagoSimple (un solo método), esta recibe la
+// venta completa para poder mostrar "Combinado" con el desglose cuando se
+// cobró con pago mixto (ver Venta.pagoMixto arriba).
+function etiquetaMetodoPago(venta: Pick<Venta, 'metodoPago' | 'pagoMixto' | 'pagos'>) {
+  if (venta.pagoMixto && venta.pagos?.length) {
+    return `Combinado (${venta.pagos.map((p) => etiquetaMetodoPagoSimple(p.metodoPago)).join(' + ')})`;
+  }
+  return etiquetaMetodoPagoSimple(venta.metodoPago);
 }
 
 // Ticket digital para ventas de tienda física: se manda por WhatsApp con el
@@ -435,7 +456,6 @@ function construirTicketTexto(venta: Venta, nombreNegocio: string, notaExtra?: s
       return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${it.subtotal}`;
     })
     .join('\n');
-  const etiquetaPago = METODOS_PAGO.find((m) => m.valor === venta.metodoPago)?.etiqueta || venta.metodoPago;
   const descuentoMonto = Number(venta.descuentoMonto || 0);
   // Si se aplicó saldo a favor, el método de pago normal solo cubre el
   // restante — el cambio se calcula sobre eso, nunca sobre venta.total
@@ -443,9 +463,30 @@ function construirTicketTexto(venta: Venta, nombreNegocio: string, notaExtra?: s
   const saldoAplicado = Number(venta.saldoAplicado || 0);
   const restante = Math.max(Math.round((Number(venta.total) - saldoAplicado) * 100) / 100, 0);
   const cambio =
-    venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null
+    !venta.pagoMixto && venta.metodoPago === 'EFECTIVO' && venta.efectivoRecibido != null
       ? Number(venta.efectivoRecibido) - restante
       : null;
+  // Pago combinado: una línea "Método de pago: Combinado" + una línea por
+  // cada método con su monto (y su propio cambio si esa pata fue en
+  // efectivo), en vez de la línea única de una venta normal.
+  const lineasPago =
+    venta.pagoMixto && venta.pagos?.length
+      ? [
+          `Método de pago: ${etiquetaMetodoPago(venta)}`,
+          ...venta.pagos.flatMap((p) => {
+            const lineas = [`  ${etiquetaMetodoPagoSimple(p.metodoPago)}: $${Number(p.monto).toFixed(2)}`];
+            if (p.metodoPago === 'EFECTIVO' && p.efectivoRecibido != null) {
+              const cambioPata = Number(p.efectivoRecibido) - Number(p.monto);
+              lineas.push(`  Efectivo recibido: $${Number(p.efectivoRecibido).toFixed(2)}`, `  Cambio: $${cambioPata.toFixed(2)}`);
+            }
+            return lineas;
+          }),
+        ]
+      : [
+          `Método de pago: ${etiquetaMetodoPagoSimple(venta.metodoPago)}`,
+          venta.efectivoRecibido != null ? `Efectivo recibido: $${Number(venta.efectivoRecibido).toFixed(2)}` : '',
+          cambio !== null ? `Cambio: $${cambio.toFixed(2)}` : '',
+        ];
 
   return [
     `Ticket de compra — ${nombreNegocio}`,
@@ -463,9 +504,7 @@ function construirTicketTexto(venta: Venta, nombreNegocio: string, notaExtra?: s
     `Total: $${venta.total}`,
     saldoAplicado > 0 ? `Saldo a favor aplicado: -$${saldoAplicado.toFixed(2)}` : '',
     saldoAplicado > 0 ? `Restante a pagar: $${restante.toFixed(2)}` : '',
-    `Método de pago: ${etiquetaPago}`,
-    venta.efectivoRecibido != null ? `Efectivo recibido: $${Number(venta.efectivoRecibido).toFixed(2)}` : '',
-    cambio !== null ? `Cambio: $${cambio.toFixed(2)}` : '',
+    ...lineasPago,
     // Observación libre que el cajero capturó al cobrar ("+ Agregar
     // observaciones" en el ticket) — es solo texto que viaja en este
     // mensaje de WhatsApp, no se guarda en la base de datos ni en el
@@ -595,6 +634,19 @@ export default function VentasPage() {
   const [efectivoRecibido, setEfectivoRecibido] = useState('');
   const [cuentaTransferenciaId, setCuentaTransferenciaId] = useState('');
   const [comprobante, setComprobante] = useState<File | null>(null);
+  // Pago combinado (mejora: dividir el cobro entre dos métodos, ej. una
+  // parte en efectivo y el resto con tarjeta). Al activarlo, "metodoPago" de
+  // arriba sigue siendo el primer método (con "montoPagoA" de cuánto le
+  // toca), y "metodoPagoB" es el segundo, con el resto del restante — nunca
+  // se capturan los dos montos por separado para no arriesgar que no sumen
+  // el total (ver montoPagoBNum más abajo).
+  const [pagoDividido, setPagoDividido] = useState(false);
+  const [metodoPagoB, setMetodoPagoB] = useState<'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA'>('TARJETA');
+  const [montoPagoA, setMontoPagoA] = useState('');
+  // cuentaTransferenciaId/comprobante de arriba y efectivoRecibido de arriba
+  // se reutilizan para la pata que corresponda (A o B): como los dos
+  // métodos siempre son distintos, a lo más una pata es EFECTIVO y a lo más
+  // una es TRANSFERENCIA, así que no hacen falta campos duplicados.
 
   // Descuento libre (opcional): oculto por default, se abre con
   // "¿Aplicar descuento?" para no estorbar en la venta normal (sin
@@ -918,20 +970,52 @@ export default function VentasPage() {
     ? Math.max(0, Math.min(Number(saldoAplicado) || 0, totalVenta, saldoDisponibleVenta))
     : 0;
   const restanteVenta = Math.max(Math.round((totalVenta - saldoAplicadoNum) * 100) / 100, 0);
-  const cambio = efectivoRecibido.trim() ? Number(efectivoRecibido) - restanteVenta : null;
+
+  // Pago combinado: cuánto le toca a cada pata. montoPagoA es lo que teclea
+  // el cajero (cuánto va con metodoPago); montoPagoB es siempre el resto,
+  // nunca se captura a mano — así los dos montos SIEMPRE suman el restante
+  // exacto, sin necesidad de validar que "cuadren".
+  const montoPagoANum = pagoDividido
+    ? Math.max(0, Math.min(Number(montoPagoA) || 0, restanteVenta))
+    : restanteVenta;
+  const montoPagoBNum = pagoDividido ? Math.round((restanteVenta - montoPagoANum) * 100) / 100 : 0;
+
+  // A lo más una pata es EFECTIVO (los dos métodos siempre son distintos):
+  // "montoEfectivoDebido" es cuánto de esa pata hay que cobrar en efectivo,
+  // sobre lo que se compara "efectivoRecibido" para calcular el cambio. Sin
+  // pago dividido, se reduce exactamente al comportamiento de siempre
+  // (montoPagoANum === restanteVenta).
+  const legEfectivo: 'A' | 'B' | null =
+    metodoPago === 'EFECTIVO' ? 'A' : pagoDividido && metodoPagoB === 'EFECTIVO' ? 'B' : null;
+  const montoEfectivoDebido = legEfectivo === 'A' ? montoPagoANum : legEfectivo === 'B' ? montoPagoBNum : 0;
+  const cambio = efectivoRecibido.trim() && legEfectivo ? Number(efectivoRecibido) - montoEfectivoDebido : null;
+
+  // Igual que legEfectivo, pero para la pata en transferencia (si alguna lo
+  // es) — se usa para saber si hace falta cuenta+comprobante y para armar
+  // el payload de "pagos".
+  const legTransferencia: 'A' | 'B' | null =
+    metodoPago === 'TRANSFERENCIA' ? 'A' : pagoDividido && metodoPagoB === 'TRANSFERENCIA' ? 'B' : null;
 
   async function registrarVenta() {
     if (carrito.length === 0 || !sucursalId) return;
-    if (metodoPago === 'TRANSFERENCIA' && !cuentaTransferenciaId) {
+    if (pagoDividido && metodoPagoB === metodoPago) {
+      setMensaje('Elige dos métodos de pago distintos para combinar.');
+      return;
+    }
+    if (pagoDividido && (montoPagoANum <= 0.004 || montoPagoBNum <= 0.004)) {
+      setMensaje('Captura cuánto se paga con cada método; los dos montos deben ser mayores a $0.');
+      return;
+    }
+    if (legTransferencia && !cuentaTransferenciaId) {
       setMensaje('Elige a qué cuenta llegó la transferencia.');
       return;
     }
-    if (metodoPago === 'TRANSFERENCIA' && !comprobante) {
+    if (legTransferencia && !comprobante) {
       setMensaje('Falta la foto del comprobante de transferencia.');
       return;
     }
-    if (metodoPago === 'EFECTIVO') {
-      if (!efectivoRecibido.trim() && restanteVenta > 0.004) {
+    if (legEfectivo) {
+      if (!efectivoRecibido.trim() && montoEfectivoDebido > 0.004) {
         setMensaje('Captura cuánto efectivo recibiste, para calcular el cambio.');
         return;
       }
@@ -954,15 +1038,37 @@ export default function VentasPage() {
     setTicketPdfUrl(null);
     setTicketFolio(null);
     try {
+      // Pago combinado: se manda "pagos" con las dos patas y se dejan
+      // metodoPago/cuentaTransferenciaId/efectivoRecibido de abajo vacíos
+      // (el servidor los ignora por completo cuando llega "pagos" — ver
+      // ventaSchema en routes/ventas.js).
+      const pagosPayload = pagoDividido
+        ? [
+            {
+              metodoPago,
+              monto: montoPagoANum,
+              cuentaTransferenciaId: legTransferencia === 'A' ? Number(cuentaTransferenciaId) : undefined,
+              efectivoRecibido: legEfectivo === 'A' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+            },
+            {
+              metodoPago: metodoPagoB,
+              monto: montoPagoBNum,
+              cuentaTransferenciaId: legTransferencia === 'B' ? Number(cuentaTransferenciaId) : undefined,
+              efectivoRecibido: legEfectivo === 'B' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+            },
+          ]
+        : undefined;
+
       const datos = {
         sucursalId: Number(sucursalId),
         cliente: cliente || undefined,
         clienteTelefono: clienteTelefono.trim() || undefined,
         clienteRegistradoId: clienteRegistradoSel ? clienteRegistradoSel.id : undefined,
         saldoAplicado: saldoAplicadoNum > 0 ? saldoAplicadoNum : undefined,
-        metodoPago,
-        cuentaTransferenciaId: metodoPago === 'TRANSFERENCIA' ? Number(cuentaTransferenciaId) : undefined,
-        efectivoRecibido: metodoPago === 'EFECTIVO' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+        metodoPago: pagoDividido ? undefined : metodoPago,
+        cuentaTransferenciaId: !pagoDividido && metodoPago === 'TRANSFERENCIA' ? Number(cuentaTransferenciaId) : undefined,
+        efectivoRecibido: !pagoDividido && metodoPago === 'EFECTIVO' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+        pagos: pagosPayload,
         descuentoTipo: aplicarDescuento && descuentoValorNum > 0 ? descuentoTipo : undefined,
         descuentoValor: aplicarDescuento && descuentoValorNum > 0 ? descuentoValorNum : undefined,
         descuentoMotivo: aplicarDescuento && descuentoMotivo.trim() ? descuentoMotivo.trim() : undefined,
@@ -997,7 +1103,7 @@ export default function VentasPage() {
       const creada = await apiUpload<Venta>('/ventas', formData);
 
       const baseMensaje =
-        metodoPago === 'EFECTIVO' && cambio !== null && cambio > 0
+        legEfectivo && cambio !== null && cambio > 0
           ? `Venta registrada. Cambio a dar: $${cambio.toFixed(2)}.`
           : 'Venta registrada.';
 
@@ -1028,6 +1134,9 @@ export default function VentasPage() {
       setMetodoPago('EFECTIVO');
       setCuentaTransferenciaId('');
       setComprobante(null);
+      setPagoDividido(false);
+      setMetodoPagoB('TARJETA');
+      setMontoPagoA('');
       cargar();
       // Listo para la siguiente venta sin tener que volver a hacer clic en
       // el buscador.
@@ -1708,7 +1817,14 @@ export default function VentasPage() {
                       <button
                         key={m.valor}
                         type="button"
-                        onClick={() => setMetodoPago(m.valor)}
+                        onClick={() => {
+                          setMetodoPago(m.valor);
+                          // El segundo método de un pago combinado siempre
+                          // debe ser distinto del primero.
+                          if (pagoDividido && metodoPagoB === m.valor) {
+                            setMetodoPagoB(METODOS_PAGO.find((x) => x.valor !== m.valor)?.valor || 'TARJETA');
+                          }
+                        }}
                         className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-semibold transition-colors ${
                           activo ? 'border-primary bg-accent text-primary' : 'border-border bg-card text-muted-foreground hover:bg-secondary'
                         }`}
@@ -1719,11 +1835,84 @@ export default function VentasPage() {
                     );
                   })}
                 </div>
+
+                {/* Mejora: combinar métodos de pago — ej. una parte en
+                    efectivo y el resto con tarjeta, en la misma venta. */}
+                {carrito.length > 0 && restanteVenta > 0.004 && (
+                  <label className="mt-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={pagoDividido}
+                      onChange={(e) => {
+                        const activar = e.target.checked;
+                        setPagoDividido(activar);
+                        if (activar) {
+                          setMontoPagoA(restanteVenta.toFixed(2));
+                          if (metodoPagoB === metodoPago) {
+                            setMetodoPagoB(METODOS_PAGO.find((x) => x.valor !== metodoPago)?.valor || 'TARJETA');
+                          }
+                        }
+                      }}
+                    />
+                    Combinar con otro método de pago
+                  </label>
+                )}
               </div>
 
-              {metodoPago === 'EFECTIVO' && (
+              {pagoDividido && (
+                <div className="rounded-lg border border-border bg-secondary/40 p-3 space-y-3">
+                  <div>
+                    <label>Segundo método de pago</label>
+                    <div className="mt-1.5 grid grid-cols-3 gap-2">
+                      {METODOS_PAGO.map((m) => {
+                        const deshabilitado = m.valor === metodoPago;
+                        const activo = metodoPagoB === m.valor;
+                        const Icono = m.valor === 'EFECTIVO' ? Banknote : m.valor === 'TARJETA' ? CreditCard : Landmark;
+                        return (
+                          <button
+                            key={m.valor}
+                            type="button"
+                            disabled={deshabilitado}
+                            onClick={() => setMetodoPagoB(m.valor)}
+                            className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-semibold transition-colors ${
+                              deshabilitado
+                                ? 'border-border bg-secondary/60 text-muted-foreground/40 cursor-not-allowed'
+                                : activo
+                                ? 'border-primary bg-accent text-primary'
+                                : 'border-border bg-card text-muted-foreground hover:bg-secondary'
+                            }`}
+                          >
+                            <Icono className="w-4 h-4" />
+                            {m.etiqueta}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <label>Monto en {METODOS_PAGO.find((m) => m.valor === metodoPago)?.etiqueta}</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={restanteVenta}
+                      step="0.01"
+                      value={montoPagoA}
+                      onChange={(e) => setMontoPagoA(e.target.value)}
+                      placeholder="$0.00"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      El resto, {formatoMonedaExacto(montoPagoBNum)}, se cobra con{' '}
+                      {METODOS_PAGO.find((m) => m.valor === metodoPagoB)?.etiqueta}.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {legEfectivo && (
                 <div>
-                  <label>Efectivo recibido</label>
+                  <label>
+                    {pagoDividido ? `Efectivo recibido (parte en efectivo: ${formatoMonedaExacto(montoEfectivoDebido)})` : 'Efectivo recibido'}
+                  </label>
                   <Input
                     type="number"
                     min={0}
@@ -1734,10 +1923,10 @@ export default function VentasPage() {
                   />
                   {carrito.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(restanteVenta.toFixed(2))}>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(montoEfectivoDebido.toFixed(2))}>
                         Exacto
                       </Button>
-                      {billetesSugeridos(restanteVenta).map((b) => (
+                      {billetesSugeridos(montoEfectivoDebido).map((b) => (
                         <Button key={b} type="button" variant="outline" size="sm" onClick={() => setEfectivoRecibido(String(b))}>
                           ${b}
                         </Button>
@@ -1754,10 +1943,10 @@ export default function VentasPage() {
                 </div>
               )}
 
-              {metodoPago === 'TRANSFERENCIA' && (
+              {legTransferencia && (
                 <>
                   <div>
-                    <label>Cuenta que recibió el pago</label>
+                    <label>Cuenta que recibió el pago{pagoDividido ? ' (parte en transferencia)' : ''}</label>
                     <Select value={cuentaTransferenciaId} onChange={(e) => setCuentaTransferenciaId(e.target.value)}>
                       <option value="">Selecciona...</option>
                       {cuentas.map((c) => (
@@ -1934,7 +2123,7 @@ export default function VentasPage() {
                   </StatusBadge>
                   <div className="w-24 shrink-0 text-right">
                     <div className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(v.total)}</div>
-                    <div className="text-xs text-muted-foreground">{etiquetaMetodoPago(v.metodoPago)}</div>
+                    <div className="text-xs text-muted-foreground">{etiquetaMetodoPago(v)}</div>
                     {Number(v.saldoAplicado) > 0 && (
                       <div className="text-[11px] text-success">-{formatoMonedaExacto(v.saldoAplicado)} saldo</div>
                     )}

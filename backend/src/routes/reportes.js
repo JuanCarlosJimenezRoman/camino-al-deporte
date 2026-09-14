@@ -139,6 +139,11 @@ async function fetchVentasCompletadas(desde, hasta, sucursalId) {
       total: true,
       descuentoMonto: true,
       metodoPago: true,
+      // Desglose real cuando pagoMixto=true (ver POST /ventas y
+      // agruparPorMetodoPago abajo) — metodoPago solo trae el método
+      // "dominante" en ese caso, no basta para un reporte por método.
+      pagoMixto: true,
+      pagos: { select: { metodoPago: true, monto: true } },
       sucursalId: true,
       createdAt: true,
       sucursal: { select: { nombre: true } },
@@ -358,6 +363,16 @@ function agruparPorMetodoPago(ventas, pedidos = []) {
     PEDIDO_ONLINE: { ventas: 0, monto: 0 },
   };
   for (const v of ventas) {
+    // Venta con pago combinado: se reparte entre sus métodos reales (ver
+    // el mismo criterio en GET /ventas/corte-dia) en vez de contarla toda
+    // en el método "dominante" que trae v.metodoPago.
+    if (v.pagoMixto && v.pagos?.length) {
+      for (const p of v.pagos) {
+        base[p.metodoPago].ventas += 1;
+        base[p.metodoPago].monto += Number(p.monto);
+      }
+      continue;
+    }
     base[v.metodoPago].ventas += 1;
     base[v.metodoPago].monto += Number(v.total);
   }

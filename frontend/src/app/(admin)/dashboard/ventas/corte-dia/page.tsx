@@ -32,6 +32,16 @@ interface VentaResumen {
   sucursal: { nombre: string };
   usuario: { nombre: string };
   cuentaTransferencia: { nombre: string } | null;
+  // Pago combinado (ver POST /ventas) — el desglose real por el que ya se
+  // repartió esta venta dentro de porMetodoPago/porCuentaTransferencia de
+  // arriba está en "pagos", no en metodoPago (que aquí solo trae el
+  // método "dominante").
+  pagoMixto: boolean;
+  pagos?: {
+    metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+    monto: string;
+    cuentaTransferencia?: { nombre: string } | null;
+  }[];
 }
 
 interface ProductoVendido {
@@ -104,8 +114,15 @@ function hoyISO() {
   return new Date().toLocaleDateString('en-CA', { timeZone: ZONA_HORARIA_NEGOCIO });
 }
 
-function etiquetaMetodoPago(v: VentaResumen['metodoPago']) {
+function etiquetaMetodoPagoSimple(v: VentaResumen['metodoPago']) {
   return v === 'EFECTIVO' ? 'Efectivo' : v === 'TARJETA' ? 'Tarjeta' : 'Transferencia';
+}
+
+function etiquetaMetodoPago(venta: Pick<VentaResumen, 'metodoPago' | 'pagoMixto' | 'pagos'>) {
+  if (venta.pagoMixto && venta.pagos?.length) {
+    return `Combinado (${venta.pagos.map((p) => etiquetaMetodoPagoSimple(p.metodoPago)).join(' + ')})`;
+  }
+  return etiquetaMetodoPagoSimple(venta.metodoPago);
 }
 
 export default function CorteDelDiaPage() {
@@ -414,7 +431,7 @@ export default function CorteDelDiaPage() {
                     <td>{v.cliente || '—'}</td>
                     <td className="tabular-nums font-medium">{formatoMonedaExacto(v.total)}</td>
                     <td className="text-xs">
-                      {etiquetaMetodoPago(v.metodoPago)}
+                      {etiquetaMetodoPago(v)}
                       {v.cuentaTransferencia ? ` (${v.cuentaTransferencia.nombre})` : ''}
                     </td>
                     <td>{v.usuario?.nombre}</td>
