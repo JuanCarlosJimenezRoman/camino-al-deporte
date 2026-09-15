@@ -6,6 +6,8 @@ const { requireAuth } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { subirImagen, borrarImagen } = require('../config/cloudinary');
+const { descargarLogoBuffer } = require('../utils/ticketEstilo');
+const { generarTicketPdf } = require('../utils/ticketPdf');
 
 const router = express.Router();
 
@@ -168,6 +170,79 @@ router.delete('/logo', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(
     data: { logoTicketUrl: null, logoTicketPublicId: null },
   });
   res.json(actualizada);
+}));
+
+
+const vistaPreviaTicketConfigSchema = z.object({
+  nombreNegocio: z.string().trim().min(1).optional(),
+  iniciales: z.string().trim().max(6).optional(),
+  mensajeTicketPie: z.string().trim().max(300).optional().nullable(),
+  mostrarCodigoBarrasTicket: z.boolean().optional(),
+  mostrarVendedorTicket: z.boolean().optional(),
+  mostrarSucursalTicket: z.boolean().optional(),
+});
+
+// Venta e ítems de muestra para la vista previa del ticket desde
+// Configuración (ver ruta de abajo): no existe ninguna venta real todavía,
+// así que se arma una de ejemplo con nombres de sucursal/vendedor genéricos
+// — sirve justo para ver el efecto de los interruptores "Mostrar sucursal"/
+// "Mostrar vendedor" mientras se editan.
+function ventaEjemploTicket() {
+  const items = [
+    { descripcion: 'Tenis Running Pro (26/Negro)', cantidad: 1, precioUnitario: 650, subtotal: 650, descuentoTipo: null, descuentoValor: null, descuentoMonto: 0 },
+    { descripcion: 'Playera Deportiva (M)', cantidad: 2, precioUnitario: 100, subtotal: 200, descuentoTipo: null, descuentoValor: null, descuentoMonto: 0 },
+  ];
+  const venta = {
+    folio: 'EJEMPLO-0001',
+    createdAt: new Date(),
+    total: 850,
+    metodoPago: 'EFECTIVO',
+    cliente: 'Cliente de ejemplo',
+    sucursal: { nombre: 'Sucursal Centro', telefono: '9511234567' },
+    usuario: { nombre: 'Vendedor de ejemplo' },
+    descuentoTipo: null,
+    descuentoValor: null,
+    descuentoMonto: 0,
+    descuentoMotivo: null,
+    efectivoRecibido: 900,
+    pagoMixto: false,
+    pagos: [],
+    saldoAplicado: 0,
+  };
+  return { venta, items };
+}
+
+// POST /configuracion-tienda/vista-previa-ticket - genera un ticket de
+// EJEMPLO (venta y artículos ficticios, ver ventaEjemploTicket) usando el
+// nombre/iniciales/mensaje/interruptores que el usuario trae EN PANTALLA en
+// Configuración, aunque todavía no los haya guardado — así puede ver el
+// efecto de cada cambio antes de darle a "Guardar". El logo se toma siempre
+// del ya guardado (se sube/quita al instante, no es un borrador). No crea
+// ni modifica nada.
+router.post('/vista-previa-ticket', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (req, res) => {
+  const parsed = vistaPreviaTicketConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const datos = parsed.data;
+  const actual = await obtenerOCrear();
+
+  const marca = {
+    nombre: datos.nombreNegocio || actual.nombreNegocio || 'Camino al Deporte',
+    iniciales: datos.iniciales || actual.iniciales || 'CD',
+    logoBuffer: await descargarLogoBuffer(actual.logoTicketUrl || null),
+    mensajeTicketPie: 'mensajeTicketPie' in req.body ? (datos.mensajeTicketPie || null) : (actual.mensajeTicketPie || null),
+    mostrarCodigoBarras: 'mostrarCodigoBarrasTicket' in req.body ? (datos.mostrarCodigoBarrasTicket ?? true) : (actual.mostrarCodigoBarrasTicket ?? true),
+    mostrarVendedorTicket: 'mostrarVendedorTicket' in req.body ? (datos.mostrarVendedorTicket ?? true) : (actual.mostrarVendedorTicket ?? true),
+    mostrarSucursalTicket: 'mostrarSucursalTicket' in req.body ? (datos.mostrarSucursalTicket ?? true) : (actual.mostrarSucursalTicket ?? true),
+  };
+
+  const { venta, items } = ventaEjemploTicket();
+  const pdfBuffer = await generarTicketPdf(venta, items, venta.sucursal.telefono, marca);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename="vista-previa-ticket.pdf"');
+  res.send(pdfBuffer);
 }));
 
 module.exports = router;

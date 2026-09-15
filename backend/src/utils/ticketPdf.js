@@ -227,13 +227,19 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
  * @param {{folio: string, createdAt: Date|string, total: number|string, metodoPago: string, cliente?: string|null, sucursal?: {nombre?: string, telefono?: string|null}, usuario?: {nombre?: string}, descuentoTipo?: string|null, descuentoValor?: number|string|null, descuentoMonto?: number|string, descuentoMotivo?: string|null, efectivoRecibido?: number|string|null, pagoMixto?: boolean, pagos?: {metodoPago: string, monto: number|string, efectivoRecibido?: number|string|null}[]}} venta
  * @param {Array<{descripcion: string, cantidad: number, precioUnitario: number|string, subtotal: number|string}>} items
  * @param {string|null} [whatsappContacto] - número a mostrar como "dudas o cambios"
+ * @param {object} [marcaOverride] - si se manda, se usa esta marca/config en vez de leerla de ConfiguracionTienda (ver obtenerMarca en ticketEstilo.js)
  * @returns {Promise<Buffer>}
  */
-async function generarTicketPdf(venta, items, whatsappContacto) {
+async function generarTicketPdf(venta, items, whatsappContacto, marcaOverride) {
   // Identidad de la marca (nombre/iniciales/logo) y configuración del
   // ticket (mensaje de pie, qué mostrar/ocultar) desde Configuración — se
   // lee primero porque decide si vale la pena generar el código de barras.
-  const marca = await obtenerMarca();
+  // marcaOverride: lo manda la vista previa DESDE Configuración (ver POST
+  // /configuracion-tienda/vista-previa-ticket) para dibujar con los campos
+  // que el usuario trae en pantalla SIN GUARDAR todavía — en el resto de
+  // los casos (venta real o vista previa desde el punto de venta) se lee
+  // siempre lo ya guardado.
+  const marca = marcaOverride || (await obtenerMarca());
   // El código de barras se genera aparte (es async) antes de armar el PDF,
   // para insertarlo como cualquier otra imagen del documento. Si por lo que
   // sea falla, el ticket se genera igual, solo sin el código de barras. Si

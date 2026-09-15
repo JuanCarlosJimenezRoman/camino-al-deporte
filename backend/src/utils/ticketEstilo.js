@@ -350,6 +350,13 @@ module.exports = {
   moneda,
   generarBarcodeBuffer,
   obtenerMarca,
+  // Se exporta aparte de obtenerMarca (que ya lo usa internamente) para que
+  // routes/configuracionTienda.js pueda armar una "marca" de vista previa
+  // con los campos que el usuario trae en pantalla SIN GUARDAR todavía (ver
+  // POST /configuracion-tienda/vista-previa-ticket) — el logo, en cambio,
+  // siempre es el ya guardado, porque se sube/quita al instante desde
+  // Configuración, no como borrador.
+  descargarLogoBuffer,
   dibujarEncabezado,
   dibujarSeparador,
   crearFilaDato,

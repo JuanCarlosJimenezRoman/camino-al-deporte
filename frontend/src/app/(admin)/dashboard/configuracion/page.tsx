@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, apiUpload, ApiError } from '@/lib/api';
+import { api, apiUpload, apiPostBlob, ApiError } from '@/lib/api';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { useConfigNegocio } from '@/lib/configNegocio';
 import { PageHeader } from '@/components/ui/page-header';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from '@/components/ui/use-toast';
-import { Lock, Loader2, Trash2 } from 'lucide-react';
+import { Lock, Loader2, Trash2, Eye } from 'lucide-react';
 
 // Deriva unas iniciales razonables a partir del nombre (ej. "Camino al
 // Deporte" -> "CD", ignorando palabras cortas como "al"/"de"). Solo se usa
@@ -42,6 +42,7 @@ export default function ConfiguracionPage() {
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [guardandoTicket, setGuardandoTicket] = useState(false);
+  const [generandoVistaPrevia, setGenerandoVistaPrevia] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [quitando, setQuitando] = useState(false);
 
@@ -129,6 +130,37 @@ export default function ConfiguracionPage() {
     }
   }
 
+  // Vista previa: arma un ticket de EJEMPLO (venta ficticia, ver
+  // ventaEjemploTicket en el backend) con el nombre, iniciales, mensaje de
+  // pie e interruptores que hay AHORA MISMO en pantalla, aunque todavía no
+  // se hayan guardado — así se ve el efecto de cada cambio antes de decidir
+  // si guardarlo. El logo sí es siempre el ya guardado (se sube/quita al
+  // instante, no es un borrador).
+  async function previsualizarTicket() {
+    setGenerandoVistaPrevia(true);
+    try {
+      const blob = await apiPostBlob('/configuracion-tienda/vista-previa-ticket', {
+        nombreNegocio: nombre.trim() || undefined,
+        iniciales: iniciales.trim() || undefined,
+        mensajeTicketPie: mensajeTicketPie.trim() || null,
+        mostrarCodigoBarrasTicket,
+        mostrarVendedorTicket,
+        mostrarSucursalTicket,
+      });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast({
+        title: 'No se pudo generar la vista previa',
+        description: err instanceof ApiError ? err.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      setGenerandoVistaPrevia(false);
+    }
+  }
+
   async function guardarConfiguracionTicket() {
     setGuardandoTicket(true);
     try {
@@ -155,6 +187,19 @@ export default function ConfiguracionPage() {
         title="Configuración"
         subtitle="Identidad del negocio: nombre, iniciales y logo. Se usa en tickets, comprobantes y en el panel — así puedes reutilizar el sistema para otro negocio."
         breadcrumbs={[{ label: 'Inicio', href: '/dashboard' }, { label: 'Configuración' }]}
+        actions={
+          !cargando && !cargandoMarca ? (
+            <Button
+              variant="outline"
+              onClick={previsualizarTicket}
+              disabled={generandoVistaPrevia}
+              title="Genera un ticket de ejemplo con lo que llevas en pantalla, aunque no lo hayas guardado"
+            >
+              <Eye className="w-4 h-4" />
+              {generandoVistaPrevia ? 'Generando…' : 'Vista previa del ticket'}
+            </Button>
+          ) : undefined
+        }
       />
 
       {cargando || cargandoMarca ? (
@@ -227,8 +272,8 @@ export default function ConfiguracionPage() {
             <CardHeader>
               <CardTitle className="text-base">Ticket de venta</CardTitle>
               <CardDescription>
-                Qué se imprime en el ticket (PDF) de cada venta, además del nombre, iniciales y logo de arriba. Para
-                ver cómo queda antes de cambiar nada, usa "Vista previa del ticket" en el punto de venta.
+                Qué se imprime en el ticket (PDF) de cada venta, además del nombre, iniciales y logo de arriba. Usa
+                "Vista previa del ticket" (arriba a la derecha) para ver el efecto de un cambio antes de guardarlo.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
