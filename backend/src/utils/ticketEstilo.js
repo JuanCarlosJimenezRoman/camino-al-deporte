@@ -102,10 +102,30 @@ async function obtenerMarca() {
     const nombre = config?.nombreNegocio || 'Camino al Deporte';
     const iniciales = config?.iniciales || 'CD';
     const logoBuffer = await descargarLogoBuffer(config?.logoTicketUrl || null);
-    return { nombre, iniciales, logoBuffer };
+    // Configuración del ticket de venta (ver routes/configuracionTienda.js):
+    // mensaje libre de pie de página y qué renglones/elementos mostrar en el
+    // PDF. Los tres interruptores nacen en true (mismo comportamiento de
+    // siempre) para no cambiar nada en negocios que no los han configurado.
+    return {
+      nombre,
+      iniciales,
+      logoBuffer,
+      mensajeTicketPie: config?.mensajeTicketPie || null,
+      mostrarCodigoBarras: config?.mostrarCodigoBarrasTicket ?? true,
+      mostrarVendedorTicket: config?.mostrarVendedorTicket ?? true,
+      mostrarSucursalTicket: config?.mostrarSucursalTicket ?? true,
+    };
   } catch (err) {
     console.error('No se pudo leer la configuración de la marca:', err.message);
-    return { nombre: 'Camino al Deporte', iniciales: 'CD', logoBuffer: null };
+    return {
+      nombre: 'Camino al Deporte',
+      iniciales: 'CD',
+      logoBuffer: null,
+      mensajeTicketPie: null,
+      mostrarCodigoBarras: true,
+      mostrarVendedorTicket: true,
+      mostrarSucursalTicket: true,
+    };
   }
 }
 
@@ -263,7 +283,7 @@ function dibujarBarcode(doc, { left, contentWidth, buffer }) {
 // extra opcional (p. ej. "Conserve este ticket como comprobante.").
 // nombreNegocio viene de obtenerMarca() (Configuración) — así el texto del
 // pie cambia con la marca y no queda fijo en "Camino al Deporte".
-function dibujarPieLegal(doc, { left, right, mensajeExtra, nombreNegocio = 'Camino al Deporte' } = {}) {
+function dibujarPieLegal(doc, { left, right, mensajeExtra, mensajePersonalizado, nombreNegocio = 'Camino al Deporte' } = {}) {
   const width = right - left;
   doc.fillColor(PALETA.textoMuted).font('Helvetica').fontSize(7);
   doc.text(`Este documento es un comprobante interno de ${nombreNegocio} — no es un CFDI ni un comprobante fiscal.`, left, doc.y, {
@@ -273,6 +293,12 @@ function dibujarPieLegal(doc, { left, right, mensajeExtra, nombreNegocio = 'Cami
   if (mensajeExtra) {
     doc.moveDown(0.15);
     doc.text(mensajeExtra, left, doc.y, { width, align: 'center' });
+  }
+  // Mensaje libre capturado en Configuración (ver obtenerMarca arriba) —
+  // solo lo usa ticketPdf.js, apartadoPdf.js/cambioPdf.js no lo mandan.
+  if (mensajePersonalizado) {
+    doc.moveDown(0.15);
+    doc.text(mensajePersonalizado, left, doc.y, { width, align: 'center' });
   }
   doc.fillColor(PALETA.texto);
 }

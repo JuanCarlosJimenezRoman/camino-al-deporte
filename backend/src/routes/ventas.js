@@ -1672,4 +1672,92 @@ router.get(
   })
 );
 
+
+// Ítem para la vista previa del ticket: son los mismos campos que
+// itemsParaTicket arma en POST /ventas (descripcion/cantidad/precioUnitario/
+// subtotal/descuento...), NO el "items" con varianteId que valida contra el
+// inventario — la vista previa nunca toca existencias, solo dibuja con lo
+// que el cajero ya tiene calculado en el carrito del punto de venta.
+const itemVistaPreviaSchema = z.object({
+  descripcion: z.string().min(1),
+  cantidad: z.number().positive(),
+  precioUnitario: z.number().nonnegative(),
+  subtotal: z.number().nonnegative(),
+  descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).nullable().optional(),
+  descuentoValor: z.number().nonnegative().nullable().optional(),
+  descuentoMonto: z.number().nonnegative().optional(),
+});
+
+const vistaPreviaTicketSchema = z.object({
+  sucursalId: z.number().int().optional(),
+  cliente: z.string().optional(),
+  metodoPago: z.enum(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA']).default('EFECTIVO'),
+  efectivoRecibido: z.number().nonnegative().optional(),
+  pagoMixto: z.boolean().optional(),
+  pagos: z.array(pagoVentaSchema).optional(),
+  descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).nullable().optional(),
+  descuentoValor: z.number().nonnegative().nullable().optional(),
+  descuentoMonto: z.number().nonnegative().optional(),
+  descuentoMotivo: z.string().optional(),
+  saldoAplicado: z.number().nonnegative().optional(),
+  total: z.number().nonnegative(),
+  items: z.array(itemVistaPreviaSchema).min(1),
+});
+
+// POST /ventas/vista-previa-ticket - genera el PDF del ticket EXACTAMENTE
+// con el mismo diseño del ticket real (ver utils/ticketPdf.js), pero a
+// partir de lo que el cajero lleva en el carrito del punto de venta, ANTES
+// de cobrar: no crea ninguna Venta, no descuenta inventario, no sube nada a
+// Cloudinary ni manda WhatsApp. Sirve solo para que el cajero se dé una
+// idea de cómo va a salir el ticket (folio, sucursal, vendedor, código de
+// barras, mensaje de pie, etc., según lo configurado) antes de cerrar la
+// venta — ver el botón "Vista previa" en ventas/page.tsx.
+router.post(
+  '/vista-previa-ticket',
+  requireAuth,
+  requireRole(...ROLES_VENTAS),
+  asyncHandler(async (req, res) => {
+    const parsed = vistaPreviaTicketSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+    }
+    const datos = parsed.data;
+
+    const [sucursal, usuario] = await Promise.all([
+      datos.sucursalId
+        ? prisma.sucursal.findUnique({ where: { id: datos.sucursalId }, select: { nombre: true, telefono: true, whatsappPhoneNumberId: true } })
+        : Promise.resolve(null),
+      prisma.usuario.findUnique({ where: { id: req.usuario.id }, select: { nombre: true } }),
+    ]);
+
+    // Folio y fecha son placeholders: la vista previa no registra nada, así
+    // que no existe un folio real todavía (ver Venta.folio, se genera al
+    // guardar la venta de verdad).
+    const ventaPreview = {
+      folio: 'VISTA PREVIA',
+      createdAt: new Date(),
+      total: datos.total,
+      metodoPago: datos.metodoPago,
+      cliente: datos.cliente || null,
+      sucursal,
+      usuario,
+      descuentoTipo: datos.descuentoTipo || null,
+      descuentoValor: datos.descuentoValor ?? null,
+      descuentoMonto: datos.descuentoMonto || 0,
+      descuentoMotivo: datos.descuentoMotivo || null,
+      efectivoRecibido: datos.efectivoRecibido ?? null,
+      pagoMixto: !!datos.pagoMixto,
+      pagos: datos.pagos || [],
+      saldoAplicado: datos.saldoAplicado || 0,
+    };
+
+    const { whatsappContacto } = await resolverWhatsappVenta(ventaPreview);
+    const pdfBuffer = await generarTicketPdf(ventaPreview, datos.items, whatsappContacto);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="vista-previa-ticket.pdf"');
+    res.send(pdfBuffer);
+  })
+);
+
 module.exports = router;

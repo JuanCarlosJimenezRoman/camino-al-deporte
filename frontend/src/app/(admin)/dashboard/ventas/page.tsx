@@ -25,8 +25,9 @@ import {
   Landmark,
   MessageSquarePlus,
   LayoutGrid,
+  Eye,
 } from 'lucide-react';
-import { api, apiUpload, ApiError } from '@/lib/api';
+import { api, apiUpload, apiPostBlob, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearHora, formatoMonedaExacto } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
 import { useConfigNegocio } from '@/lib/configNegocio';
@@ -490,14 +491,28 @@ function formatearTelefonoWhatsapp(telefono: string): string {
 }
 
 function construirTicketTexto(venta: Venta, nombreNegocio: string, notaExtra?: string): string {
+  // Descuento por producto de cada renglón (ver VentaItem.descuentoMonto):
+  // el importe que se imprime por artículo ya es neto (lo cobrado de
+  // verdad), con una nota de qué descuento se aplicó — mismo criterio que
+  // el ticket en PDF (ver utils/ticketPdf.js en el backend), para que este
+  // mensaje de WhatsApp cuadre igual de bien.
+  const descuentoMontoItems = venta.items.reduce((acc, it) => acc + Number(it.descuentoMonto || 0), 0);
   const articulos = venta.items
     .map((it) => {
+      const descuentoItem = Number(it.descuentoMonto || 0);
+      const neto = Number(it.subtotal) - descuentoItem;
+      const notaDescuento =
+        it.descuentoTipo === 'PORCENTAJE'
+          ? ` (desc. ${Number(it.descuentoValor)}%)`
+          : descuentoItem > 0
+            ? ` (desc. -$${descuentoItem.toFixed(2)})`
+            : '';
       if (!it.variante) {
         // Producto no registrado en el catálogo (ver descripcionLibre).
-        return `- ${it.descripcionLibre ?? 'Producto no registrado'} x${it.cantidad} — $${it.subtotal}`;
+        return `- ${it.descripcionLibre ?? 'Producto no registrado'} x${it.cantidad} — $${neto.toFixed(2)}${notaDescuento}`;
       }
       const detalle = [it.variante.talla?.valor, it.variante.color].filter(Boolean).join(' / ');
-      return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${it.subtotal}`;
+      return `- ${it.variante.producto.nombre}${detalle ? ` (${detalle})` : ''} x${it.cantidad} — $${neto.toFixed(2)}${notaDescuento}`;
     })
     .join('\n');
   const descuentoMonto = Number(venta.descuentoMonto || 0);
@@ -542,6 +557,10 @@ function construirTicketTexto(venta: Venta, nombreNegocio: string, notaExtra?: s
     'Artículos:',
     articulos,
     '',
+    descuentoMontoItems > 0 || descuentoMonto > 0
+      ? `Subtotal: $${venta.items.reduce((acc, it) => acc + Number(it.subtotal), 0).toFixed(2)}`
+      : '',
+    descuentoMontoItems > 0 ? `Descuento por producto: -$${descuentoMontoItems.toFixed(2)}` : '',
     descuentoMonto > 0
       ? `Descuento${venta.descuentoTipo === 'PORCENTAJE' ? ` (${venta.descuentoValor}%)` : ''}: -$${descuentoMonto.toFixed(2)}`
       : '',
@@ -720,6 +739,10 @@ export default function VentasPage() {
 
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Vista previa del ticket (PDF idéntico al real) con lo que hay en el
+  // carrito, ANTES de cobrar — ver previsualizarTicket() y POST /ventas/
+  // vista-previa-ticket. No guarda nada ni toca inventario.
+  const [generandoVistaPrevia, setGenerandoVistaPrevia] = useState(false);
 
   useEffect(() => {
     api<Sucursal[]>('/sucursales').then((data) => {
@@ -1257,6 +1280,89 @@ export default function VentasPage() {
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar la venta.');
     } finally {
       setGuardando(false);
+    }
+  }
+
+  // Vista previa del ticket: genera el MISMO PDF que se ofrece después de
+  // cobrar (ver ticketPdfUrl más abajo), pero con lo que hay ahorita en el
+  // carrito — para que el cajero se dé una idea de cómo va a salir antes de
+  // cerrar la venta. No llama a POST /ventas: no se registra nada, no se
+  // descuenta inventario y no se manda nada por WhatsApp.
+  async function previsualizarTicket() {
+    if (carrito.length === 0 || !sucursalId) return;
+    if (pagoDividido && metodoPagoB === metodoPago) {
+      setMensaje('Elige dos métodos de pago distintos para combinar.');
+      return;
+    }
+    if (pagoDividido && (montoPagoANum <= 0.004 || montoPagoBNum <= 0.004)) {
+      setMensaje('Captura cuánto se paga con cada método antes de ver la vista previa.');
+      return;
+    }
+
+    setGenerandoVistaPrevia(true);
+    setMensaje(null);
+    try {
+      const pagosPayload = pagoDividido
+        ? [
+            {
+              metodoPago,
+              monto: montoPagoANum,
+              efectivoRecibido: legEfectivo === 'A' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+            },
+            {
+              metodoPago: metodoPagoB,
+              monto: montoPagoBNum,
+              efectivoRecibido: legEfectivo === 'B' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+            },
+          ]
+        : undefined;
+
+      const items = carrito.map((it) => {
+        let descripcion: string;
+        if (it.tipo === 'libre') {
+          descripcion = it.descripcion;
+        } else {
+          const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color].filter(Boolean).join('/');
+          descripcion = `${it.existencia.variante.producto.nombre}${detalle ? ` (${detalle})` : ''}`;
+        }
+        return {
+          descripcion,
+          cantidad: it.cantidad,
+          precioUnitario: precioUnitarioCarrito(it),
+          subtotal: subtotalBrutoCarrito(it),
+          descuentoTipo: it.descuentoTipo ?? undefined,
+          descuentoValor: it.descuentoValor ?? undefined,
+          descuentoMonto: descuentoMontoCarrito(it),
+        };
+      });
+
+      const datos = {
+        sucursalId: Number(sucursalId),
+        cliente: cliente || undefined,
+        metodoPago: pagoDividido ? undefined : metodoPago,
+        efectivoRecibido: !pagoDividido && metodoPago === 'EFECTIVO' && efectivoRecibido.trim() ? Number(efectivoRecibido) : undefined,
+        pagoMixto: pagoDividido || undefined,
+        pagos: pagosPayload,
+        descuentoTipo: aplicarDescuento && descuentoValorNum > 0 ? descuentoTipo : undefined,
+        descuentoValor: aplicarDescuento && descuentoValorNum > 0 ? descuentoValorNum : undefined,
+        descuentoMonto: descuentoMontoPreview || undefined,
+        descuentoMotivo: aplicarDescuento && descuentoMotivo.trim() ? descuentoMotivo.trim() : undefined,
+        saldoAplicado: saldoAplicadoNum > 0 ? saldoAplicadoNum : undefined,
+        total: totalVenta,
+        items,
+      };
+
+      const blob = await apiPostBlob('/ventas/vista-previa-ticket', datos);
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      // Se libera hasta dentro de un rato: si se revoca de inmediato, la
+      // pestaña recién abierta a veces alcanza a quedarse sin contenido
+      // (depende del navegador).
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setMensaje(err instanceof ApiError ? err.message : 'No se pudo generar la vista previa del ticket.');
+    } finally {
+      setGenerandoVistaPrevia(false);
     }
   }
 
@@ -2183,6 +2289,20 @@ export default function VentasPage() {
                 </Button>
               )}
             </div>
+          )}
+
+          {esLocal && carrito.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2"
+              onClick={previsualizarTicket}
+              disabled={generandoVistaPrevia || guardando}
+              title="Genera el ticket en PDF con lo que llevas hasta ahora, sin cobrar ni descontar inventario"
+            >
+              <Eye className="w-4 h-4" />
+              {generandoVistaPrevia ? 'Generando vista previa…' : 'Vista previa del ticket'}
+            </Button>
           )}
 
           {esLocal ? (

@@ -30,8 +30,18 @@ export default function ConfiguracionPage() {
   const [iniciales, setIniciales] = useState(config.iniciales);
   const [logoUrl, setLogoUrl] = useState<string | null>(config.logoUrl);
 
+  // Configuración del ticket de venta (ver utils/ticketPdf.js en el
+  // backend): mensaje libre de pie de página y qué mostrar/ocultar en cada
+  // ticket impreso — todo nace en "mostrar" (true) para no cambiar nada en
+  // negocios que no lo han tocado.
+  const [mensajeTicketPie, setMensajeTicketPie] = useState('');
+  const [mostrarCodigoBarrasTicket, setMostrarCodigoBarrasTicket] = useState(true);
+  const [mostrarVendedorTicket, setMostrarVendedorTicket] = useState(true);
+  const [mostrarSucursalTicket, setMostrarSucursalTicket] = useState(true);
+
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [guardandoTicket, setGuardandoTicket] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   const [quitando, setQuitando] = useState(false);
 
@@ -42,11 +52,19 @@ export default function ConfiguracionPage() {
       nombreNegocio: string;
       iniciales: string;
       logoTicketUrl: string | null;
+      mensajeTicketPie: string | null;
+      mostrarCodigoBarrasTicket: boolean;
+      mostrarVendedorTicket: boolean;
+      mostrarSucursalTicket: boolean;
     }>('/configuracion-tienda')
       .then((data) => {
         setNombre(data.nombreNegocio || 'Camino al Deporte');
         setIniciales(data.iniciales || 'CD');
         setLogoUrl(data.logoTicketUrl || null);
+        setMensajeTicketPie(data.mensajeTicketPie || '');
+        setMostrarCodigoBarrasTicket(data.mostrarCodigoBarrasTicket ?? true);
+        setMostrarVendedorTicket(data.mostrarVendedorTicket ?? true);
+        setMostrarSucursalTicket(data.mostrarSucursalTicket ?? true);
       })
       .catch(() => {})
       .finally(() => setCargando(false));
@@ -108,6 +126,26 @@ export default function ConfiguracionPage() {
       toast({ title: 'No se pudo quitar el logo', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
     } finally {
       setQuitando(false);
+    }
+  }
+
+  async function guardarConfiguracionTicket() {
+    setGuardandoTicket(true);
+    try {
+      await api('/configuracion-tienda', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mensajeTicketPie: mensajeTicketPie.trim() || null,
+          mostrarCodigoBarrasTicket,
+          mostrarVendedorTicket,
+          mostrarSucursalTicket,
+        }),
+      });
+      toast({ title: 'Configuración del ticket guardada', variant: 'success' });
+    } catch (err) {
+      toast({ title: 'No se pudo guardar', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
+    } finally {
+      setGuardandoTicket(false);
     }
   }
 
@@ -181,6 +219,65 @@ export default function ConfiguracionPage() {
                     Quitar logo
                   </Button>
                 )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Ticket de venta</CardTitle>
+              <CardDescription>
+                Qué se imprime en el ticket (PDF) de cada venta, además del nombre, iniciales y logo de arriba. Para
+                ver cómo queda antes de cambiar nada, usa "Vista previa del ticket" en el punto de venta.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm">Mensaje de pie de página (opcional)</label>
+                <textarea
+                  value={mensajeTicketPie}
+                  onChange={(e) => setMensajeTicketPie(e.target.value)}
+                  maxLength={300}
+                  rows={3}
+                  placeholder="Ej. Cambios y devoluciones dentro de 15 días con este ticket. Síguenos: @caminoaldeporte"
+                  className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Se imprime debajo del aviso de "no es un comprobante fiscal". {mensajeTicketPie.length}/300.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={mostrarCodigoBarrasTicket}
+                    onChange={(e) => setMostrarCodigoBarrasTicket(e.target.checked)}
+                  />
+                  Mostrar código de barras del folio
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={mostrarVendedorTicket}
+                    onChange={(e) => setMostrarVendedorTicket(e.target.checked)}
+                  />
+                  Mostrar el nombre de quien vendió
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={mostrarSucursalTicket}
+                    onChange={(e) => setMostrarSucursalTicket(e.target.checked)}
+                  />
+                  Mostrar la sucursal
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button onClick={guardarConfiguracionTicket} disabled={guardandoTicket}>
+                  {guardandoTicket ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Guardar configuración del ticket'}
+                </Button>
               </div>
             </CardContent>
           </Card>

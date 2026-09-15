@@ -77,8 +77,11 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
   // la hora impresa en el ticket sale adelantada (la hora UTC, no la de
   // México) — ver ZONA_NEGOCIO en utils/fechas.js.
   dato('Fecha', new Date(venta.createdAt).toLocaleString('es-MX', { timeZone: ZONA_NEGOCIO }));
-  if (venta.sucursal?.nombre) dato('Sucursal', venta.sucursal.nombre);
-  if (venta.usuario?.nombre) dato('Vendedor', venta.usuario.nombre);
+  // Sucursal y vendedor se pueden ocultar desde Configuración → Ticket (ver
+  // obtenerMarca en ticketEstilo.js) — por defecto se muestran, igual que
+  // siempre.
+  if (marca.mostrarSucursalTicket && venta.sucursal?.nombre) dato('Sucursal', venta.sucursal.nombre);
+  if (marca.mostrarVendedorTicket && venta.usuario?.nombre) dato('Vendedor', venta.usuario.nombre);
   if (venta.cliente) dato('Cliente', venta.cliente);
   dibujarSeparador(doc, { left, right });
 
@@ -204,11 +207,20 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
   }
   doc.moveDown(0.7);
 
+  // El código de barras se puede ocultar desde Configuración → Ticket; si
+  // está desactivado, barcodeBuffer ya viene en null desde generarTicketPdf
+  // (ni se generó) y dibujarBarcode no dibuja nada.
   dibujarBarcode(doc, { left, contentWidth, buffer: barcodeBuffer });
 
   doc.x = left;
   dibujarSeparador(doc, { left, right, punteado: true });
-  dibujarPieLegal(doc, { left, right, mensajeExtra: 'Conserve este ticket como comprobante.', nombreNegocio: marca.nombre });
+  dibujarPieLegal(doc, {
+    left,
+    right,
+    mensajeExtra: 'Conserve este ticket como comprobante.',
+    mensajePersonalizado: marca.mensajeTicketPie,
+    nombreNegocio: marca.nombre,
+  });
 }
 
 /**
@@ -218,13 +230,15 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
  * @returns {Promise<Buffer>}
  */
 async function generarTicketPdf(venta, items, whatsappContacto) {
+  // Identidad de la marca (nombre/iniciales/logo) y configuración del
+  // ticket (mensaje de pie, qué mostrar/ocultar) desde Configuración — se
+  // lee primero porque decide si vale la pena generar el código de barras.
+  const marca = await obtenerMarca();
   // El código de barras se genera aparte (es async) antes de armar el PDF,
   // para insertarlo como cualquier otra imagen del documento. Si por lo que
-  // sea falla, el ticket se genera igual, solo sin el código de barras.
-  const barcodeBuffer = await generarBarcodeBuffer(venta.folio);
-  // Identidad de la marca (nombre/iniciales/logo) desde Configuración: si no
-  // hay logo, el encabezado dibuja la insignia con iniciales.
-  const marca = await obtenerMarca();
+  // sea falla, el ticket se genera igual, solo sin el código de barras. Si
+  // se desactivó desde Configuración, ni se genera.
+  const barcodeBuffer = marca.mostrarCodigoBarras ? await generarBarcodeBuffer(venta.folio) : null;
 
   const dibujar = (doc) => dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, marca });
 

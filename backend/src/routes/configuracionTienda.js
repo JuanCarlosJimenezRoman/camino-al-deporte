@@ -66,6 +66,13 @@ const schema = z.object({
   // Identidad de la marca (white-label).
   nombreNegocio: z.string().trim().min(1).optional(),
   iniciales: z.string().trim().max(6).optional(),
+  // Configuración del ticket de venta (ver utils/ticketPdf.js): mensaje
+  // libre para el pie además del aviso legal fijo, y qué mostrar/ocultar
+  // en cada ticket impreso.
+  mensajeTicketPie: z.string().trim().max(300).optional().nullable(),
+  mostrarCodigoBarrasTicket: z.boolean().optional(),
+  mostrarVendedorTicket: z.boolean().optional(),
+  mostrarSucursalTicket: z.boolean().optional(),
 });
 
 // PUT /configuracion-tienda
@@ -92,6 +99,18 @@ router.put('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (
         : {}),
       ...(('iniciales' in req.body)
         ? { iniciales: parsed.data.iniciales ?? 'CD' }
+        : {}),
+      ...(('mensajeTicketPie' in req.body)
+        ? { mensajeTicketPie: parsed.data.mensajeTicketPie || null }
+        : {}),
+      ...(('mostrarCodigoBarrasTicket' in req.body)
+        ? { mostrarCodigoBarrasTicket: parsed.data.mostrarCodigoBarrasTicket ?? true }
+        : {}),
+      ...(('mostrarVendedorTicket' in req.body)
+        ? { mostrarVendedorTicket: parsed.data.mostrarVendedorTicket ?? true }
+        : {}),
+      ...(('mostrarSucursalTicket' in req.body)
+        ? { mostrarSucursalTicket: parsed.data.mostrarSucursalTicket ?? true }
         : {}),
     },
   });

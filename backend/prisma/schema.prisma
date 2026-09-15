@@ -1858,6 +1858,15 @@ model ConfiguracionTienda {
   // cambiando esta configuración.
   nombreNegocio String @default("Camino al Deporte") @map("nombre_negocio")
   iniciales     String @default("CD") @map("iniciales")
+  // Configuracion del ticket de venta impreso/PDF (ver utils/ticketPdf.js):
+  // un mensaje libre para el pie (politica de cambios, horario, redes,
+  // etc.) ademas del aviso legal fijo, y tres interruptores para
+  // mostrar/ocultar el codigo de barras del folio, el vendedor y la
+  // sucursal en cada ticket.
+  mensajeTicketPie          String?  @map("mensaje_ticket_pie")
+  mostrarCodigoBarrasTicket Boolean  @default(true) @map("mostrar_codigo_barras_ticket")
+  mostrarVendedorTicket     Boolean  @default(true) @map("mostrar_vendedor_ticket")
+  mostrarSucursalTicket     Boolean  @default(true) @map("mostrar_sucursal_ticket")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("configuracion_tienda")

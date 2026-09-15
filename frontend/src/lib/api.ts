@@ -83,6 +83,32 @@ export async function apiUpload<T = unknown>(path: string, formData: FormData): 
 // Para descargar archivos generados por el backend (plantillas, exportes).
 // El navegador no manda el header Authorization en un <a href> normal, así
 // que se pide como blob y se dispara la descarga a mano.
+// Para pedir un PDF generado al vuelo por el backend a partir de un body
+// (no un archivo que ya exista en el servidor, como apiDownload) y abrirlo
+// en una pestaña nueva sin descargarlo — ej. la vista previa del ticket
+// antes de cobrar (ver POST /ventas/vista-previa-ticket). Regresa el blob
+// para que quien llama decida si lo abre (window.open) o lo descarga.
+export async function apiPostBlob(path: string, data: unknown): Promise<Blob> {
+  const token = getToken();
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    manejarPosibleSesionExpirada(res.status, body);
+    throw new ApiError(body.error || `Error ${res.status}`, res.status);
+  }
+
+  return res.blob();
+}
+
 export async function apiDownload(path: string, nombreArchivo: string): Promise<void> {
   const token = getToken();
 
