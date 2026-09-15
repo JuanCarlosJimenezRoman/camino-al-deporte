@@ -698,16 +698,44 @@ const productoSchema = z.object({
   categoriaId: z.number().int(),
   precioCompra: z.number().nonnegative().optional(),
   precioVenta: z.number().nonnegative().optional(),
+  // Descuento por defecto del producto (ver schema.prisma) — mandar ambos
+  // en null explícito quita el descuento por defecto; omitirlos deja el
+  // valor actual sin tocar (ver PUT /:id, que usa .partial()).
+  descuentoDefectoTipo: z.enum(['PORCENTAJE', 'MONTO']).nullable().optional(),
+  descuentoDefectoValor: z.number().nonnegative().nullable().optional(),
   atributosExtra: z.record(z.any()).optional(),
   // variantes iniciales opcionales al crear el producto
   variantes: z.array(varianteSchema).optional(),
 });
+
+// Mismas reglas que el descuento libre de ventas (ver routes/ventas.js):
+// si se manda un tipo, el valor es obligatorio y > 0; el % no puede pasar
+// de 100. Se valida a mano (no con .refine()) porque tanto POST como PUT
+// reusan este schema con .omit()/.partial(), que no se lleva bien con
+// z.object(...).refine(...).
+function validarDescuentoDefecto(data) {
+  const tipoPresente = Object.prototype.hasOwnProperty.call(data, 'descuentoDefectoTipo');
+  const tipo = tipoPresente ? data.descuentoDefectoTipo : undefined;
+  if (!tipo) return null;
+  const valor = data.descuentoDefectoValor;
+  if (valor === undefined || valor === null || valor <= 0) {
+    return 'descuentoDefectoValor es requerido y debe ser mayor a 0 cuando se manda descuentoDefectoTipo.';
+  }
+  if (tipo === 'PORCENTAJE' && valor > 100) {
+    return 'El descuento por defecto en porcentaje no puede ser mayor a 100.';
+  }
+  return null;
+}
 
 // POST /productos - crear producto (con variantes y existencias iniciales opcionales)
 router.post('/', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(async (req, res) => {
   const parsed = productoSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const errorDescuento = validarDescuentoDefecto(parsed.data);
+  if (errorDescuento) {
+    return res.status(400).json({ error: errorDescuento });
   }
   const { variantes, ...productoData } = parsed.data;
 
@@ -748,6 +776,10 @@ router.put('/:id', requireAuth, requireRole(...ROLES_EDICION), asyncHandler(asyn
   const parsed = productoSchema.omit({ variantes: true }).partial().safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
+  }
+  const errorDescuento = validarDescuentoDefecto(parsed.data);
+  if (errorDescuento) {
+    return res.status(400).json({ error: errorDescuento });
   }
 
   const producto = await prisma.producto.update({

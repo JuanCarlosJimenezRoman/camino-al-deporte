@@ -222,6 +222,26 @@ model Producto {
   precioVenta  Decimal  @default(0) @map("precio_venta") @db.Decimal(10, 2)
   activo       Boolean  @default(true)
 
+  // Descuento por defecto de este producto (% o $), configurable solo por
+  // quienes editan catálogo (ADMIN_PRINCIPAL/DESARROLLO/INVENTARIO — ver
+  // ROLES_EDICION en routes/productos.js). Sirve para que en el punto de
+  // venta el cajero no tenga que preguntar/capturar el descuento a mano cada
+  // vez: el botón de descuento del renglón lo aplica con un clic (ver
+  // VentaItem.descuentoTipo abajo).
+  descuentoDefectoTipo  TipoDescuento? @map("descuento_defecto_tipo")
+  descuentoDefectoValor Decimal?       @map("descuento_defecto_valor") @db.Decimal(10, 2)
+
+  // Último descuento aplicado a este producto en una venta (caché de
+  // lectura rápida para el punto de venta — se actualiza dentro de la misma
+  // transacción de POST/PATCH /ventas cuando el renglón trae un descuento
+  // explícito). La fuente de verdad/auditoría real sigue siendo el
+  // VentaItem de cada venta (con usuario y fecha vía Venta.usuarioId/
+  // createdAt), esto es solo para sugerirlo de inmediato sin tener que
+  // consultar el historial.
+  ultimoDescuentoTipo   TipoDescuento? @map("ultimo_descuento_tipo")
+  ultimoDescuentoValor  Decimal?       @map("ultimo_descuento_valor") @db.Decimal(10, 2)
+  ultimoDescuentoFecha  DateTime?      @map("ultimo_descuento_fecha")
+
   // Campos personalizados definidos dinámicamente por el rol DESARROLLO
   // sin necesidad de migraciones (ver modelo CampoPersonalizado).
   atributosExtra Json?  @default("{}") @map("atributos_extra")
@@ -816,7 +836,22 @@ model VentaItem {
   proveedor      Proveedor?       @relation(fields: [proveedorId], references: [id])
   cantidad       Int
   precioUnitario Decimal          @map("precio_unitario") @db.Decimal(10, 2)
+  // Total bruto del renglón (cantidad * precioUnitario), SIN descontar el
+  // descuento de abajo — se deja igual que antes para no romper reportes/
+  // prorrateos que ya lo usan como base (ver rutas de reportes y ventas.js).
   subtotal       Decimal          @db.Decimal(10, 2)
+
+  // Descuento por producto (% o $) capturado en este renglón — a diferencia
+  // del descuento de Venta (que es libre y aplica al ticket completo), este
+  // es el que normalmente viene precargado desde Producto.descuentoDefectoTipo
+  // o Producto.ultimoDescuentoTipo y el cajero solo confirma con el botón
+  // "Descuento" del punto de venta (ver POST/PATCH /ventas). descuentoMonto
+  // es el monto real en pesos ya validado (nunca mayor al subtotal del
+  // renglón); descuentoValor es lo que se capturó/confirmó tal cual, para
+  // referencia/edición futura.
+  descuentoTipo  TipoDescuento?   @map("descuento_tipo")
+  descuentoValor Decimal?         @map("descuento_valor") @db.Decimal(10, 2)
+  descuentoMonto Decimal          @default(0) @map("descuento_monto") @db.Decimal(10, 2)
 
   @@map("venta_items")
 }

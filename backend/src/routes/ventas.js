@@ -511,11 +511,28 @@ const ventaItemSchema = z
     // cuando una talla tiene stock de más de uno. En un renglón libre es
     // opcional/informativo (de qué proveedor vino la mercancía).
     proveedorId: z.number().int().nullable(),
+    // Descuento por producto de este renglón (ver VentaItem en
+    // schema.prisma) - independiente del descuento libre de toda la venta
+    // (descuentoTipo/Valor sueltos, más abajo en ventaSchema), que sigue
+    // existiendo para promociones/cortesías sobre el total completo. El
+    // monto real en pesos SIEMPRE se calcula en el servidor a partir de
+    // cantidad*precioUnitario, nunca se confia en un monto mandado por el
+    // cliente.
+    descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).optional(),
+    descuentoValor: z.number().nonnegative().optional(),
   })
   .refine((d) => !!d.varianteId !== !!d.descripcionLibre, {
     message:
       'Cada renglón debe traer varianteId (producto del catálogo) o descripcionLibre (producto no registrado), pero no ambos.',
     path: ['varianteId'],
+  })
+  .refine((d) => !d.descuentoTipo || (d.descuentoValor !== undefined && d.descuentoValor > 0), {
+    message: 'descuentoValor es requerido y debe ser mayor a 0 cuando el renglón trae descuentoTipo.',
+    path: ['descuentoValor'],
+  })
+  .refine((d) => d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
+    message: 'El descuento por porcentaje de un renglón no puede ser mayor a 100.',
+    path: ['descuentoValor'],
   });
 
 // Una "pata" de pago combinado (ver Venta.pagoMixto en schema.prisma):
@@ -690,7 +707,17 @@ router.post(
 
       const venta = await prisma.$transaction(async (tx) => {
         let subtotal = 0;
+        // Suma de los descuentos por producto de cada renglón (ver
+        // VentaItem.descuentoTipo) - se resta aparte del descuento libre de
+        // toda la venta, que sigue aplicándose sobre lo que queda después.
+        let sumaDescuentosItems = 0;
         const itemsData = [];
+        // {productoId, descuentoTipo, descuentoValor} de cada renglón del
+        // catálogo que trajo un descuento explícito, para actualizar
+        // Producto.ultimoDescuentoTipo/Valor/Fecha al final (caché de
+        // lectura rápida que sugiere el mismo descuento la próxima vez que
+        // se venda ese producto - ver GET /inventario/existencias).
+        const productosConDescuento = [];
 
         for (const item of items) {
           // Renglón "producto no registrado" (ver migración
@@ -703,11 +730,23 @@ router.post(
             const subtotalItem = item.cantidad * item.precioUnitario;
             subtotal += subtotalItem;
 
+            let descuentoMontoItem = 0;
+            if (item.descuentoTipo === 'PORCENTAJE') {
+              descuentoMontoItem = subtotalItem * ((item.descuentoValor ?? 0) / 100);
+            } else if (item.descuentoTipo === 'MONTO') {
+              descuentoMontoItem = item.descuentoValor ?? 0;
+            }
+            descuentoMontoItem = Math.min(descuentoMontoItem, subtotalItem);
+            sumaDescuentosItems += descuentoMontoItem;
+
             itemsParaTicket.push({
               descripcion: item.descripcionLibre,
               cantidad: item.cantidad,
               precioUnitario: item.precioUnitario,
               subtotal: subtotalItem,
+              descuentoTipo: item.descuentoTipo ?? null,
+              descuentoValor: item.descuentoValor ?? null,
+              descuentoMonto: descuentoMontoItem,
             });
 
             itemsData.push({
@@ -717,6 +756,9 @@ router.post(
               cantidad: item.cantidad,
               precioUnitario: item.precioUnitario,
               subtotal: subtotalItem,
+              descuentoTipo: item.descuentoTipo ?? null,
+              descuentoValor: item.descuentoTipo ? item.descuentoValor : null,
+              descuentoMonto: descuentoMontoItem,
             });
             continue;
           }
@@ -732,6 +774,22 @@ router.post(
 
           const subtotalItem = item.cantidad * item.precioUnitario;
           subtotal += subtotalItem;
+
+          let descuentoMontoItem = 0;
+          if (item.descuentoTipo === 'PORCENTAJE') {
+            descuentoMontoItem = subtotalItem * ((item.descuentoValor ?? 0) / 100);
+          } else if (item.descuentoTipo === 'MONTO') {
+            descuentoMontoItem = item.descuentoValor ?? 0;
+          }
+          descuentoMontoItem = Math.min(descuentoMontoItem, subtotalItem);
+          sumaDescuentosItems += descuentoMontoItem;
+          if (item.descuentoTipo) {
+            productosConDescuento.push({
+              productoId: existencia.variante.productoId,
+              descuentoTipo: item.descuentoTipo,
+              descuentoValor: item.descuentoValor,
+            });
+          }
 
           await tx.existencia.update({
             where: { id: existencia.id },
@@ -756,23 +814,38 @@ router.post(
             cantidad: item.cantidad,
             precioUnitario: item.precioUnitario,
             subtotal: subtotalItem,
+            descuentoTipo: item.descuentoTipo ?? null,
+            descuentoValor: item.descuentoValor ?? null,
+            descuentoMonto: descuentoMontoItem,
           });
 
-          itemsData.push({ ...item, subtotal: subtotalItem });
+          itemsData.push({
+            ...item,
+            subtotal: subtotalItem,
+            descuentoTipo: item.descuentoTipo ?? null,
+            descuentoValor: item.descuentoTipo ? item.descuentoValor : null,
+            descuentoMonto: descuentoMontoItem,
+          });
         }
 
         // Descuento libre que capturó el cajero (opcional): el monto real
         // en pesos SIEMPRE se calcula aquí a partir del subtotal ya
         // validado, nunca se confía en un "descuentoMonto" mandado por el
         // cliente — y nunca puede dejar el total en negativo.
+        // El descuento libre del ticket (si lo hay) se calcula sobre lo que
+        // queda DESPUES de los descuentos por producto de cada renglón —
+        // ambos coexisten: uno es el descuento normal por producto, el otro
+        // queda para promociones/cortesías sobre el total ya con esos
+        // descuentos aplicados.
+        const subtotalNetoItems = subtotal - sumaDescuentosItems;
         let descuentoMonto = 0;
         if (descuentoTipo === 'PORCENTAJE') {
-          descuentoMonto = subtotal * ((descuentoValor ?? 0) / 100);
+          descuentoMonto = subtotalNetoItems * ((descuentoValor ?? 0) / 100);
         } else if (descuentoTipo === 'MONTO') {
           descuentoMonto = descuentoValor ?? 0;
         }
-        descuentoMonto = Math.min(descuentoMonto, subtotal);
-        const total = subtotal - descuentoMonto;
+        descuentoMonto = Math.min(descuentoMonto, subtotalNetoItems);
+        const total = subtotalNetoItems - descuentoMonto;
 
         // Cliente registrado (opcional) + saldo a favor aplicado como pago
         // (ver docs/CAMBIOS_SALDO_A_FAVOR.md). Se resuelve/crea igual que en
@@ -920,6 +993,25 @@ router.post(
               usuarioId: req.usuario.id,
               sucursalId,
               notas: `Venta ${creado.folio}: saldo a favor aplicado como pago.`,
+            },
+          });
+        }
+
+        // Cachear el descuento con el que se acaba de vender cada producto
+        // (ver Producto.ultimoDescuentoTipo en schema.prisma), para
+        // sugerirlo de inmediato la próxima vez que se venda sin tener que
+        // consultar el historial — la fuente de verdad/auditoría real sigue
+        // siendo este VentaItem (con usuario y fecha vía Venta.usuarioId/
+        // createdAt). Si un mismo producto aparece en más de un renglón de
+        // la venta, se queda con el del último procesado — caso raro y sin
+        // consecuencias reales (es solo una sugerencia editable).
+        for (const pd of productosConDescuento) {
+          await tx.producto.update({
+            where: { id: pd.productoId },
+            data: {
+              ultimoDescuentoTipo: pd.descuentoTipo,
+              ultimoDescuentoValor: pd.descuentoValor,
+              ultimoDescuentoFecha: new Date(),
             },
           });
         }
@@ -1124,16 +1216,30 @@ router.post(
 // renglones, o cambiar a qué variante (producto/talla/color) pertenece un
 // renglón ya existente.
 
-const ventaEdicionItemSchema = z.object({
-  id: z.number().int(),
-  cantidad: z.number().int().positive(),
-  precioUnitario: z.number().nonnegative(),
-  proveedorId: z.number().int().nullable(),
-});
+const ventaEdicionItemSchema = z
+  .object({
+    id: z.number().int(),
+    cantidad: z.number().int().positive(),
+    precioUnitario: z.number().nonnegative(),
+    proveedorId: z.number().int().nullable(),
+    // Descuento por producto de este renglon (ver ventaItemSchema en
+    // POST /ventas) - se puede corregir igual que cantidad/precioUnitario;
+    // null explicito lo quita.
+    descuentoTipo: z.enum(['PORCENTAJE', 'MONTO']).nullable().optional(),
+    descuentoValor: z.number().nonnegative().nullable().optional(),
+  })
+  .refine((d) => !d.descuentoTipo || (d.descuentoValor !== null && d.descuentoValor !== undefined && d.descuentoValor > 0), {
+    message: 'descuentoValor es requerido y debe ser mayor a 0 cuando el renglon trae descuentoTipo.',
+    path: ['descuentoValor'],
+  })
+  .refine((d) => d.descuentoTipo !== 'PORCENTAJE' || (d.descuentoValor ?? 0) <= 100, {
+    message: 'El descuento por porcentaje de un renglon no puede ser mayor a 100.',
+    path: ['descuentoValor'],
+  });
 
 const ventaEdicionSchema = z
   .object({
-    // Por qué se corrige — queda en el registro de auditoría (VentaEdicion),
+    // Por que se corrige - queda en el registro de auditoria (VentaEdicion),
     // no es solo un campo de UI.
     motivo: z.string().trim().min(5, 'Escribe un motivo de al menos 5 caracteres.'),
     cliente: z.string().nullable().optional(),
@@ -1146,7 +1252,7 @@ const ventaEdicionSchema = z
     items: z.array(ventaEdicionItemSchema).min(1),
   })
   .refine((d) => d.metodoPago !== 'TRANSFERENCIA' || !!d.cuentaTransferenciaId, {
-    message: 'cuentaTransferenciaId es requerido cuando el método de pago es transferencia.',
+    message: 'cuentaTransferenciaId es requerido cuando el metodo de pago es transferencia.',
     path: ['cuentaTransferenciaId'],
   })
   .refine((d) => !d.descuentoTipo || (d.descuentoValor !== null && d.descuentoValor !== undefined && d.descuentoValor > 0), {
@@ -1221,6 +1327,11 @@ router.patch(
         const advertencias = [];
         const cambiosItems = [];
         let subtotal = 0;
+        // Igual que en POST /ventas: suma de los descuentos por producto de
+        // cada renglon, y que productos hay que refrescarles el "ultimo
+        // descuento" cacheado (ver Producto.ultimoDescuentoTipo).
+        let sumaDescuentosItems = 0;
+        const productosConDescuento = [];
 
         for (const nuevo of datos.items) {
           const anterior = itemsPorId.get(nuevo.id);
@@ -1234,10 +1345,21 @@ router.patch(
             const subtotalItemLibre = nuevo.cantidad * nuevo.precioUnitario;
             subtotal += subtotalItemLibre;
 
+            let descuentoMontoItemLibre = 0;
+            if (nuevo.descuentoTipo === 'PORCENTAJE') {
+              descuentoMontoItemLibre = subtotalItemLibre * ((nuevo.descuentoValor ?? 0) / 100);
+            } else if (nuevo.descuentoTipo === 'MONTO') {
+              descuentoMontoItemLibre = nuevo.descuentoValor ?? 0;
+            }
+            descuentoMontoItemLibre = Math.min(descuentoMontoItemLibre, subtotalItemLibre);
+            sumaDescuentosItems += descuentoMontoItemLibre;
+
             if (
               anterior.cantidad !== nuevo.cantidad ||
               Number(anterior.precioUnitario) !== nuevo.precioUnitario ||
-              anterior.proveedorId !== nuevo.proveedorId
+              anterior.proveedorId !== nuevo.proveedorId ||
+              (anterior.descuentoTipo ?? null) !== (nuevo.descuentoTipo ?? null) ||
+              (anterior.descuentoValor !== null ? Number(anterior.descuentoValor) : null) !== (nuevo.descuentoValor ?? null)
             ) {
               cambiosItems.push({
                 itemId: nuevo.id,
@@ -1246,8 +1368,16 @@ router.patch(
                   cantidad: anterior.cantidad,
                   precioUnitario: Number(anterior.precioUnitario),
                   proveedorId: anterior.proveedorId,
+                  descuentoTipo: anterior.descuentoTipo ?? null,
+                  descuentoValor: anterior.descuentoValor !== null ? Number(anterior.descuentoValor) : null,
                 },
-                despues: { cantidad: nuevo.cantidad, precioUnitario: nuevo.precioUnitario, proveedorId: nuevo.proveedorId },
+                despues: {
+                  cantidad: nuevo.cantidad,
+                  precioUnitario: nuevo.precioUnitario,
+                  proveedorId: nuevo.proveedorId,
+                  descuentoTipo: nuevo.descuentoTipo ?? null,
+                  descuentoValor: nuevo.descuentoValor ?? null,
+                },
               });
             }
 
@@ -1258,6 +1388,9 @@ router.patch(
                 precioUnitario: nuevo.precioUnitario,
                 subtotal: subtotalItemLibre,
                 proveedorId: nuevo.proveedorId,
+                descuentoTipo: nuevo.descuentoTipo ?? null,
+                descuentoValor: nuevo.descuentoTipo ? nuevo.descuentoValor : null,
+                descuentoMonto: descuentoMontoItemLibre,
               },
             });
             continue;
@@ -1341,7 +1474,34 @@ router.patch(
           const subtotalItem = nuevo.cantidad * nuevo.precioUnitario;
           subtotal += subtotalItem;
 
-          if (proveedorCambio || cantidadCambio || Number(anterior.precioUnitario) !== nuevo.precioUnitario) {
+          let descuentoMontoItem = 0;
+          if (nuevo.descuentoTipo === 'PORCENTAJE') {
+            descuentoMontoItem = subtotalItem * ((nuevo.descuentoValor ?? 0) / 100);
+          } else if (nuevo.descuentoTipo === 'MONTO') {
+            descuentoMontoItem = nuevo.descuentoValor ?? 0;
+          }
+          descuentoMontoItem = Math.min(descuentoMontoItem, subtotalItem);
+          sumaDescuentosItems += descuentoMontoItem;
+
+          const descuentoCambio =
+            (anterior.descuentoTipo ?? null) !== (nuevo.descuentoTipo ?? null) ||
+            (anterior.descuentoValor !== null ? Number(anterior.descuentoValor) : null) !== (nuevo.descuentoValor ?? null);
+
+          if (nuevo.descuentoTipo) {
+            const varianteDescuento = await tx.productoVariante.findUnique({
+              where: { id: anterior.varianteId },
+              select: { productoId: true },
+            });
+            if (varianteDescuento) {
+              productosConDescuento.push({
+                productoId: varianteDescuento.productoId,
+                descuentoTipo: nuevo.descuentoTipo,
+                descuentoValor: nuevo.descuentoValor,
+              });
+            }
+          }
+
+          if (proveedorCambio || cantidadCambio || Number(anterior.precioUnitario) !== nuevo.precioUnitario || descuentoCambio) {
             cambiosItems.push({
               itemId: nuevo.id,
               varianteId: anterior.varianteId,
@@ -1349,8 +1509,16 @@ router.patch(
                 cantidad: anterior.cantidad,
                 precioUnitario: Number(anterior.precioUnitario),
                 proveedorId: anterior.proveedorId,
+                descuentoTipo: anterior.descuentoTipo ?? null,
+                descuentoValor: anterior.descuentoValor !== null ? Number(anterior.descuentoValor) : null,
               },
-              despues: { cantidad: nuevo.cantidad, precioUnitario: nuevo.precioUnitario, proveedorId: nuevo.proveedorId },
+              despues: {
+                cantidad: nuevo.cantidad,
+                precioUnitario: nuevo.precioUnitario,
+                proveedorId: nuevo.proveedorId,
+                descuentoTipo: nuevo.descuentoTipo ?? null,
+                descuentoValor: nuevo.descuentoValor ?? null,
+              },
             });
           }
 
@@ -1361,18 +1529,36 @@ router.patch(
               precioUnitario: nuevo.precioUnitario,
               subtotal: subtotalItem,
               proveedorId: nuevo.proveedorId,
+              descuentoTipo: nuevo.descuentoTipo ?? null,
+              descuentoValor: nuevo.descuentoTipo ? nuevo.descuentoValor : null,
+              descuentoMonto: descuentoMontoItem,
             },
           });
         }
 
+        // Mismo orden que en POST /ventas: el descuento libre del ticket se
+        // calcula sobre lo que queda despues de los descuentos por producto
+        // de cada renglon.
+        const subtotalNetoItems = subtotal - sumaDescuentosItems;
         let descuentoMonto = 0;
         if (datos.descuentoTipo === 'PORCENTAJE') {
-          descuentoMonto = subtotal * ((datos.descuentoValor ?? 0) / 100);
+          descuentoMonto = subtotalNetoItems * ((datos.descuentoValor ?? 0) / 100);
         } else if (datos.descuentoTipo === 'MONTO') {
           descuentoMonto = datos.descuentoValor ?? 0;
         }
-        descuentoMonto = Math.min(descuentoMonto, subtotal);
-        const total = subtotal - descuentoMonto;
+        descuentoMonto = Math.min(descuentoMonto, subtotalNetoItems);
+        const total = subtotalNetoItems - descuentoMonto;
+
+        for (const pd of productosConDescuento) {
+          await tx.producto.update({
+            where: { id: pd.productoId },
+            data: {
+              ultimoDescuentoTipo: pd.descuentoTipo,
+              ultimoDescuentoValor: pd.descuentoValor,
+              ultimoDescuentoFecha: new Date(),
+            },
+          });
+        }
 
         // Snapshot antes/después a nivel de venta, solo de lo que sí
         // cambió, para el registro de auditoría.

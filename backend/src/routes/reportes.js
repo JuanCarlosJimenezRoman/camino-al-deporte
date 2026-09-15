@@ -147,6 +147,11 @@ async function fetchVentasCompletadas(desde, hasta, sucursalId) {
       sucursalId: true,
       createdAt: true,
       sucursal: { select: { nombre: true } },
+      // Descuento por producto de cada renglon (ver VentaItem.descuentoMonto)
+      // - se suma junto con el descuento de ticket de arriba para que
+      // "Descuentos totales" del resumen refleje TODO lo descontado, no solo
+      // el descuento libre del ticket completo.
+      items: { select: { descuentoMonto: true } },
     },
   });
 }
@@ -310,7 +315,10 @@ async function fetchMovimientosEntrada(desde, hasta, sucursalId) {
 function calcularResumen(ventas) {
   const totalVentas = ventas.length;
   const totalMonto = ventas.reduce((acc, v) => acc + Number(v.total), 0);
-  const totalDescuentos = ventas.reduce((acc, v) => acc + Number(v.descuentoMonto || 0), 0);
+  const totalDescuentos = ventas.reduce((acc, v) => {
+    const descuentoItems = (v.items || []).reduce((a, it) => a + Number(it.descuentoMonto || 0), 0);
+    return acc + Number(v.descuentoMonto || 0) + descuentoItems;
+  }, 0);
   return {
     totalVentas,
     totalMonto,

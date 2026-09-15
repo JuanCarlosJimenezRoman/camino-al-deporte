@@ -67,6 +67,14 @@ interface Producto {
   descripcion: string | null;
   precioCompra: string;
   precioVenta: string;
+  // Descuento por defecto (ver Producto en schema.prisma) y ultimo con el
+  // que se vendio - ambos se usan en el punto de venta para precargar el
+  // boton "Descuento" del carrito sin tener que preguntar cada vez.
+  descuentoDefectoTipo: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoDefectoValor: string | null;
+  ultimoDescuentoTipo: 'PORCENTAJE' | 'MONTO' | null;
+  ultimoDescuentoValor: string | null;
+  ultimoDescuentoFecha: string | null;
   marcaId: number;
   modeloId: number | null;
   categoriaId: number;
@@ -125,6 +133,9 @@ interface EditProductoForm {
   categoriaId: string;
   precioCompra: string;
   precioVenta: string;
+  // '' = sin descuento por defecto.
+  descuentoDefectoTipo: '' | 'PORCENTAJE' | 'MONTO';
+  descuentoDefectoValor: string;
   descripcion: string;
   valoresDefinidos: Record<string, string>;
   atributos: AtributoExtra[];
@@ -138,6 +149,8 @@ function formVacioProducto(): EditProductoForm {
     categoriaId: '',
     precioCompra: '0',
     precioVenta: '0',
+    descuentoDefectoTipo: '',
+    descuentoDefectoValor: '',
     descripcion: '',
     valoresDefinidos: {},
     atributos: [],
@@ -334,6 +347,8 @@ function ProductoDetalleContenido() {
         categoriaId: String(p.categoriaId),
         precioCompra: p.precioCompra,
         precioVenta: p.precioVenta,
+        descuentoDefectoTipo: p.descuentoDefectoTipo ?? '',
+        descuentoDefectoValor: p.descuentoDefectoValor ?? '',
         descripcion: p.descripcion ?? '',
         valoresDefinidos,
         atributos: atributosLibres,
@@ -578,6 +593,12 @@ function ProductoDetalleContenido() {
           categoriaId: Number(editProductoForm.categoriaId),
           precioCompra: Number(editProductoForm.precioCompra) || 0,
           precioVenta: Number(editProductoForm.precioVenta) || 0,
+          // '' (sin descuento por defecto) se manda como null explicito para
+          // poder quitarlo si ya tenia uno (ver PUT /productos/:id).
+          descuentoDefectoTipo: editProductoForm.descuentoDefectoTipo || null,
+          descuentoDefectoValor: editProductoForm.descuentoDefectoTipo
+            ? Number(editProductoForm.descuentoDefectoValor) || 0
+            : null,
           descripcion: editProductoForm.descripcion.trim() || null,
           atributosExtra,
         }),
@@ -896,6 +917,40 @@ function ProductoDetalleContenido() {
                 <label>Precio de venta</label>
                 <Input type="number" min={0} value={editProductoForm.precioVenta} onChange={(e) => setEditProductoForm((f) => ({ ...f, precioVenta: e.target.value }))} disabled={!puedeEditar} />
               </div>
+            </div>
+            <div>
+              <label>Descuento por defecto</label>
+              <p className="text-xs text-muted-foreground mb-1">
+                Se sugiere solo con el boton &quot;Descuento&quot; del punto de venta — el cajero siempre confirma antes de
+                aplicarlo, no se cobra solo.
+              </p>
+              <div className="grid grid-cols-[7rem_1fr] gap-2">
+                <Select
+                  value={editProductoForm.descuentoDefectoTipo}
+                  onChange={(e) =>
+                    setEditProductoForm((f) => ({ ...f, descuentoDefectoTipo: e.target.value as EditProductoForm['descuentoDefectoTipo'] }))
+                  }
+                  disabled={!puedeEditar}
+                >
+                  <option value="">Sin descuento</option>
+                  <option value="PORCENTAJE">%</option>
+                  <option value="MONTO">$</option>
+                </Select>
+                <Input
+                  type="number"
+                  min={0}
+                  value={editProductoForm.descuentoDefectoValor}
+                  onChange={(e) => setEditProductoForm((f) => ({ ...f, descuentoDefectoValor: e.target.value }))}
+                  disabled={!puedeEditar || !editProductoForm.descuentoDefectoTipo}
+                  placeholder={editProductoForm.descuentoDefectoTipo === 'MONTO' ? 'Ej. 100.00' : 'Ej. 10'}
+                />
+              </div>
+              {producto.ultimoDescuentoTipo && producto.ultimoDescuentoValor && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Ultima vez que se vendio con descuento: {producto.ultimoDescuentoTipo === 'PORCENTAJE' ? `${producto.ultimoDescuentoValor}%` : `$${producto.ultimoDescuentoValor}`}
+                  {producto.ultimoDescuentoFecha ? ` (${formatearFechaHora(producto.ultimoDescuentoFecha)})` : ''}
+                </p>
+              )}
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>

@@ -97,7 +97,13 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
 
   items.forEach((it) => {
     const precio = moneda(it.precioUnitario);
-    const subtotal = moneda(it.subtotal);
+    // Descuento por producto de este renglón (ver VentaItem.descuentoMonto):
+    // el IMPORTE que se imprime ya es neto (lo que realmente se cobró), y
+    // abajo se anota el descuento aplicado para que quede claro por qué no
+    // coincide con cantidad x precio unitario.
+    const descuentoItem = Number(it.descuentoMonto || 0);
+    const importeNeto = Number(it.subtotal) - descuentoItem;
+    const subtotal = moneda(importeNeto);
     const yFila = doc.y;
     const alturaDescripcion = doc.heightOfString(it.descripcion, { width: colDescWidth, fontSize: 9 });
 
@@ -107,7 +113,9 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
     doc.font('Helvetica-Bold').text(`$${subtotal}`, right - COL_IMPORTE, yFila, { width: COL_IMPORTE, align: 'right' });
 
     const ySubnota = yFila + alturaDescripcion + 2;
-    const subnotaTexto = `${it.cantidad} x $${precio}`;
+    const etiquetaDescuentoItem =
+      it.descuentoTipo === 'PORCENTAJE' ? ` · desc. ${Number(it.descuentoValor)}%` : descuentoItem > 0 ? ` · desc. -$${moneda(descuentoItem)}` : '';
+    const subnotaTexto = `${it.cantidad} x $${precio}${etiquetaDescuentoItem}`;
     doc.font('Helvetica').fontSize(8).fillColor(PALETA.textoMuted).text(subnotaTexto, left + COL_CANT, ySubnota, { width: colDescWidth });
     doc.fillColor(PALETA.texto);
 
@@ -120,13 +128,19 @@ function dibujarTicket(doc, { venta, items, whatsappContacto, barcodeBuffer, mar
   // Subtotal y descuento (solo si el cajero aplicó uno) — el subtotal se
   // recalcula sumando los renglones, ya que venta.total viene con el
   // descuento ya aplicado.
-  const descuentoMonto = Number(venta.descuentoMonto || 0);
-  if (descuentoMonto > 0) {
+  const descuentoMontoTicket = Number(venta.descuentoMonto || 0);
+  const descuentoMontoItems = items.reduce((acc, it) => acc + Number(it.descuentoMonto || 0), 0);
+  if (descuentoMontoTicket > 0 || descuentoMontoItems > 0) {
     const subtotalItems = items.reduce((acc, it) => acc + Number(it.subtotal), 0);
     filaMonto('Subtotal', `$${moneda(subtotalItems)}`);
+    if (descuentoMontoItems > 0) {
+      filaMonto('Descuento por producto', `-$${moneda(descuentoMontoItems)}`, { color: PALETA.exito });
+    }
     const etiquetaDescuento =
       venta.descuentoTipo === 'PORCENTAJE' ? `Descuento (${Number(venta.descuentoValor)}%)` : 'Descuento';
-    filaMonto(etiquetaDescuento, `-$${moneda(descuentoMonto)}`, { color: PALETA.exito });
+    if (descuentoMontoTicket > 0) {
+      filaMonto(etiquetaDescuento, `-$${moneda(descuentoMontoTicket)}`, { color: PALETA.exito });
+    }
     if (venta.descuentoMotivo) {
       doc.font('Helvetica').fontSize(8).fillColor(PALETA.textoMuted).text(`Motivo: ${venta.descuentoMotivo}`, left, doc.y, { width: contentWidth });
       doc.fillColor(PALETA.texto);

@@ -33,6 +33,7 @@ import { useConfigNegocio } from '@/lib/configNegocio';
 import { ProductoThumb, imagenPrincipal } from '@/components/admin/ProductoThumb';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -77,6 +78,12 @@ interface VentaItem {
   cantidad: number;
   precioUnitario: string;
   subtotal: string;
+  // Descuento por producto de este renglon (ver VentaItem.descuentoTipo
+  // en el backend) - independiente del descuento libre de Venta, que
+  // aplica al ticket completo.
+  descuentoTipo?: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoValor?: string | null;
+  descuentoMonto?: string;
   // Null cuando el renglón es un producto NO registrado en el catálogo (ver
   // descripcionLibre) — no descontó inventario ni tiene SKU/talla/foto.
   variante: {
@@ -167,6 +174,14 @@ interface Existencia {
       precioVenta: string;
       marca?: { nombre: string } | null;
       imagenes?: { url: string; color?: string | null; esPrincipal?: boolean }[];
+      // Descuento por defecto del producto y ultimo descuento con el que
+      // se vendio (ver Producto en schema.prisma) - el boton "Descuento"
+      // del carrito los usa para precargar el modal sin tener que
+      // preguntar cada vez cuanto descuento va (ver abrirModalDescuento).
+      descuentoDefectoTipo?: 'PORCENTAJE' | 'MONTO' | null;
+      descuentoDefectoValor?: string | null;
+      ultimoDescuentoTipo?: 'PORCENTAJE' | 'MONTO' | null;
+      ultimoDescuentoValor?: string | null;
     };
   };
 }
@@ -395,6 +410,10 @@ interface ItemCarritoVariante {
   key: string;
   existencia: Existencia;
   cantidad: number;
+  // Descuento por producto de este renglon (ver boton "Descuento" del
+  // carrito) - null cuando no se aplico ninguno.
+  descuentoTipo: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoValor: number | null;
 }
 interface ItemCarritoLibre {
   tipo: 'libre';
@@ -404,8 +423,33 @@ interface ItemCarritoLibre {
   proveedorNombre: string | null;
   precioUnitario: number;
   cantidad: number;
+  // Un renglon libre no tiene Producto del que precargar un descuento
+  // por defecto/ultimo usado, pero el cajero puede capturar uno igual.
+  descuentoTipo: 'PORCENTAJE' | 'MONTO' | null;
+  descuentoValor: number | null;
 }
 type ItemCarrito = ItemCarritoVariante | ItemCarritoLibre;
+
+// Precio bruto de un renglon del carrito (cantidad x precio unitario, SIN
+// su descuento) - el mismo calculo que antes hacian subtotalVenta y la
+// tarjeta de cada renglon, ahora centralizado porque tambien lo necesita
+// el descuento por producto.
+function precioUnitarioCarrito(it: ItemCarrito): number {
+  return it.tipo === 'libre' ? it.precioUnitario : Number(it.existencia.variante.producto.precioVenta);
+}
+function subtotalBrutoCarrito(it: ItemCarrito): number {
+  return precioUnitarioCarrito(it) * it.cantidad;
+}
+// Descuento en pesos ya aplicado a este renglon (nunca mayor al subtotal
+// bruto) - la misma formula que valida el servidor en POST /ventas, para
+// que la vista previa del cajero cuadre con lo que de verdad se va a
+// cobrar.
+function descuentoMontoCarrito(it: ItemCarrito): number {
+  if (!it.descuentoTipo || !it.descuentoValor || it.descuentoValor <= 0) return 0;
+  const bruto = subtotalBrutoCarrito(it);
+  const monto = it.descuentoTipo === 'PORCENTAJE' ? bruto * (it.descuentoValor / 100) : it.descuentoValor;
+  return Math.min(monto, bruto);
+}
 
 const METODOS_PAGO = [
   { valor: 'EFECTIVO', etiqueta: 'Efectivo' },
@@ -810,7 +854,10 @@ export default function VentasPage() {
         if (existente.cantidad >= e.stockActual) return actual;
         return actual.map((it) => (it.key === key ? { ...it, cantidad: it.cantidad + 1 } : it));
       }
-      return [...actual, { tipo: 'variante', key, existencia: e, cantidad: Math.min(1, e.stockActual) }];
+      return [
+        ...actual,
+        { tipo: 'variante', key, existencia: e, cantidad: Math.min(1, e.stockActual), descuentoTipo: null, descuentoValor: null },
+      ];
     });
   }
 
@@ -846,6 +893,8 @@ export default function VentasPage() {
         proveedorNombre: proveedor ? proveedor.nombre : null,
         precioUnitario: precio,
         cantidad: cant,
+        descuentoTipo: null,
+        descuentoValor: null,
       },
     ]);
     setLibreDescripcion('');
@@ -857,6 +906,61 @@ export default function VentasPage() {
 
   function quitarDelCarrito(key: string) {
     setCarrito((actual) => actual.filter((it) => it.key !== key));
+  }
+
+  // Boton "Descuento" de cada renglon del carrito: se decidio que al
+  // presionarlo se abra el modal ya prellenado (con el descuento por
+  // defecto del producto, o si no tiene, el ultimo con el que se vendio) en
+  // vez de aplicarlo directo, para que el cajero siempre confirme antes de
+  // que quede cobrado.
+  const [modalDescuentoKey, setModalDescuentoKey] = useState<string | null>(null);
+  const [modalDescuentoTipo, setModalDescuentoTipo] = useState<'PORCENTAJE' | 'MONTO'>('PORCENTAJE');
+  const [modalDescuentoValor, setModalDescuentoValor] = useState('');
+
+  function abrirModalDescuento(it: ItemCarrito) {
+    setModalDescuentoKey(it.key);
+    if (it.descuentoTipo && it.descuentoValor) {
+      // Ya tiene un descuento capturado en este renglon: se reabre tal cual
+      // para poder ajustarlo, en vez de volver a sugerir el default.
+      setModalDescuentoTipo(it.descuentoTipo);
+      setModalDescuentoValor(String(it.descuentoValor));
+      return;
+    }
+    const producto = it.tipo === 'variante' ? it.existencia.variante.producto : null;
+    const sugerido =
+      producto && producto.descuentoDefectoTipo && producto.descuentoDefectoValor
+        ? { tipo: producto.descuentoDefectoTipo, valor: producto.descuentoDefectoValor }
+        : producto && producto.ultimoDescuentoTipo && producto.ultimoDescuentoValor
+          ? { tipo: producto.ultimoDescuentoTipo, valor: producto.ultimoDescuentoValor }
+          : null;
+    setModalDescuentoTipo(sugerido ? sugerido.tipo : 'PORCENTAJE');
+    setModalDescuentoValor(sugerido ? String(sugerido.valor) : '');
+  }
+
+  function cerrarModalDescuento() {
+    setModalDescuentoKey(null);
+    setModalDescuentoValor('');
+  }
+
+  function confirmarModalDescuento() {
+    if (!modalDescuentoKey) return;
+    const valor = Number(modalDescuentoValor);
+    if (!modalDescuentoValor || !Number.isFinite(valor) || valor <= 0) {
+      setMensaje('Captura el % o el monto del descuento.');
+      return;
+    }
+    if (modalDescuentoTipo === 'PORCENTAJE' && valor > 100) {
+      setMensaje('El descuento por porcentaje no puede ser mayor a 100%.');
+      return;
+    }
+    setCarrito((actual) =>
+      actual.map((it) => (it.key === modalDescuentoKey ? { ...it, descuentoTipo: modalDescuentoTipo, descuentoValor: valor } : it))
+    );
+    cerrarModalDescuento();
+  }
+
+  function quitarDescuentoCarrito(key: string) {
+    setCarrito((actual) => actual.map((it) => (it.key === key ? { ...it, descuentoTipo: null, descuentoValor: null } : it)));
   }
 
   // "Vaciar ticket": deja la venta en curso como si se acabara de entrar a
@@ -945,22 +1049,23 @@ export default function VentasPage() {
   // productos) — antes esto solo consideraba el único producto seleccionado.
   // Un renglón libre ya trae su propio precio capturado a mano, en vez de
   // leerlo del catálogo.
-  const subtotalVenta = carrito.reduce(
-    (acc, it) =>
-      acc + (it.tipo === 'libre' ? it.precioUnitario : Number(it.existencia.variante.producto.precioVenta)) * it.cantidad,
-    0
-  );
+  const subtotalVenta = carrito.reduce((acc, it) => acc + subtotalBrutoCarrito(it), 0);
+  // Descuento por producto ya capturado en cada renglon (boton "Descuento"
+  // del carrito) - independiente del descuento libre de todo el ticket de
+  // abajo, que se sigue aplicando sobre lo que queda despues de estos.
+  const descuentoItemsTotal = carrito.reduce((acc, it) => acc + descuentoMontoCarrito(it), 0);
+  const subtotalNetoItems = subtotalVenta - descuentoItemsTotal;
   // Solo es una vista previa para el cajero — el monto real en pesos
   // siempre lo recalcula y valida el servidor (ver POST /ventas).
   const descuentoValorNum = Number(descuentoValor) || 0;
   const descuentoMontoPreview =
     aplicarDescuento && descuentoValorNum > 0
       ? Math.min(
-          descuentoTipo === 'PORCENTAJE' ? subtotalVenta * (descuentoValorNum / 100) : descuentoValorNum,
-          subtotalVenta
+          descuentoTipo === 'PORCENTAJE' ? subtotalNetoItems * (descuentoValorNum / 100) : descuentoValorNum,
+          subtotalNetoItems
         )
       : 0;
-  const totalVenta = subtotalVenta - descuentoMontoPreview;
+  const totalVenta = subtotalNetoItems - descuentoMontoPreview;
   // Cuánto del total se cubre con el saldo a favor del cliente registrado
   // (si se encontró uno) — nunca más de lo que hace falta, ni más de lo que
   // tiene disponible. Lo que sobra después de eso es lo que de verdad hay
@@ -1084,6 +1189,11 @@ export default function VentasPage() {
                 cantidad: it.cantidad,
                 precioUnitario: it.precioUnitario,
                 proveedorId: it.proveedorId,
+                // Descuento por producto de este renglon (boton "Descuento"
+                // del carrito) - el monto real en pesos lo calcula y valida
+                // el servidor, igual que con el descuento del ticket.
+                descuentoTipo: it.descuentoTipo ?? undefined,
+                descuentoValor: it.descuentoValor ?? undefined,
               }
             : {
                 varianteId: it.existencia.variante.id,
@@ -1092,6 +1202,8 @@ export default function VentasPage() {
                 // De qué proveedor sale el stock vendido — ya viene fijo desde
                 // que se eligió el renglón en la búsqueda.
                 proveedorId: it.existencia.proveedorId,
+                descuentoTipo: it.descuentoTipo ?? undefined,
+                descuentoValor: it.descuentoValor ?? undefined,
               }
         ),
       };
@@ -1547,6 +1659,29 @@ export default function VentasPage() {
               {carrito.length > 0 ? (
                 <div className="space-y-2 max-h-[38vh] overflow-y-auto p-0.5">
                   {carrito.map((it) => {
+                    const bruto = subtotalBrutoCarrito(it);
+                    const descuentoItem = descuentoMontoCarrito(it);
+                    const neto = bruto - descuentoItem;
+                    const etiquetaDescuento =
+                      it.descuentoTipo === 'PORCENTAJE'
+                        ? `-${it.descuentoValor}%`
+                        : descuentoItem > 0
+                          ? `-${formatoMonedaExacto(descuentoItem)}`
+                          : null;
+                    const botonDescuento = (
+                      <button
+                        type="button"
+                        onClick={() => abrirModalDescuento(it)}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${
+                          etiquetaDescuento
+                            ? 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        <Tag className="w-3 h-3" />
+                        {etiquetaDescuento ?? 'Descuento'}
+                      </button>
+                    );
                     if (it.tipo === 'libre') {
                       return (
                         <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
@@ -1559,11 +1694,10 @@ export default function VentasPage() {
                               {formatoMonedaExacto(it.precioUnitario)} c/u · No registrado
                               {it.proveedorNombre ? ` · ${it.proveedorNombre}` : ''}
                             </div>
-                            <div className="mt-1 flex items-center justify-between">
+                            <div className="mt-1 flex items-center justify-between gap-2">
                               <SelectorCantidad cantidad={it.cantidad} onCambiar={(n) => cambiarCantidadCarrito(it.key, n)} />
-                              <span className="text-sm font-semibold tabular-nums">
-                                {formatoMonedaExacto(it.precioUnitario * it.cantidad)}
-                              </span>
+                              {botonDescuento}
+                              <span className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(neto)}</span>
                             </div>
                           </div>
                           <Button
@@ -1582,22 +1716,22 @@ export default function VentasPage() {
                     const detalle = [it.existencia.variante.talla?.valor, it.existencia.variante.color]
                       .filter(Boolean)
                       .join(' / ');
-                    const precio = Number(p.precioVenta);
                     return (
                       <div key={it.key} className="flex items-center gap-2.5 rounded-lg border border-border bg-card p-2.5">
                         <ProductoThumb url={imagenPrincipal(p, it.existencia.variante.color)} alt="" size={44} />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium truncate">{p.nombre}</div>
                           <div className="text-xs text-muted-foreground truncate">
-                            {detalle || 'Único'} · {formatoMonedaExacto(precio)}
+                            {detalle || 'Único'} · {formatoMonedaExacto(Number(p.precioVenta))}
                           </div>
-                          <div className="mt-1 flex items-center justify-between">
+                          <div className="mt-1 flex items-center justify-between gap-2">
                             <SelectorCantidad
                               cantidad={it.cantidad}
                               onCambiar={(n) => cambiarCantidadCarrito(it.key, n)}
                               max={it.existencia.stockActual}
                             />
-                            <span className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(precio * it.cantidad)}</span>
+                            {botonDescuento}
+                            <span className="text-sm font-semibold tabular-nums">{formatoMonedaExacto(neto)}</span>
                           </div>
                         </div>
                         <Button
@@ -2147,6 +2281,64 @@ export default function VentasPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de descuento por producto: se abre desde el boton "Descuento"
+          de cada renglon del carrito (ver abrirModalDescuento), ya prellenado
+          con el descuento por defecto del producto o el ultimo con el que se
+          vendio, para no tener que preguntar/capturarlo desde cero cada vez. */}
+      <Dialog open={modalDescuentoKey !== null} onOpenChange={(open) => !open && cerrarModalDescuento()}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Descuento del producto</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            <div className="flex gap-2">
+              <Select
+                value={modalDescuentoTipo}
+                onChange={(e) => setModalDescuentoTipo(e.target.value as 'PORCENTAJE' | 'MONTO')}
+                className="w-32 shrink-0"
+              >
+                <option value="PORCENTAJE">%</option>
+                <option value="MONTO">$</option>
+              </Select>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={modalDescuentoValor}
+                onChange={(e) => setModalDescuentoValor(e.target.value)}
+                placeholder={modalDescuentoTipo === 'PORCENTAJE' ? 'Ej. 10' : 'Ej. 100.00'}
+                autoFocus
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Se precarga solo — el cajero confirma o ajusta antes de aplicarlo, nunca se cobra sin que se presione
+              &quot;Aplicar&quot;.
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            {modalDescuentoKey && carrito.find((it) => it.key === modalDescuentoKey)?.descuentoTipo && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  quitarDescuentoCarrito(modalDescuentoKey);
+                  cerrarModalDescuento();
+                }}
+                className="sm:mr-auto text-destructive"
+              >
+                Quitar descuento
+              </Button>
+            )}
+            <Button type="button" variant="secondary" onClick={cerrarModalDescuento}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={confirmarModalDescuento}>
+              Aplicar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
