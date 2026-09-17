@@ -124,7 +124,7 @@ export function AyudaPage() {
     <div className="space-y-6">
       <PageHeader
         title="Ayuda"
-        description={`Instructivo y soporte para ${config.nombre || 'el panel'}.`}
+        subtitle={`Instructivo y soporte para ${config.nombre || 'el panel'}.`}
       />
 
       {/* Instructivo ----------------------------------------------------- */}
