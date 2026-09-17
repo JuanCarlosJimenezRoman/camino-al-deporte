@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer,
   LineChart,
@@ -18,26 +17,18 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { api, apiDownload, ApiError } from '@/lib/api';
-import { useAuth, puedeVer } from '@/lib/auth';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/ui/page-header';
 import { EmptyState } from '@/components/ui/empty-state';
-import {
-  DollarSign,
-  ShoppingCart,
-  Receipt,
-  Tag,
-  Download,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Loader2,
-  Lock,
-} from 'lucide-react';
+import { DollarSign, ShoppingCart, Receipt, Tag, Download, TrendingUp, TrendingDown, Minus, Loader2, Lock } from 'lucide-react';
+import { useReportes } from '@/features/reportes/useReportes';
+import { money, moneyCompacto } from '@/features/reportes/utils';
+import { KpiTile } from '@/features/reportes/components/KpiTile';
+import { SelectorPeriodo } from '@/features/reportes/components/SelectorPeriodo';
+import { TooltipMoneda } from '@/features/reportes/components/TooltipMoneda';
+import { TooltipPiezas } from '@/features/reportes/components/TooltipPiezas';
+import { TasaVentaBadge } from '@/features/reportes/components/TasaVentaBadge';
 
 // ---------------------------------------------------------------------------
 // Colores: se reutilizan los tokens de marca ya definidos en globals.css
@@ -71,369 +62,36 @@ const COLOR_GRID = 'rgb(var(--border))';
 const COLOR_EJE = 'rgb(var(--chart-axis))';
 const COLOR_TEXTO_SECUNDARIO = 'rgb(var(--muted-foreground))';
 
-interface Sucursal {
-  id: number;
-  nombre: string;
-}
-
-interface ResumenMetricas {
-  totalVentas: number;
-  totalMonto: number;
-  totalDescuentos: number;
-  ticketPromedio: number;
-}
-
-interface ResumenResponse {
-  periodo: { desde: string; hasta: string };
-  periodoAnterior: { desde: string; hasta: string };
-  actual: ResumenMetricas;
-  anterior: ResumenMetricas;
-  variacion: { monto: number | null; ventas: number | null; ticketPromedio: number | null };
-}
-
-interface SeriePunto {
-  fecha: string;
-  ventas: number;
-  monto: number;
-}
-
-interface MetodoPagoRow {
-  metodo: string;
-  etiqueta: string;
-  ventas: number;
-  monto: number;
-}
-
-interface SucursalRow {
-  sucursalId: number;
-  nombre: string;
-  ventas: number;
-  monto: number;
-}
-
-interface DesgloseItem {
-  id?: number | null;
-  nombre?: string;
-  valor?: string;
-  tipo?: string;
-  cantidad: number;
-  monto: number;
-}
-
-interface DesgloseResponse {
-  topProductos: DesgloseItem[];
-  porMarca: DesgloseItem[];
-  porCategoria: DesgloseItem[];
-  porTalla: DesgloseItem[];
-  porProveedor: DesgloseItem[];
-}
-
-interface ProveedorRendimientoRow {
-  id: number | null;
-  nombre: string;
-  cantidadIngresada: number;
-  cantidadVendida: number;
-  montoVendido: number;
-  // Piezas vendidas / piezas ingresadas, en %. null cuando no hubo entradas
-  // registradas de ese proveedor en el periodo (no hay denominador).
-  tasaVenta: number | null;
-}
-
-interface EstimacionResponse {
-  historico: SeriePunto[];
-  suficienteDatos: boolean;
-  promedioDiarioHistorico: number;
-  tendencia: { direccion: 'creciendo' | 'bajando' | 'estable'; cambioSemanalPct: number };
-  totalProyectado: number;
-  proyeccion: { fecha: string; monto: number }[];
-  nota: string;
-}
-
-// Un punto del gráfico de estimación trae SOLO "real" (histórico) o SOLO
-// "estimado" (proyección) — excepto el último día histórico, que trae
-// ambos para que la línea punteada arranque conectada a la línea sólida.
-interface PuntoProyeccion {
-  fecha: string;
-  real?: number;
-  estimado?: number;
-}
-
-function money(n: number) {
-  return `$${(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function moneyCompacto(n: number) {
-  const abs = Math.abs(n || 0);
-  if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return money(n);
-}
-
-function formatFechaCorta(fecha: string) {
-  const d = new Date(`${fecha}T00:00:00.000Z`);
-  return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', timeZone: 'UTC' });
-}
-
-function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function menosDias(dias: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - dias);
-  return d.toISOString().slice(0, 10);
-}
-
-type PresetRango = 'hoy' | '7d' | '30d' | 'mes' | 'mesPasado' | 'personalizado';
-
-function calcularPreset(preset: PresetRango): { desde: string; hasta: string } {
-  const hasta = hoyISO();
-  switch (preset) {
-    case 'hoy':
-      return { desde: hasta, hasta };
-    case '7d':
-      return { desde: menosDias(6), hasta };
-    case '30d':
-      return { desde: menosDias(29), hasta };
-    case 'mes': {
-      const ahora = new Date();
-      const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      return { desde: inicio.toISOString().slice(0, 10), hasta };
-    }
-    case 'mesPasado': {
-      const ahora = new Date();
-      const inicio = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
-      const fin = new Date(ahora.getFullYear(), ahora.getMonth(), 0);
-      return { desde: inicio.toISOString().slice(0, 10), hasta: fin.toISOString().slice(0, 10) };
-    }
-    default:
-      // 'personalizado' no pasa por aquí (los inputs de fecha manejan su
-      // propio valor); este caso solo existe para que el switch compile.
-      return { desde: menosDias(29), hasta };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Piezas pequeñas reutilizables
-// ---------------------------------------------------------------------------
-
-function Delta({ valor }: { valor: number | null }) {
-  if (valor === null) {
-    return <span className="text-xs text-muted-foreground">sin periodo anterior</span>;
-  }
-  const positivo = valor > 0.5;
-  const negativo = valor < -0.5;
-  const Icono = positivo ? TrendingUp : negativo ? TrendingDown : Minus;
-  const clase = positivo ? 'text-success' : negativo ? 'text-destructive' : 'text-muted-foreground';
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium ${clase}`}>
-      <Icono className="w-3.5 h-3.5" />
-      {valor > 0 ? '+' : ''}
-      {valor.toFixed(1)}% vs periodo anterior
-    </span>
-  );
-}
-
-function KpiTile({
-  icon: Icono,
-  titulo,
-  valor,
-  delta,
-  tono,
-}: {
-  icon: typeof DollarSign;
-  titulo: string;
-  valor: string;
-  delta?: number | null;
-  tono: 'primary' | 'success' | 'warning';
-}) {
-  const toneClasses: Record<string, string> = {
-    primary: 'bg-primary/10 text-primary',
-    success: 'bg-success/10 text-success',
-    warning: 'bg-warning/10 text-warning',
-  };
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{titulo}</CardTitle>
-        <div className={`p-2 rounded-lg ${toneClasses[tono]}`}>
-          <Icono className="h-4 w-4" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{valor}</div>
-        {delta !== undefined && <div className="mt-1">{<Delta valor={delta} />}</div>}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TooltipMoneda({ active, payload, label }: any) {
-  if (!active || !payload || !payload.length) return null;
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-card text-xs">
-      <div className="text-muted-foreground mb-1">{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span className="inline-block w-2.5 h-0.5 rounded" style={{ backgroundColor: p.color }} />
-          <span className="text-muted-foreground">{p.name}:</span>
-          <span className="font-semibold text-foreground">{money(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TooltipPiezas({ active, payload, label }: any) {
-  if (!active || !payload || !payload.length) return null;
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-card text-xs">
-      <div className="text-muted-foreground mb-1">{label}</div>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span className="inline-block w-2.5 h-0.5 rounded" style={{ backgroundColor: p.color }} />
-          <span className="text-muted-foreground">{p.name}:</span>
-          <span className="font-semibold text-foreground">{p.value} pzs</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// % de piezas vendidas sobre piezas ingresadas en el periodo ("rotación").
-// null = ese proveedor no tuvo reabastos registrados en el periodo, así que
-// no hay denominador para calcular el porcentaje.
-function TasaVentaBadge({ valor }: { valor: number | null }) {
-  if (valor === null) {
-    return <span className="text-xs text-muted-foreground">sin entradas</span>;
-  }
-  const tono = valor >= 70 ? 'text-success' : valor >= 30 ? 'text-warning' : 'text-destructive';
-  return (
-    <span className={`text-xs font-medium ${tono}`}>{valor.toFixed(1)}%</span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Página
-// ---------------------------------------------------------------------------
-
 export default function ReportesVentasPage() {
-  const { usuario } = useAuth();
-  const rol = usuario?.rol;
-  const esAdmin = rol === 'ADMIN_PRINCIPAL' || rol === 'DESARROLLO';
-  const puedeVerReportes = puedeVer('reportes', rol);
-
-  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  const [sucursalId, setSucursalId] = useState('');
-  const [preset, setPreset] = useState<PresetRango>('30d');
-  const [{ desde, hasta }, setRango] = useState(calcularPreset('30d'));
-
-  const [resumen, setResumen] = useState<ResumenResponse | null>(null);
-  const [serie, setSerie] = useState<SeriePunto[] | null>(null);
-  const [porMetodoPago, setPorMetodoPago] = useState<MetodoPagoRow[] | null>(null);
-  const [porSucursal, setPorSucursal] = useState<SucursalRow[] | null>(null);
-  const [desglose, setDesglose] = useState<DesgloseResponse | null>(null);
-  const [porProveedor, setPorProveedor] = useState<ProveedorRendimientoRow[] | null>(null);
-  const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [exportando, setExportando] = useState(false);
-
-  const [horizonte, setHorizonte] = useState(30);
-  const [estimacion, setEstimacion] = useState<EstimacionResponse | null>(null);
-  const [cargandoEstimacion, setCargandoEstimacion] = useState(false);
-
-  useEffect(() => {
-    if (esAdmin) api<Sucursal[]>('/sucursales').then(setSucursales).catch(() => {});
-  }, [esAdmin]);
-
-  function aplicarPreset(p: PresetRango) {
-    setPreset(p);
-    setRango(calcularPreset(p));
-  }
-
-  async function cargar() {
-    setCargando(true);
-    setError(null);
-    try {
-      const qs = new URLSearchParams({ desde, hasta });
-      if (esAdmin && sucursalId) qs.set('sucursalId', sucursalId);
-      const qsStr = qs.toString();
-
-      const [resumenData, serieData, metodoData, desgloseData, sucursalData, proveedorData] = await Promise.all([
-        api<ResumenResponse>(`/reportes/ventas/resumen?${qsStr}`),
-        api<{ serie: SeriePunto[] }>(`/reportes/ventas/serie?${qsStr}`),
-        api<{ porMetodoPago: MetodoPagoRow[] }>(`/reportes/ventas/por-metodo-pago?${qsStr}`),
-        api<DesgloseResponse>(`/reportes/ventas/desglose?${qsStr}&limite=10`),
-        esAdmin ? api<{ porSucursal: SucursalRow[] }>(`/reportes/ventas/por-sucursal?${qsStr}`) : Promise.resolve(null),
-        api<{ porProveedor: ProveedorRendimientoRow[] }>(`/reportes/ventas/por-proveedor?${qsStr}`),
-      ]);
-
-      setResumen(resumenData);
-      setSerie(serieData.serie);
-      setPorMetodoPago(metodoData.porMetodoPago);
-      setDesglose(desgloseData);
-      setPorSucursal(sucursalData?.porSucursal ?? null);
-      setPorProveedor(proveedorData.porProveedor);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudieron cargar los reportes.');
-    } finally {
-      setCargando(false);
-    }
-  }
-
-  async function cargarEstimacion() {
-    setCargandoEstimacion(true);
-    try {
-      const qs = new URLSearchParams({ horizonte: String(horizonte), historialDias: '90' });
-      if (esAdmin && sucursalId) qs.set('sucursalId', sucursalId);
-      const data = await api<EstimacionResponse>(`/reportes/ventas/estimacion?${qs.toString()}`);
-      setEstimacion(data);
-    } catch {
-      setEstimacion(null);
-    } finally {
-      setCargandoEstimacion(false);
-    }
-  }
-
-  useEffect(() => {
-    if (puedeVerReportes) cargar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [puedeVerReportes, desde, hasta, sucursalId]);
-
-  useEffect(() => {
-    if (puedeVerReportes) cargarEstimacion();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [puedeVerReportes, horizonte, sucursalId]);
-
-  async function exportar() {
-    setExportando(true);
-    try {
-      const qs = new URLSearchParams({ desde, hasta });
-      if (esAdmin && sucursalId) qs.set('sucursalId', sucursalId);
-      await apiDownload(`/reportes/ventas/exportar?${qs.toString()}`, `reporte-ventas-${desde}-a-${hasta}.xlsx`);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo exportar el reporte.');
-    } finally {
-      setExportando(false);
-    }
-  }
-
-  const datosProyeccion = useMemo<PuntoProyeccion[]>(() => {
-    if (!estimacion) return [];
-    const puntos: PuntoProyeccion[] = estimacion.historico.slice(-45).map((p) => ({
-      fecha: formatFechaCorta(p.fecha),
-      real: p.monto,
-    }));
-    if (puntos.length && estimacion.proyeccion.length) {
-      puntos[puntos.length - 1].estimado = puntos[puntos.length - 1].real;
-    }
-    for (const p of estimacion.proyeccion) {
-      puntos.push({ fecha: formatFechaCorta(p.fecha), estimado: p.monto });
-    }
-    return puntos;
-  }, [estimacion]);
-
-  const datosSerie = useMemo(() => (serie || []).map((p) => ({ ...p, fechaCorta: formatFechaCorta(p.fecha) })), [serie]);
+  const {
+    usuario,
+    esAdmin,
+    puedeVerReportes,
+    sucursales,
+    sucursalId,
+    setSucursalId,
+    preset,
+    aplicarPreset,
+    desde,
+    hasta,
+    setRango,
+    setPreset,
+    resumen,
+    porMetodoPago,
+    porSucursal,
+    desglose,
+    porProveedor,
+    cargando,
+    error,
+    horizonte,
+    setHorizonte,
+    estimacion,
+    cargandoEstimacion,
+    exportando,
+    exportar,
+    datosSerie,
+    datosProyeccion,
+  } = useReportes();
 
   if (!puedeVerReportes) {
     return <EmptyState icon={Lock} title="Sin acceso" description="No tienes permiso para ver esta sección." />;
@@ -459,59 +117,24 @@ export default function ReportesVentasPage() {
 
       {/* Filtros: una sola fila, arriba de todo — todo lo de abajo se filtra igual */}
       <Card>
-        <CardContent className="p-4 flex flex-wrap items-center gap-2">
-          {(
-            [
-              ['hoy', 'Hoy'],
-              ['7d', '7 días'],
-              ['30d', '30 días'],
-              ['mes', 'Este mes'],
-              ['mesPasado', 'Mes pasado'],
-            ] as [PresetRango, string][]
-          ).map(([valor, etiqueta]) => (
-            <Button
-              key={valor}
-              size="sm"
-              variant={preset === valor ? 'default' : 'outline'}
-              onClick={() => aplicarPreset(valor)}
-            >
-              {etiqueta}
-            </Button>
-          ))}
-          <div className="flex items-center gap-1.5 ml-1">
-            <Input
-              type="date"
-              value={desde}
-              onChange={(e) => {
-                setPreset('personalizado');
-                setRango((r) => ({ ...r, desde: e.target.value }));
-              }}
-              className="w-[150px]"
-            />
-            <span className="text-xs text-muted-foreground">a</span>
-            <Input
-              type="date"
-              value={hasta}
-              onChange={(e) => {
-                setPreset('personalizado');
-                setRango((r) => ({ ...r, hasta: e.target.value }));
-              }}
-              className="w-[150px]"
-            />
-          </div>
-          {esAdmin && (
-            <div className="w-48">
-              <Select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
-                <option value="">Todas las sucursales</option>
-                {sucursales.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nombre}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-        </CardContent>
+        <SelectorPeriodo
+          preset={preset}
+          desde={desde}
+          hasta={hasta}
+          sucursalId={sucursalId}
+          sucursales={sucursales}
+          esAdmin={esAdmin}
+          onPreset={aplicarPreset}
+          onDesde={(v) => {
+            setPreset('personalizado');
+            setRango((r) => ({ ...r, desde: v }));
+          }}
+          onHasta={(v) => {
+            setPreset('personalizado');
+            setRango((r) => ({ ...r, hasta: v }));
+          }}
+          onSucursal={setSucursalId}
+        />
       </Card>
 
       {error && (
