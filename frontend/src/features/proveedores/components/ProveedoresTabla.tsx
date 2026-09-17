@@ -8,6 +8,7 @@ import { ProveedorFila } from './ProveedorFila';
 
 interface Props {
   proveedores: Proveedor[];
+  cargando: boolean;
   expandidoId: number | null;
   detalle: ProveedorDetalle | null;
   cargandoDetalle: boolean;
@@ -19,6 +20,7 @@ interface Props {
 
 export function ProveedoresTabla({
   proveedores,
+  cargando,
   expandidoId,
   detalle,
   cargandoDetalle,
@@ -56,7 +58,7 @@ export function ProveedoresTabla({
         {proveedores.length === 0 && (
           <tr>
             <td colSpan={6} style={{ color: 'var(--color-muted)' }}>
-              Sin proveedores registrados todavía.
+              {cargando ? 'Cargando...' : 'Sin proveedores registrados todavía.'}
             </td>
           </tr>
         )}

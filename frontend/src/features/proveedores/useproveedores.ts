@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '@/lib/api';
 import {
   actualizarProveedor,
@@ -69,6 +69,15 @@ export function useProveedores(): UseProveedoresReturn {
 
   const limpiarMensaje = useCallback(() => setMensaje(null), []);
 
+  // Descarta respuestas de detalle que llegan fuera de orden (p. ej. el
+  // usuario expande otro proveedor antes de que resuelva la petición anterior).
+  const detalleRequestIdRef = useRef(0);
+
+  // Distingue cada apertura/cierre del formulario para que un guardar()
+  // en vuelo no pise el mensaje o el estado de un formulario distinto que
+  // el usuario ya haya abierto en su lugar.
+  const formSessionRef = useRef(0);
+
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
@@ -86,14 +95,17 @@ export function useProveedores(): UseProveedoresReturn {
   }, [cargar]);
 
   const cargarDetalle = useCallback(async (id: number) => {
+    const requestId = ++detalleRequestIdRef.current;
     setCargandoDetalle(true);
     try {
       const data = await obtenerProveedor(id);
-      setDetalle(data);
+      if (detalleRequestIdRef.current === requestId) setDetalle(data);
     } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'No se pudo cargar el detalle del proveedor.');
+      if (detalleRequestIdRef.current === requestId) {
+        setMensaje(err instanceof ApiError ? err.message : 'No se pudo cargar el detalle del proveedor.');
+      }
     } finally {
-      setCargandoDetalle(false);
+      if (detalleRequestIdRef.current === requestId) setCargandoDetalle(false);
     }
   }, []);
 
@@ -111,6 +123,7 @@ export function useProveedores(): UseProveedoresReturn {
   );
 
   const abrirNuevo = useCallback(() => {
+    formSessionRef.current += 1;
     setEditandoId(null);
     setForm(proveedorVacio());
     setMensaje(null);
@@ -118,6 +131,7 @@ export function useProveedores(): UseProveedoresReturn {
   }, []);
 
   const abrirEdicion = useCallback((p: Proveedor) => {
+    formSessionRef.current += 1;
     setEditandoId(p.id);
     setForm(proveedorAFormValues(p));
     setMensaje(null);
@@ -125,6 +139,7 @@ export function useProveedores(): UseProveedoresReturn {
   }, []);
 
   const cerrarForm = useCallback(() => {
+    formSessionRef.current += 1;
     setMostrarForm(false);
     setMensaje(null);
   }, []);
@@ -135,10 +150,12 @@ export function useProveedores(): UseProveedoresReturn {
       setMensaje(errorValidacion);
       return;
     }
+    const session = formSessionRef.current;
     setGuardando(true);
     try {
-      if (editandoId) {
+      if (editandoId !== null) {
         const resultado = await actualizarProveedor(editandoId, form);
+        if (session !== formSessionRef.current) return;
         setMostrarForm(false);
         if (esPendiente(resultado)) {
           setMensaje(resultado.mensaje);
@@ -149,12 +166,15 @@ export function useProveedores(): UseProveedoresReturn {
         }
       } else {
         await crearProveedor(form);
+        if (session !== formSessionRef.current) return;
         setMensaje('Proveedor creado.');
         setMostrarForm(false);
         await cargar();
       }
     } catch (err) {
-      setMensaje(err instanceof ApiError ? err.message : 'Error al guardar el proveedor.');
+      if (session === formSessionRef.current) {
+        setMensaje(err instanceof ApiError ? err.message : 'Error al guardar el proveedor.');
+      }
     } finally {
       setGuardando(false);
     }

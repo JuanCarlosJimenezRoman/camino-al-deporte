@@ -1,11 +1,18 @@
 'use client';
 
+import { Lock } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { useAuth, puedeVer } from '@/lib/auth';
 import { ProveedorForm, ProveedoresTabla } from '@/features/proveedores';
 import { useProveedores } from '@/features/proveedores/useproveedores';
 
 export default function ProveedoresPage() {
+  const { usuario } = useAuth();
+  const puedeAcceder = puedeVer('proveedores', usuario?.rol);
+
   const {
     proveedores,
+    cargando,
     expandidoId,
     detalle,
     cargandoDetalle,
@@ -22,7 +29,12 @@ export default function ProveedoresPage() {
     toggleActivo,
     registrarPago,
     mensaje,
+    limpiarMensaje,
   } = useProveedores();
+
+  if (!puedeAcceder) {
+    return <EmptyState icon={Lock} title="Sin acceso" description="No tienes permiso para ver esta sección." />;
+  }
 
   return (
     <div>
@@ -39,7 +51,17 @@ export default function ProveedoresPage() {
         también puedes indicar de qué proveedor vino ese lote.
       </p>
 
-      {mensaje && !mostrarForm && <p style={{ fontSize: 13, marginBottom: 16 }}>{mensaje}</p>}
+      {mensaje && !mostrarForm && (
+        <p style={{ fontSize: 13, marginBottom: 16 }}>
+          {mensaje}{' '}
+          <button
+            onClick={limpiarMensaje}
+            style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-muted)', cursor: 'pointer', textDecoration: 'underline' }}
+          >
+            Cerrar
+          </button>
+        </p>
+      )}
 
       {mostrarForm && (
         <ProveedorForm
@@ -54,6 +76,7 @@ export default function ProveedoresPage() {
 
       <ProveedoresTabla
         proveedores={proveedores}
+        cargando={cargando}
         expandidoId={expandidoId}
         detalle={detalle}
         cargandoDetalle={cargandoDetalle}
