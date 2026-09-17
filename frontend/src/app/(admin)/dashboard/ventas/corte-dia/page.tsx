@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Receipt, DollarSign, Banknote, CreditCard, Wallet, ChevronDown, ChevronRight } from 'lucide-react';
+import { Receipt, DollarSign, Banknote, CreditCard, Wallet, Coins, ChevronDown, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatearHora, formatoMonedaExacto, ZONA_HORARIA_NEGOCIO } from '@/lib/utils';
 import { useAuth, puedeVer } from '@/lib/auth';
@@ -67,6 +67,16 @@ interface TotalProveedor {
   total: number;
 }
 
+interface AnticipoApartadoCorte {
+  id: number;
+  monto: number;
+  metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+  cuenta: string | null;
+  apartadoFolio: string | null;
+  cliente: string | null;
+  createdAt: string;
+}
+
 interface GastoProveedorCorte {
   proveedorId: number;
   monto: string;
@@ -100,6 +110,18 @@ interface CorteDia {
   productosVendidos: ProductoVendido[];
   porProveedor: TotalProveedor[];
   ventas: VentaResumen[];
+  // Anticipos y abonos de apartados cobrados este día (ver POST /apartados y
+  // POST /apartados/:id/pagos). Un apartado nunca genera un registro en
+  // Venta, así que ese dinero no sale en "ventas" de arriba — pero sí ya
+  // está sumado dentro de porMetodoPago/porCuentaTransferencia y de
+  // efectivoEnCaja (ver backend), este bloque es solo el detalle para
+  // auditar de qué apartado/cliente vino cada abono.
+  anticipos: {
+    cantidad: number;
+    total: number;
+    porMetodoPago: Record<string, number>;
+    detalle: AnticipoApartadoCorte[];
+  };
   gastos: {
     cantidad: number;
     total: number;
@@ -141,6 +163,7 @@ export default function CorteDelDiaPage() {
   const [mostrarProveedores, setMostrarProveedores] = useState(false);
   const [mostrarProductos, setMostrarProductos] = useState(false);
   const [mostrarGastos, setMostrarGastos] = useState(false);
+  const [mostrarAnticipos, setMostrarAnticipos] = useState(false);
 
   useEffect(() => {
     if (esAdmin) api<Sucursal[]>('/sucursales').then(setSucursales);
@@ -239,6 +262,65 @@ export default function CorteDelDiaPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold">
+                Anticipos y abonos de apartados — {formatoMonedaExacto(corte.anticipos.total)}
+              </h2>
+              <div className="flex items-center gap-2">
+                {puedeVer('apartados', usuario?.rol) && (
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link href="/dashboard/apartados">
+                      <Coins className="w-3.5 h-3.5" />
+                      Ver apartados
+                    </Link>
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => setMostrarAnticipos((v) => !v)}>
+                  {mostrarAnticipos ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  {mostrarAnticipos ? 'Ocultar detalle' : 'Ver detalle'}
+                </Button>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Dinero cobrado hoy como anticipo o abono de un apartado (no es una venta todavía, pero sí entró a caja) —
+              ya está incluido en Efectivo/Tarjeta/Transferencias de arriba y en el efectivo en caja de abajo.
+            </p>
+            {mostrarAnticipos && (
+              corte.anticipos.detalle.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">Sin anticipos ni abonos de apartados este día.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Apartado</th>
+                        <th>Cliente</th>
+                        <th>Monto</th>
+                        <th>Método</th>
+                        <th>Hora</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {corte.anticipos.detalle.map((a) => (
+                        <tr key={a.id}>
+                          <td className="font-medium">{a.apartadoFolio || '—'}</td>
+                          <td>{a.cliente || '—'}</td>
+                          <td className="tabular-nums font-medium">{formatoMonedaExacto(a.monto)}</td>
+                          <td className="text-xs">
+                            {a.metodoPago === 'EFECTIVO' ? 'Efectivo' : a.metodoPago === 'TARJETA' ? 'Tarjeta' : 'Transferencia'}
+                            {a.cuenta ? ` (${a.cuenta})` : ''}
+                          </td>
+                          <td className="text-xs text-muted-foreground">{formatearHora(a.createdAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </div>
 
