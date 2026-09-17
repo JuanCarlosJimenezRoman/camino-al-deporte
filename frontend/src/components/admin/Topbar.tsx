@@ -41,6 +41,7 @@ const TITULOS: Record<string, string> = {
   '/dashboard/usuarios': 'Usuarios',
   '/dashboard/perfil': 'Mi perfil',
   '/dashboard/solicitudes': 'Solicitudes',
+  '/dashboard/ayuda': 'Ayuda',
 };
 
 const ROL_LABEL: Record<string, string> = {
