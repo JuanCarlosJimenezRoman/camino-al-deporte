@@ -145,7 +145,13 @@ export function Topbar({ onOpenMobileMenu }: { onOpenMobileMenu: () => void }) {
 
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="icon" className="hidden sm:inline-flex shrink-0" aria-label="Ayuda">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden sm:inline-flex shrink-0"
+            aria-label="Ayuda"
+            onClick={() => router.push('/dashboard/ayuda')}
+          >
             <HelpCircle className="w-4 h-4" />
           </Button>
         </TooltipTrigger>
