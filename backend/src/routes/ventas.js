@@ -266,7 +266,7 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     return res.status(400).json({ error: 'fecha inválida, usa formato YYYY-MM-DD.' });
   }
 
-  const [completadas, canceladas, gastosDelDia] = await Promise.all([
+  const [completadas, canceladas, gastosDelDia, anticiposDelDia] = await Promise.all([
     prisma.venta.findMany({
       where: {
         estado: 'COMPLETADA',
@@ -346,6 +346,28 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
       },
       orderBy: { createdAt: 'asc' },
     }),
+    // Abonos/anticipos de apartados cobrados este día (ver POST /apartados y
+    // POST /apartados/:id/pagos en routes/apartados.js). Un apartado NUNCA
+    // genera un registro en Venta — el dinero que entra por anticipos y
+    // abonos solo vive en ApartadoPago — así que sin este query el corte del
+    // día ignoraba por completo ese efectivo/tarjeta/transferencia, aunque
+    // sí haya entrado físicamente a la caja. Se filtra por
+    // Apartado.sucursalVentaId (la sucursal que atendió al cliente y cobró
+    // el dinero), no por dónde está físicamente la mercancía
+    // (ApartadoItem.sucursalStockId): un apartado puede tomarse en una
+    // sucursal con el calzado guardado en otra, y el efectivo/abono de
+    // todos modos entró a la caja de la sucursal que lo cobró.
+    prisma.apartadoPago.findMany({
+      where: {
+        createdAt: { gte: inicio, lte: fin },
+        ...(sucursalId ? { apartado: { sucursalVentaId: sucursalId } } : {}),
+      },
+      include: {
+        cuentaTransferencia: { select: { nombre: true } },
+        apartado: { select: { folio: true, cliente: { select: { nombre: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    }),
   ]);
 
   const porMetodoPago = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0 };
@@ -390,6 +412,23 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     }
   }
 
+  // Igual que arriba pero para anticipos/abonos de apartados: se suman al
+  // mismo porMetodoPago/porCuenta (es el mismo dinero físico en la caja),
+  // y además se desglosan aparte en la respuesta (ver "anticipos" abajo)
+  // para poder auditar de qué apartado/cliente vino cada abono.
+  const anticiposPorMetodoPago = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0 };
+  let totalAnticipos = 0;
+  for (const p of anticiposDelDia) {
+    const monto = Number(p.monto);
+    totalAnticipos += monto;
+    anticiposPorMetodoPago[p.metodoPago] = (anticiposPorMetodoPago[p.metodoPago] || 0) + monto;
+    porMetodoPago[p.metodoPago] = (porMetodoPago[p.metodoPago] || 0) + monto;
+    if (p.metodoPago === 'TRANSFERENCIA' && p.cuentaTransferencia) {
+      const clave = p.cuentaTransferencia.nombre;
+      porCuenta[clave] = (porCuenta[clave] || 0) + monto;
+    }
+  }
+
   const productosVendidos = calcularProductosVendidos(completadas);
 
   const gastosPorMetodoPago = { EFECTIVO: 0, TARJETA: 0, TRANSFERENCIA: 0 };
@@ -418,6 +457,26 @@ router.get('/corte-dia', requireAuth, requireRole(...ROLES_VENTAS), asyncHandler
     productosVendidos,
     porProveedor: calcularPorProveedor(productosVendidos),
     ventas: completadas,
+    // Anticipos y abonos de apartados cobrados hoy (ver el query de arriba).
+    // No cuentan como "venta" (normalmente no hay entrega de mercancía
+    // todavía), pero sí es dinero real que entró a caja — por eso ya está
+    // sumado dentro de porMetodoPago/porCuentaTransferencia y en
+    // efectivoEnCaja, y aquí se desglosa aparte para poder revisar de qué
+    // apartado/cliente vino cada abono.
+    anticipos: {
+      cantidad: anticiposDelDia.length,
+      total: Math.round(totalAnticipos * 100) / 100,
+      porMetodoPago: anticiposPorMetodoPago,
+      detalle: anticiposDelDia.map((p) => ({
+        id: p.id,
+        monto: Number(p.monto),
+        metodoPago: p.metodoPago,
+        cuenta: p.cuentaTransferencia?.nombre || null,
+        apartadoFolio: p.apartado?.folio || null,
+        cliente: p.apartado?.cliente?.nombre || null,
+        createdAt: p.createdAt,
+      })),
+    },
     gastos: {
       cantidad: gastosDelDia.length,
       total: Math.round(totalGastos * 100) / 100,
