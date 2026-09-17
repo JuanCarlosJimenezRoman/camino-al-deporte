@@ -70,7 +70,7 @@ const SECCIONES_INSTRUCTIVO = [
   },
 ];
 
-export function AyudaPage() {
+export default function AyudaPage() {
   const { usuario } = useAuth();
   const { config } = useConfigNegocio();
   const [enviando, setEnviando] = useState(false);
