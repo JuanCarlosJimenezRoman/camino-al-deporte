@@ -6,6 +6,9 @@ const { requireRole } = require('../middleware/roles');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { notificarPedidoSucursal } = require('../utils/notificaciones');
 const { verificarBajoStockYNotificar } = require('../utils/bajoStock');
+const { generarTransferenciasPdf } = require('../utils/transferenciasPdf');
+const { obtenerMarca } = require('../utils/ticketEstilo');
+const { ZONA_NEGOCIO, inicioDiaNegocio, finDiaNegocio } = require('../utils/fechas');
 
 const router = express.Router();
 
@@ -46,6 +49,111 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   res.json(transferencias);
 }));
 
+// GET /transferencias/reporte-pdf - reporte en PDF (con foto de cada
+// producto) para mandar fuera del sistema. Se arma de UNO de estos dos:
+//
+//   ?lote=L-20260920-143015   todo lo que salió en un mismo "Enviar N
+//                             traspasos" (TransferenciaInventario.loteFolio)
+//   ?fecha=2026-09-20         todas las transferencias creadas ese día
+//                             (día calendario en la zona del negocio, ver
+//                             utils/fechas.js)
+//
+// Opcionales: ?sucursalId= (solo las que tengan esa sucursal de origen o
+// destino, igual que el historial) y ?incluirCanceladas=1 (por defecto las
+// canceladas NO entran: esa mercancía nunca salió). No incluye costos ni
+// precios — es un documento externo.
+//
+// Mismos roles que el resto del módulo (ROLES_INVENTARIO).
+const MAX_RENGLONES_REPORTE_PDF = 300;
+
+const reporteQuerySchema = z
+  .object({
+    lote: z.string().regex(/^[A-Za-z0-9._-]{1,60}$/, 'Lote inválido.').optional(),
+    fecha: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida.')
+      .refine((f) => !Number.isNaN(Date.parse(`${f}T00:00:00Z`)) && new Date(`${f}T00:00:00Z`).toISOString().slice(0, 10) === f, {
+        message: 'Fecha inválida.',
+      })
+      .optional(),
+    sucursalId: z.coerce.number().int().positive().optional(),
+    incluirCanceladas: z.enum(['0', '1']).optional(),
+  })
+  .refine((q) => Boolean(q.lote) !== Boolean(q.fecha), { message: 'Indica un lote o una fecha (solo uno de los dos).' });
+
+router.get('/reporte-pdf', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(async (req, res) => {
+  const parsed = reporteQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Parámetros inválidos.' });
+  }
+  const { lote, fecha, sucursalId, incluirCanceladas } = parsed.data;
+
+  const transferencias = await prisma.transferenciaInventario.findMany({
+    where: {
+      ...(lote ? { loteFolio: lote } : { createdAt: { gte: inicioDiaNegocio(fecha), lte: finDiaNegocio(fecha) } }),
+      ...(sucursalId ? { OR: [{ sucursalOrigenId: sucursalId }, { sucursalDestinoId: sucursalId }] } : {}),
+      ...(incluirCanceladas === '1' ? {} : { estado: { not: 'CANCELADA' } }),
+    },
+    include: {
+      variante: {
+        include: {
+          talla: true,
+          producto: {
+            select: {
+              id: true,
+              nombre: true,
+              marca: { select: { nombre: true } },
+              imagenes: { select: { url: true, color: true, esPrincipal: true, orden: true }, orderBy: [{ esPrincipal: 'desc' }, { orden: 'asc' }] },
+            },
+          },
+        },
+      },
+      sucursalOrigen: { select: { id: true, nombre: true } },
+      sucursalDestino: { select: { id: true, nombre: true } },
+      solicitadoPor: { select: { nombre: true } },
+      recibidoPor: { select: { nombre: true } },
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: MAX_RENGLONES_REPORTE_PDF + 1,
+  });
+
+  if (transferencias.length === 0) {
+    return res.status(404).json({
+      error: lote
+        ? 'No se encontraron transferencias para ese lote.'
+        : 'No hay transferencias ese día con los filtros elegidos.',
+    });
+  }
+  if (transferencias.length > MAX_RENGLONES_REPORTE_PDF) {
+    return res.status(400).json({
+      error: `El reporte tiene más de ${MAX_RENGLONES_REPORTE_PDF} renglones. Filtra por sucursal o elige un lote.`,
+    });
+  }
+
+  const fechaLarga = (d, opciones = {}) =>
+    new Date(d).toLocaleDateString('es-MX', { timeZone: ZONA_NEGOCIO, day: 'numeric', month: 'long', year: 'numeric', ...opciones });
+
+  const partes = [];
+  if (lote) {
+    partes.push(`Lote ${lote}`, `Enviado el ${fechaLarga(transferencias[0].createdAt)}`);
+  } else {
+    partes.push(`Día: ${fechaLarga(`${fecha}T12:00:00Z`, { timeZone: 'UTC', weekday: 'long' })}`);
+  }
+  if (sucursalId) {
+    const t = transferencias[0];
+    const nombre = t.sucursalOrigen.id === sucursalId ? t.sucursalOrigen.nombre : t.sucursalDestino.nombre;
+    partes.push(`Sucursal: ${nombre}`);
+  }
+
+  const marca = await obtenerMarca();
+  const buffer = await generarTransferenciasPdf(transferencias, { marca, filtrosTexto: partes.join('  ·  ') });
+
+  const nombreArchivo = lote ? `transferencias-lote-${lote}.pdf` : `transferencias-${fecha}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo}"`);
+  res.send(buffer);
+}));
+
 const crearSchema = z.object({
   varianteId: z.number().int(),
   cantidad: z.number().int().positive(),
@@ -56,6 +164,10 @@ const crearSchema = z.object({
   // proveedor"). Obligatorio: hay que decir siempre de cuál cuando la talla
   // tiene stock repartido en más de un proveedor en esa sucursal.
   proveedorId: z.number().int().nullable(),
+  // Folio de lote compartido por todas las transferencias de un mismo
+  // "Enviar N traspasos" (lo genera el frontend, una vez por envío). Opcional:
+  // sin él la transferencia funciona igual, solo no entra a reportes por lote.
+  loteFolio: z.string().regex(/^L-[A-Za-z0-9-]{4,40}$/, 'Folio de lote inválido.').optional(),
 });
 
 // POST /transferencias - solicita el envío: descuenta stock del origen de inmediato
@@ -66,7 +178,7 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
   if (!parsed.success) {
     return res.status(400).json({ error: 'Datos inválidos.', detalles: parsed.error.flatten() });
   }
-  const { varianteId, cantidad, sucursalOrigenId, sucursalDestinoId, notas, proveedorId } = parsed.data;
+  const { varianteId, cantidad, sucursalOrigenId, sucursalDestinoId, notas, proveedorId, loteFolio } = parsed.data;
 
   if (sucursalOrigenId === sucursalDestinoId) {
     return res.status(400).json({ error: 'La sucursal de origen y destino no pueden ser la misma.' });
@@ -97,6 +209,7 @@ router.post('/', requireAuth, requireRole(...ROLES_INVENTARIO), asyncHandler(asy
           sucursalDestinoId,
           proveedorId,
           notas,
+          loteFolio,
           solicitadoPorId: req.usuario.id,
         },
       });

@@ -1,4 +1,5 @@
 import { imagenPrincipal } from '@/components/admin/ProductoThumb';
+import { ZONA_HORARIA_NEGOCIO } from '@/lib/utils';
 import type { Existencia, ProductoAgrupado, Transferencia } from './types';
 
 export function claveExistencia(e: Existencia) {
@@ -57,4 +58,50 @@ export function filtrarTransferencias(
     t.sucursalOrigen.nombre.toLowerCase().includes(q) ||
     t.sucursalDestino.nombre.toLowerCase().includes(q)
   );
+}
+
+// Folio de lote: se genera UNA vez por cada "Enviar N traspasos" y se le pone
+// a todas las transferencias de ese envío (POST /transferencias → loteFolio),
+// para poder reportarlas juntas. Ej. "L-20260920-093015-K3F".
+export function generarFolioLote(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const fecha = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`;
+  const hora = `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  const azar = Math.random().toString(36).slice(2, 5).toUpperCase().padEnd(3, '0');
+  return `L-${fecha}-${hora}-${azar}`;
+}
+
+/** Hoy (YYYY-MM-DD) según el reloj de pared del negocio, no el UTC. */
+export function hoyNegocioISO(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: ZONA_HORARIA_NEGOCIO }).format(new Date());
+}
+
+export interface LoteResumen {
+  folio: string;
+  creadoAt: string;
+  traspasos: number;
+  piezas: number;
+  rutas: string[];
+}
+
+/** Agrupa el historial por loteFolio (ignora las transferencias sin lote),
+ * del más reciente al más antiguo. Las piezas canceladas no se suman. */
+export function agruparLotes(transferencias: Transferencia[]): LoteResumen[] {
+  const mapa = new Map<string, LoteResumen>();
+  for (const t of transferencias) {
+    if (!t.loteFolio) continue;
+    const ruta = `${t.sucursalOrigen.nombre} → ${t.sucursalDestino.nombre}`;
+    const lote = mapa.get(t.loteFolio);
+    const piezas = t.estado === 'CANCELADA' ? 0 : t.cantidad;
+    if (!lote) {
+      mapa.set(t.loteFolio, { folio: t.loteFolio, creadoAt: t.createdAt, traspasos: 1, piezas, rutas: [ruta] });
+    } else {
+      lote.traspasos += 1;
+      lote.piezas += piezas;
+      if (!lote.rutas.includes(ruta)) lote.rutas.push(ruta);
+      if (t.createdAt < lote.creadoAt) lote.creadoAt = t.createdAt;
+    }
+  }
+  return [...mapa.values()].sort((a, b) => (a.creadoAt < b.creadoAt ? 1 : -1));
 }

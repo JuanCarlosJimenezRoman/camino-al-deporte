@@ -1,6 +1,7 @@
 'use client';
 
-import { Package, ArrowLeftRight, Search, LayoutGrid, Check, XCircle, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { Package, ArrowLeftRight, Search, LayoutGrid, Check, XCircle, Loader2, FileText } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { useTransferencias } from '@/features/transferencias/hooks/useTransferen
 import { TarjetaProducto } from '@/features/transferencias/components/TarjetaProducto';
 import { ItemCarrito } from '@/features/transferencias/components/ItemCarrito';
 import { SelectorCantidad } from '@/features/transferencias/components/SelectorCantidad';
+import { ReporteTransferenciasDialog } from '@/features/transferencias/components/ReporteTransferenciasDialog';
 import { FILTROS_ESTADO, ESTADO_TONO, ESTADO_LABEL } from '@/features/transferencias/constants';
 import { agruparPorProducto, etiquetasVariantes, filtrarTransferencias } from '@/features/transferencias/utils';
 
@@ -56,6 +58,8 @@ export default function TransferenciasPage() {
     cancelar,
     limpiarFiltros,
   } = useTransferencias();
+
+  const [reporteAbierto, setReporteAbierto] = useState(false);
 
   if (!puedeGestionar) {
     return (
@@ -295,7 +299,13 @@ export default function TransferenciasPage() {
 
       {/* Historial */}
       <div className="space-y-3">
-        <h2 className="text-lg font-semibold">Historial de traspasos</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">Historial de traspasos</h2>
+          <Button variant="outline" size="sm" onClick={() => setReporteAbierto(true)}>
+            <FileText className="w-3.5 h-3.5" />
+            Reporte PDF
+          </Button>
+        </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative w-64 max-w-full">
@@ -387,6 +397,7 @@ export default function TransferenciasPage() {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
+                    {t.loteFolio ? ` · Lote ${t.loteFolio}` : ''}
                   </div>
                 </div>
                 {t.estado === 'SOLICITADA' && (
@@ -406,6 +417,12 @@ export default function TransferenciasPage() {
           </div>
         )}
       </div>
+
+      <ReporteTransferenciasDialog
+        open={reporteAbierto}
+        onOpenChange={setReporteAbierto}
+        sucursales={sucursales}
+      />
     </div>
   );
 }

@@ -416,12 +416,20 @@ model TransferenciaInventario {
   recibidoPorId     Int?     @map("recibido_por_id")
   recibidoPor       Usuario? @relation("TransferenciasRecibidas", fields: [recibidoPorId], references: [id])
   notas             String?
+  // Folio de LOTE: cada "Enviar N traspasos" de la pantalla de
+  // Transferencias crea N registros (una variante por registro, cada uno con
+  // su propio folio T-...); el frontend les pone a todos el mismo loteFolio
+  // para poder reportarlos juntos (GET /transferencias/reporte-pdf?lote=...).
+  // Nulo en las transferencias anteriores a esta columna y en las que se
+  // crean por API sin lote — esas se siguen pudiendo reportar por día.
+  loteFolio         String?  @map("lote_folio")
   createdAt         DateTime @default(now()) @map("created_at")
   recibidoAt        DateTime? @map("recibido_at")
 
   movimientos       MovimientoInventario[]
   notificaciones    Notificacion[]
 
+  @@index([loteFolio])
   @@map("transferencias_inventario")
 }
 

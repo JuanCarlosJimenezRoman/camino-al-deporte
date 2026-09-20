@@ -509,4 +509,6 @@ async function generarCatalogoPdf(productos, { incluirPrecio = true, filtrosText
     : generarPdfMultipagina(productosAMostrar, imagenes, { incluirPrecio, filtrosTexto, vista });
 }
 
-module.exports = { generarCatalogoPdf };
+// limpiarTexto y urlCloudinaryParaPdf se exportan para reutilizarlos en
+// utils/transferenciasPdf.js (mismo criterio de texto/fotos en los PDF).
+module.exports = { generarCatalogoPdf, limpiarTexto, urlCloudinaryParaPdf };

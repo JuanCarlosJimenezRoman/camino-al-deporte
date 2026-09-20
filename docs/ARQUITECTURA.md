@@ -157,6 +157,19 @@ vendedor **nunca** mueve mercancía entre sucursales por su cuenta. Cuando un
 cliente quiere algo que no está en la sucursal donde se le atiende, el
 camino es apartarlo (ver siguiente punto), no crear una transferencia.
 
+**Reporte de transferencias en PDF** (`GET /transferencias/reporte-pdf`,
+`utils/transferenciasPdf.js`): documento externo, con la foto de cada
+producto, para mandar a quien recibe la mercancía, a una paquetería, etc. Se
+arma de un **lote** (`?lote=L-20260920-093015-K3F`) o de un **día**
+(`?fecha=2026-09-20`, día calendario en la zona del negocio; opcionalmente
+`&sucursalId=` y `&incluirCanceladas=1`). Cada transferencia es una sola
+variante, así que un "Enviar N traspasos" crea N registros; para poder
+reportarlos juntos, el frontend genera un folio de lote por envío y se lo pone
+a todos (`transferencias_inventario.lote_folio`, nulo en las anteriores — esas
+solo se reportan por día). El PDF agrupa por ruta (origen → destino), muestra
+estado y quién solicitó/recibió, y nunca incluye costos ni precios. Mismos
+roles que el resto del módulo (INVENTARIO/ADMIN/DESARROLLO).
+
 **Búsqueda global de existencias**: `GET /inventario/existencias` acepta
 `?sucursalId=` opcional. Con él, se comporta como siempre (incluye
 renglones placeholder en 0 para poder cargar el primer stock). Sin él, busca

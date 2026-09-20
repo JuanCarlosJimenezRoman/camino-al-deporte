@@ -12,7 +12,7 @@ import {
   recibirTransferencia,
   cancelarTransferencia,
 } from '../api';
-import { agruparPorProducto, claveExistencia } from '../utils';
+import { agruparPorProducto, claveExistencia, generarFolioLote } from '../utils';
 import type {
   Categoria,
   EstadoTransferencia,
@@ -181,6 +181,8 @@ export function useTransferencias() {
 
     setEnviando(true);
     const pendientes = [...carrito];
+    // Un solo folio de lote para todo este envío (ver generarFolioLote).
+    const loteFolio = generarFolioLote();
     const fallidos: { nombre: string; error: string }[] = [];
     let exitosos = 0;
 
@@ -193,6 +195,7 @@ export function useTransferencias() {
           sucursalOrigenId: Number(sucursalOrigenId),
           sucursalDestinoId: Number(sucursalDestinoId),
           ...(notas.trim() ? { notas: notas.trim() } : {}),
+          loteFolio,
         });
         exitosos += 1;
         setCarrito((actual) => actual.filter((it) => it.key !== item.key));

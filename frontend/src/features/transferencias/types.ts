@@ -43,6 +43,10 @@ export interface Transferencia {
   cantidad: number;
   estado: EstadoTransferencia;
   createdAt: string;
+  /** Folio compartido por todas las transferencias de un mismo "Enviar N
+   * traspasos" (null en las anteriores a los lotes). Ver GET
+   * /transferencias/reporte-pdf. */
+  loteFolio: string | null;
   variante: {
     sku: string;
     color: string | null;
@@ -77,4 +81,6 @@ export interface CrearTransferenciaInput {
   sucursalOrigenId: number;
   sucursalDestinoId: number;
   notas?: string;
+  /** Mismo folio para todas las transferencias de un mismo envío. */
+  loteFolio?: string;
 }
