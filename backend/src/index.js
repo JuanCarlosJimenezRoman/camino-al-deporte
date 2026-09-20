@@ -33,6 +33,7 @@ const tiendaCuponesRoutes = require('./routes/tienda/cupones');
 const tiendaFavoritosRoutes = require('./routes/tienda/favoritos');
 const enviosRoutes = require('./routes/envios');
 const tiendaEnviosRoutes = require('./routes/tienda/envios');
+const { iniciarResumenBajoStock } = require('./utils/resumenBajoStock');
 
 const app = express();
 
@@ -115,4 +116,7 @@ process.on('uncaughtException', (err) => {
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`API Camino al Deporte escuchando en el puerto ${PORT}`);
+  // Correos de bajo stock agrupados (agotados a los pocos minutos + resumen
+  // diario). No hace nada mientras EMAIL_USER/EMAIL_APP_PASSWORD no estén.
+  iniciarResumenBajoStock();
 });

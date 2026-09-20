@@ -93,6 +93,7 @@ function fechaNegocioDeInstante(fechaUtc) {
 
 module.exports = {
   ZONA_NEGOCIO,
+  horaNegocioAUtc,
   inicioDiaNegocio,
   finDiaNegocio,
   hoyNegocioStr,

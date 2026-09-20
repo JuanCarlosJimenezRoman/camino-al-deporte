@@ -196,8 +196,8 @@ entre sucursales (`notificarPedidoSucursal`, en `utils/notificaciones.js`),
 atendió al cliente (`notificarApartadoOtraSucursal`, disparado desde `POST
 /apartados`) — este es el que aplica al flujo de Ventas descrito arriba —, y
 3) una variante que quedó en o bajo su stock mínimo (`verificarBajoStockYNotificar`,
-en `utils/bajoStock.js` — ver sección dedicada más abajo), que además manda
-correo si está configurado. El campo `tipo` es texto libre a propósito para
+en `utils/bajoStock.js` — ver sección dedicada más abajo), que además se avisa
+por correo (agrupado) si está configurado. El campo `tipo` es texto libre a propósito para
 poder sumar más eventos a futuro sin migración nueva. El frontend las
 muestra con una campanita en la barra superior (`NotificacionesBell.tsx`),
 que revisa cada 60 segundos (no hay websockets/push todavía) y no le importa
@@ -237,21 +237,49 @@ personal INVENTARIO/VENTAS de esa sucursal específica. No es configurable
 desde la UI todavía (ver pendientes).
 
 **Canales.** Notificación in-app siempre (misma tabla `notificaciones` de
-arriba, se ve en la campanita). Además, correo a cada destinatario que
-tenga email, si `EMAIL_USER`/`EMAIL_APP_PASSWORD` están configurados (ver
-`config/email.js` — mismo canal que ya se usa para "olvidé mi contraseña").
-WhatsApp a personal interno no está implementado (el Cloud API que ya usa el
-sistema es para mandar tickets/comprobantes a clientes, no hay un número de
-staff configurado para recibir alertas) — queda como posible siguiente paso.
+arriba, se ve en la campanita, una por producto). Además, correo a cada
+destinatario que tenga email, si `EMAIL_USER`/`EMAIL_APP_PASSWORD` están
+configurados (ver `config/email.js` — mismo canal que ya se usa para "olvidé
+mi contraseña"). WhatsApp a personal interno no está implementado (el Cloud
+API que ya usa el sistema es para mandar tickets/comprobantes a clientes, no
+hay un número de staff configurado para recibir alertas) — queda como posible
+siguiente paso.
+
+**Correo agrupado (no uno por producto).** `verificarBajoStockYNotificar` ya
+NO manda correos: solo crea la notificación in-app y la deja marcada como
+"pendiente de correo" (`Notificacion.emailEnviadoAt` = null; `emailUrgente` =
+true si el producto llegó a 0 piezas). Un proceso que corre cada minuto
+(`iniciarResumenBajoStock`, en `utils/resumenBajoStock.js`, arrancado desde
+`index.js`) junta lo pendiente y manda **un solo correo por persona**:
+
+- **Agotados** (0 piezas): a los ~2 minutos de la alerta
+  (`RESUMEN_STOCK_AGOTADO_MIN`). La espera es para juntar en un solo correo
+  los que se agotan a la vez — p. ej. un traspaso de 9 productos, que el
+  frontend manda como 9 `POST /transferencias` seguidos.
+- **Bajos** (con piezas pero en o bajo el mínimo): un resumen diario a las
+  20:00 hora de la tienda (`RESUMEN_STOCK_HORA`). Si el servidor estaba
+  dormido a esa hora (plan gratis de Render), sale en cuanto despierta: se
+  manda todo lo pendiente creado antes del último corte.
+
+Antes de mandar cada correo se vuelve a leer el stock ACTUAL: lo que ya se
+reabasteció se descarta sin avisar, y un agotado que se repuso pero sigue bajo
+pasa al resumen diario. Lo pendiente de más de 48 h ya no se manda. Si el
+correo falla, no se pierde nada: queda pendiente y se reintenta tras una pausa
+de 10 minutos. La plantilla (HTML con tabla, etiquetas Agotado/Bajo y botón al
+inventario, más versión en texto plano) es una función pura en
+`utils/correoResumenBajoStock.js`; el envío, en
+`config/email.js#enviarResumenBajoStockEmail`.
 
 **Anti-spam.** No hay una tabla aparte para rastrear "ya se avisó de esto":
 se aprovecha que `Notificacion.tipo` es texto libre para guardar una clave
 estable `BAJO_STOCK:<varianteId>:<sucursalId>`, y antes de notificar se
 revisa si ya existe una con esa clave creada en las últimas 24 horas — así
 una racha de varias ventas seguidas del mismo producto agotándose no manda
-una notificación (ni un correo) por cada una. *Limitación conocida*: si en
-ese mismo día se restablece el stock y vuelve a bajar, no se re-notifica
-hasta que pase la ventana de 24h.
+una notificación (ni un correo) por cada una. Excepción: si antes solo estaba
+"bajo" y ahora se AGOTÓ, sí se avisa de nuevo (el aviso previo de "bajo" no
+silencia el de "agotado"). *Limitación conocida*: si en ese mismo día se
+restablece el stock y vuelve a bajar, no se re-notifica hasta que pase la
+ventana de 24h.
 
 ## Modelo de datos (resumen)
 

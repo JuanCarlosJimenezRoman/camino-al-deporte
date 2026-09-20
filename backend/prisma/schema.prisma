@@ -461,8 +461,20 @@ model Notificacion {
   apartadoId      Int?     @map("apartado_id")
   apartado        Apartado? @relation(fields: [apartadoId], references: [id])
 
+  // Seguimiento del CORREO de las alertas de bajo stock (tipo
+  // "BAJO_STOCK:..."; ver utils/bajoStock.js y utils/resumenBajoStock.js).
+  // Las demás notificaciones no mandan correo y dejan estos campos como están.
+  //  - emailUrgente: la variante llegó a 0 piezas -> se avisa por correo a los
+  //    pocos minutos (agrupada con las demás que se agoten juntas). Si es
+  //    false, solo va en el resumen diario.
+  //  - emailEnviadoAt: cuándo salió en un correo (o se descartó porque ya no
+  //    hacía falta). null = pendiente de mandar.
+  emailUrgente    Boolean  @default(false) @map("email_urgente")
+  emailEnviadoAt  DateTime? @map("email_enviado_at")
+
   createdAt       DateTime @default(now()) @map("created_at")
 
+  @@index([emailEnviadoAt, createdAt])
   @@map("notificaciones")
 }
 

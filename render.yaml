@@ -40,6 +40,11 @@ services:
         sync: false
       - key: EMAIL_FROM_NOMBRE
         value: Camino al Deporte
+      # Alertas de bajo stock por correo, agrupadas (ver backend/.env.example).
+      - key: RESUMEN_STOCK_HORA
+        value: "20"
+      - key: RESUMEN_STOCK_AGOTADO_MIN
+        value: "2"
       # Opcionales — el sistema funciona sin ellas (ver backend/.env.example
       # para el detalle de qué se desactiva mientras queden vacías).
       - key: KICKSDB_API_KEY

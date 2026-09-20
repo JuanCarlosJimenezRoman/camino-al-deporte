@@ -4,7 +4,9 @@
 //     diferencia de WhatsApp, no depende de que Meta apruebe una plantilla
 //     ni de que el negocio cumpla los requisitos de verificación/volumen de
 //     la categoría Authentication, así que funciona desde el primer día.
-//  2. Alertas de bajo stock al personal interno (ver utils/bajoStock.js).
+//  2. Alertas de bajo stock al personal interno, en RESUMEN (un correo con
+//     varios productos, no uno por producto — ver utils/resumenBajoStock.js
+//     y la plantilla en utils/correoResumenBajoStock.js).
 //
 // Mientras EMAIL_USER/EMAIL_APP_PASSWORD no estén configurados, ninguna de
 // las dos manda nada y regresan { enviado: false, error:
@@ -13,6 +15,7 @@
 
 const nodemailer = require('nodemailer');
 const prisma = require('../db');
+const { armarCorreoResumenBajoStock } = require('../utils/correoResumenBajoStock');
 
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
@@ -24,18 +27,34 @@ function emailApiConfigurada() {
   return Boolean(EMAIL_USER && EMAIL_APP_PASSWORD);
 }
 
-// Nombre del negocio para el CUERPO del correo (distinto de
+// Marca del negocio para el CUERPO del correo (distinta de
 // EMAIL_FROM_NOMBRE, que es el nombre del remitente y se fija por variable
 // de entorno): se lee de ConfiguracionTienda, igual que
 // utils/ticketEstilo.js#obtenerMarca, para que el texto no quede fijo en
 // "Camino al Deporte" cuando este código corre para otro negocio.
-async function obtenerNombreNegocio() {
+async function obtenerMarcaCorreo() {
   try {
     const config = await prisma.configuracionTienda.findFirst();
-    return config?.nombreNegocio || 'Camino al Deporte';
+    return {
+      nombre: config?.nombreNegocio || 'Camino al Deporte',
+      iniciales: config?.iniciales || 'CD',
+      logoUrl: config?.logoTicketUrl || null,
+    };
   } catch (err) {
-    return 'Camino al Deporte';
+    return { nombre: 'Camino al Deporte', iniciales: 'CD', logoUrl: null };
   }
+}
+
+async function obtenerNombreNegocio() {
+  return (await obtenerMarcaCorreo()).nombre;
+}
+
+// URL absoluta del inventario en el frontend, para el botón del correo.
+// FRONTEND_URL también alimenta el CORS y puede valer '*' o no estar: solo
+// se arma el enlace si es una URL http(s) de verdad.
+function enlaceInventario() {
+  const base = String(process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+  return /^https?:\/\//i.test(base) ? `${base}/dashboard/inventario` : null;
 }
 
 // El transporter se crea una sola vez (perezoso, en el primer envío) y se
@@ -95,42 +114,46 @@ async function enviarCodigoRecuperacionEmail({ email, nombre, codigo, vigenciaMi
 }
 
 /**
- * Alerta de bajo stock a un empleado/admin — ver utils/bajoStock.js, que
- * decide a quién le toca y con qué cooldown para no saturar.
+ * Correo de bajo stock a un empleado/admin, con VARIOS productos en un solo
+ * mensaje — ver utils/resumenBajoStock.js, que decide a quién le toca, cuándo
+ * y qué productos incluye (así un traspaso de 9 productos o un día de muchas
+ * ventas no llena la bandeja ni se marca como spam).
  *
  * @param {object} datos
  * @param {string} datos.email
- * @param {string} datos.nombre
- * @param {string} datos.producto - Nombre + talla/color, ya armado.
- * @param {string} datos.sku
- * @param {string} datos.sucursal
- * @param {number} datos.stockActual
- * @param {number} datos.stockMinimo
+ * @param {string} [datos.nombre]
+ * @param {'urgente'|'diario'} datos.modo - 'urgente' = agotados; 'diario' = resumen del día.
+ * @param {{nombre: string, items: {producto: string, sku: string, stockActual: number, stockMinimo: number}[]}[]} datos.sucursales
  * @returns {Promise<{enviado: boolean, error?: string}>} nunca lanza.
  */
-async function enviarAlertaBajoStockEmail({ email, nombre, producto, sku, sucursal, stockActual, stockMinimo }) {
+async function enviarResumenBajoStockEmail({ email, nombre, modo, sucursales }) {
   if (!emailApiConfigurada()) {
     return { enviado: false, error: 'EMAIL_NO_CONFIGURADO' };
   }
-  if (!email || !producto) {
+  const hayProductos = Array.isArray(sucursales) && sucursales.some((s) => s?.items?.length > 0);
+  if (!email || !hayProductos) {
     return { enviado: false, error: 'DATOS_INCOMPLETOS' };
   }
 
   try {
+    const marca = await obtenerMarcaCorreo();
+    const { asunto, texto, html } = armarCorreoResumenBajoStock({
+      modo,
+      nombre,
+      marca,
+      sucursales,
+      enlace: enlaceInventario(),
+    });
     await obtenerTransporter().sendMail({
       from: `"${EMAIL_FROM_NOMBRE}" <${EMAIL_USER}>`,
       to: email,
-      subject: `Stock bajo: ${producto}`,
-      text:
-        `Hola${nombre ? ' ' + nombre : ''},\n\n` +
-        `El producto "${producto}" (SKU ${sku}) está bajo de stock en ${sucursal}: ` +
-        `quedan ${stockActual} pieza(s), en o por debajo del mínimo configurado (${stockMinimo}).\n\n` +
-        `Entra al sistema (Inventario) para revisar y, si hace falta, pedir más a tu proveedor.`,
-      html:
-        `<p>Hola${nombre ? ' ' + nombre : ''},</p>` +
-        `<p>El producto <strong>${producto}</strong> (SKU ${sku}) está bajo de stock en <strong>${sucursal}</strong>:</p>` +
-        `<p style="font-size:20px;font-weight:bold;margin:16px 0;">Quedan ${stockActual} — mínimo ${stockMinimo}</p>` +
-        `<p>Entra al sistema (Inventario) para revisar y, si hace falta, pedir más a tu proveedor.</p>`,
+      subject: asunto,
+      text: texto,
+      html,
+      // Marca el correo como automático: evita respuestas automáticas
+      // (fuera de oficina) hacia esta cuenta y ayuda a los filtros a
+      // clasificarlo bien.
+      headers: { 'Auto-Submitted': 'auto-generated', 'X-Auto-Response-Suppress': 'All' },
     });
     return { enviado: true };
   } catch (err) {
@@ -138,4 +161,4 @@ async function enviarAlertaBajoStockEmail({ email, nombre, producto, sku, sucurs
   }
 }
 
-module.exports = { emailApiConfigurada, enviarCodigoRecuperacionEmail, enviarAlertaBajoStockEmail };
+module.exports = { emailApiConfigurada, enviarCodigoRecuperacionEmail, enviarResumenBajoStockEmail };
