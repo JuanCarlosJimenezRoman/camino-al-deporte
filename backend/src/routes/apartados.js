@@ -135,6 +135,7 @@ router.get('/', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(async
           proveedor: { select: { id: true, nombre: true } },
         },
       },
+      pagos: true,
       creadoPor: { select: { nombre: true } },
       entregadoPor: { select: { nombre: true } },
     },
