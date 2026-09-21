@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StatusBadge, tonoPorStock, etiquetaPorStock } from '@/components/ui/status-badge';
 import { toast } from '@/components/ui/use-toast';
-import { Search, X, Warehouse, History, ChevronDown, ChevronRight, Plus, Minus } from 'lucide-react';
+import { Search, X, Warehouse, History, ChevronDown, ChevronRight, Plus, Minus, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import Link from 'next/link';
 
 // Valor de opción usado en el selector de "de qué proveedor sale" para
@@ -146,6 +146,32 @@ function InventarioContenido() {
   // muchas variantes; el registro de entradas/salidas sigue viviendo a nivel
   // de variante, adentro del desplegable.
   const [productoAbiertoId, setProductoAbiertoId] = useState<number | null>(null);
+
+  // Orden de la tabla principal: por defecto se respeta el orden que manda
+  // el backend (sin ordenar). Al hacer clic en un encabezado ordenable
+  // (Stock total, Marca, Estado) alterna asc/desc; un tercer clic vuelve a
+  // "sin orden" para no dejar al usuario atrapado en un solo sentido.
+  type ColumnaOrden = 'stock' | 'marca' | 'estado';
+  type DireccionOrden = 'asc' | 'desc';
+  const [ordenColumna, setOrdenColumna] = useState<ColumnaOrden | null>(null);
+  const [ordenDireccion, setOrdenDireccion] = useState<DireccionOrden>('asc');
+
+  function alternarOrden(columna: ColumnaOrden) {
+    if (ordenColumna !== columna) {
+      setOrdenColumna(columna);
+      setOrdenDireccion('asc');
+    } else if (ordenDireccion === 'asc') {
+      setOrdenDireccion('desc');
+    } else {
+      setOrdenColumna(null);
+      setOrdenDireccion('asc');
+    }
+  }
+
+  function IconoOrden({ columna }: { columna: ColumnaOrden }) {
+    if (ordenColumna !== columna) return <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground" />;
+    return ordenDireccion === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />;
+  }
 
   useEffect(() => {
     api<Proveedor[]>('/proveedores').then(setProveedores).catch(() => {});
@@ -310,6 +336,29 @@ function InventarioContenido() {
     return Array.from(mapa.values());
   })();
 
+  // Añade a cada grupo de producto el stock total, el mínimo (para el
+  // estado) y un rango numérico de ese estado (agotado < stock bajo <
+  // disponible) para poder ordenar por "Estado" con el mismo criterio con
+  // el que se pinta el StatusBadge.
+  const RANGO_ESTADO: Record<string, number> = { destructive: 0, warning: 1, success: 2 };
+  const gruposProductoConDatos = gruposProducto.map((g) => {
+    const stockProducto = g.variantes.reduce((s, gv) => s + gv.buckets.reduce((s2, b) => s2 + b.stockActual, 0), 0);
+    const minimoProducto = g.variantes.reduce((max, gv) => Math.max(max, gv.buckets.reduce((m, b) => Math.max(m, b.stockMinimo), 0)), 0);
+    const estadoRango = RANGO_ESTADO[tonoPorStock(stockProducto, minimoProducto)] ?? 0;
+    return { ...g, stockProducto, minimoProducto, estadoRango };
+  });
+
+  const gruposProductoOrdenados = (() => {
+    if (!ordenColumna) return gruposProductoConDatos;
+    const signo = ordenDireccion === 'asc' ? 1 : -1;
+    return gruposProductoConDatos.slice().sort((a, b) => {
+      if (ordenColumna === 'stock') return (a.stockProducto - b.stockProducto) * signo;
+      if (ordenColumna === 'estado') return (a.estadoRango - b.estadoRango) * signo;
+      // marca
+      return a.producto.marca.nombre.localeCompare(b.producto.marca.nombre) * signo;
+    });
+  })();
+
   const subtitulo =
     sucursalId === null
       ? `${gruposProducto.length} producto${gruposProducto.length === 1 ? '' : 's'} con existencias en todas las sucursales`
@@ -436,20 +485,30 @@ function InventarioContenido() {
             <tr>
               <th></th>
               <th>Producto</th>
-              <th>Marca</th>
+              <th>
+                <button type="button" className="inline-flex items-center gap-1 font-medium" onClick={() => alternarOrden('marca')}>
+                  Marca
+                  <IconoOrden columna="marca" />
+                </button>
+              </th>
               <th>Tallas / colores</th>
-              <th>Stock total</th>
-              <th>Estado</th>
+              <th>
+                <button type="button" className="inline-flex items-center gap-1 font-medium" onClick={() => alternarOrden('stock')}>
+                  Stock total
+                  <IconoOrden columna="stock" />
+                </button>
+              </th>
+              <th>
+                <button type="button" className="inline-flex items-center gap-1 font-medium" onClick={() => alternarOrden('estado')}>
+                  Estado
+                  <IconoOrden columna="estado" />
+                </button>
+              </th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {gruposProducto.map(({ producto, variantes }) => {
-              const stockProducto = variantes.reduce((s, g) => s + g.buckets.reduce((s2, b) => s2 + b.stockActual, 0), 0);
-              // Si cualquiera de las variantes está en o por debajo de su
-              // mínimo, se marca el total del producto para que salte a la
-              // vista sin tener que desplegar cada una a revisar.
-              const minimoProducto = variantes.reduce((max, g) => Math.max(max, g.buckets.reduce((m, b) => Math.max(m, b.stockMinimo), 0)), 0);
+            {gruposProductoOrdenados.map(({ producto, variantes, stockProducto, minimoProducto }) => {
               const etiquetas = variantes
                 .slice()
                 .sort((a, b) => (a.variante.talla?.orden ?? 0) - (b.variante.talla?.orden ?? 0))
