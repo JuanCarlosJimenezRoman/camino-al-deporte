@@ -18,6 +18,7 @@ import {
   Landmark,
   LucideIcon,
   Tag,
+  PackageCheck,
 } from 'lucide-react';
 import { api, apiUpload, ApiError } from '@/lib/api';
 import { formatearFechaHora, formatearFecha } from '@/lib/utils';
@@ -120,9 +121,14 @@ interface Apartado {
   cliente: Cliente;
   sucursalVenta: { nombre: string };
   total: string;
-  estado: 'ACTIVO' | 'LIQUIDADO' | 'CANCELADO';
+  // LIQUIDADO = pagado por completo pero AÚN NO entregado al cliente;
+  // ENTREGADO = el vendedor ya confirmó la entrega (solo se puede entregar
+  // un apartado LIQUIDADO, ver POST /apartados/:id/entregar).
+  estado: 'ACTIVO' | 'LIQUIDADO' | 'ENTREGADO' | 'CANCELADO';
   fechaLimite: string | null;
   notas: string | null;
+  entregadoAt?: string | null;
+  entregadoPor?: { nombre: string } | null;
   // Descuento libre (opcional) aplicado al crear el apartado o después,
   // mientras seguía ACTIVO — ver POST /apartados y
   // POST /apartados/:id/aplicar-descuento. "total" ya viene neto (con el
@@ -191,8 +197,16 @@ const METODOS_PAGO = [
 
 const ESTADO_TONO: Record<Apartado['estado'], EstadoTono> = {
   ACTIVO: 'warning',
-  LIQUIDADO: 'success',
+  LIQUIDADO: 'primary', // pagado, falta entregarlo: pide acción del vendedor
+  ENTREGADO: 'success',
   CANCELADO: 'neutral',
+};
+
+const ESTADO_ETIQUETA: Record<Apartado['estado'], string> = {
+  ACTIVO: 'ACTIVO',
+  LIQUIDADO: 'LIQUIDADO · POR ENTREGAR',
+  ENTREGADO: 'ENTREGADO',
+  CANCELADO: 'CANCELADO',
 };
 
 function etiquetaMetodoPago(v: Pago['metodoPago']) {
@@ -373,6 +387,7 @@ export default function ApartadosPage() {
 
   const activos = useMemo(() => apartados.filter((a) => a.estado === 'ACTIVO'), [apartados]);
   const vencidos = useMemo(() => activos.filter((a) => urgenciaApartado(a) === 'vencido'), [activos]);
+  const porEntregar = useMemo(() => apartados.filter((a) => a.estado === 'LIQUIDADO'), [apartados]);
   const saldoPendienteTotal = useMemo(() => activos.reduce((acc, a) => acc + a.saldoPendiente, 0), [activos]);
 
   const apartadosFiltrados = useMemo(() => {
@@ -472,8 +487,14 @@ export default function ApartadosPage() {
 
       {/* Resumen: de un vistazo, qué tan urgente está la situación — sin
           tener que contar renglones de la tabla de abajo a mano. */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <TarjetaEstadistica icon={CalendarClock} label="Apartados activos" valor={String(activos.length)} />
+        <TarjetaEstadistica
+          icon={PackageCheck}
+          label="Liquidados por entregar"
+          valor={String(porEntregar.length)}
+          tono={porEntregar.length > 0 ? 'warning' : 'neutral'}
+        />
         <TarjetaEstadistica
           icon={AlertTriangle}
           label="Vencidos (sin liquidar)"
@@ -529,7 +550,8 @@ export default function ApartadosPage() {
           <Select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
             <option value="">Todos los estados</option>
             <option value="ACTIVO">Activos</option>
-            <option value="LIQUIDADO">Liquidados</option>
+            <option value="LIQUIDADO">Liquidados (por entregar)</option>
+            <option value="ENTREGADO">Entregados</option>
             <option value="CANCELADO">Cancelados</option>
           </Select>
         </div>
@@ -626,6 +648,8 @@ function ApartadoFila({
   const [guardando, setGuardando] = useState(false);
   const [confirmarCancelar, setConfirmarCancelar] = useState(false);
   const [cancelando, setCancelando] = useState(false);
+  const [confirmarEntrega, setConfirmarEntrega] = useState(false);
+  const [entregando, setEntregando] = useState(false);
   // Aplicar/editar el descuento del apartado — pensado sobre todo para
   // ofrecerlo justo antes de "Saldar todo" (ver botón junto al abono).
   const [mostrarDescuento, setMostrarDescuento] = useState(false);
@@ -683,6 +707,22 @@ function ApartadoFila({
       setMensaje(err instanceof ApiError ? err.message : 'Error al registrar el abono.');
     } finally {
       setGuardando(false);
+    }
+  }
+
+  // El vendedor confirma que el cliente ya recibió su mercancía. El
+  // servidor solo lo permite si el apartado está LIQUIDADO.
+  async function entregar() {
+    setEntregando(true);
+    try {
+      await api(`/apartados/${apartado.id}/entregar`, { method: 'POST' });
+      toast({ title: 'Entrega confirmada', description: `El apartado ${apartado.folio} quedó como entregado.`, variant: 'success' });
+      onCambio();
+    } catch (err) {
+      toast({ title: 'No se pudo confirmar la entrega', description: err instanceof ApiError ? err.message : undefined, variant: 'destructive' });
+    } finally {
+      setEntregando(false);
+      setConfirmarEntrega(false);
     }
   }
 
@@ -764,7 +804,7 @@ function ApartadoFila({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-sm font-semibold">{apartado.cliente.nombre}</span>
-            <StatusBadge tono={ESTADO_TONO[apartado.estado]}>{apartado.estado}</StatusBadge>
+            <StatusBadge tono={ESTADO_TONO[apartado.estado]}>{ESTADO_ETIQUETA[apartado.estado]}</StatusBadge>
             {urgencia === 'vencido' && <StatusBadge tono="destructive">Vencido</StatusBadge>}
             {urgencia === 'proximo' && <StatusBadge tono="warning">Por vencer</StatusBadge>}
           </div>
@@ -998,6 +1038,24 @@ function ApartadoFila({
             </div>
           )}
 
+          {apartado.estado === 'LIQUIDADO' && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-accent/40 p-3">
+              <p className="text-sm">Pagado por completo. Falta entregarlo al cliente.</p>
+              <Button size="sm" onClick={() => setConfirmarEntrega(true)}>
+                <PackageCheck className="w-3.5 h-3.5" />
+                Confirmar entrega
+              </Button>
+            </div>
+          )}
+
+          {apartado.estado === 'ENTREGADO' && (
+            <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-muted-foreground">
+              Entregado
+              {apartado.entregadoAt ? ` el ${formatearFechaHora(apartado.entregadoAt)}` : ''}
+              {apartado.entregadoPor ? ` · ${apartado.entregadoPor.nombre}` : ''}
+            </p>
+          )}
+
           {apartado.estado !== 'ACTIVO' && apartado.ticketPdfUrl && (
             <Button variant="outline" size="sm" asChild>
               <a href={apartado.ticketPdfUrl} target="_blank" rel="noreferrer">
@@ -1031,6 +1089,17 @@ function ApartadoFila({
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmarEntrega}
+        onOpenChange={setConfirmarEntrega}
+        title={`¿Confirmar la entrega del apartado ${apartado.folio}?`}
+        description={`Confirma que ${apartado.cliente.nombre} ya recibió su mercancía. Esta acción queda registrada a tu nombre.`}
+        confirmLabel="Confirmar entrega"
+        destructive={false}
+        onConfirm={entregar}
+        loading={entregando}
+      />
 
       <ConfirmDialog
         open={confirmarCancelar}

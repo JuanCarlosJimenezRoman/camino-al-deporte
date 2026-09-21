@@ -57,6 +57,7 @@ model Usuario {
   transferenciasSolicitadas TransferenciaInventario[] @relation("TransferenciasSolicitadas")
   transferenciasRecibidas   TransferenciaInventario[] @relation("TransferenciasRecibidas")
   apartadosCreados          Apartado[]      @relation("ApartadosCreados")
+  apartadosEntregados       Apartado[]      @relation("ApartadosEntregados")
   pagosApartadoRegistrados  ApartadoPago[]  @relation("PagosApartadoRegistrados")
   pedidosValidados          Pedido[]        @relation("PedidosValidados")
   pagosProveedorRegistrados PagoProveedor[] @relation("PagosProveedorRegistrados")
@@ -1160,7 +1161,8 @@ model ClienteFavorito {
 
 enum EstadoApartado {
   ACTIVO     // tiene saldo pendiente, stock ya reservado
-  LIQUIDADO  // ya se pagó completo (pendiente de entregar o ya entregado)
+  LIQUIDADO  // ya se pagó completo, pero AÚN NO se le entrega al cliente
+  ENTREGADO  // liquidado y el vendedor ya confirmó la entrega al cliente
   CANCELADO  // se canceló, stock devuelto a la sucursal de origen
 }
 
@@ -1209,6 +1211,13 @@ model Apartado {
 
   creadoPorId     Int            @map("creado_por_id")
   creadoPor       Usuario        @relation("ApartadosCreados", fields: [creadoPorId], references: [id])
+
+  // Entrega al cliente: solo se puede confirmar cuando el apartado ya está
+  // LIQUIDADO (ver POST /apartados/:id/entregar). Quién y cuándo lo entregó
+  // queda registrado; ambos son null mientras no esté ENTREGADO.
+  entregadoAt     DateTime?      @map("entregado_at")
+  entregadoPorId  Int?           @map("entregado_por_id")
+  entregadoPor    Usuario?       @relation("ApartadosEntregados", fields: [entregadoPorId], references: [id])
 
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")

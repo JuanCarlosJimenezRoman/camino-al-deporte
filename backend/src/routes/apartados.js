@@ -135,8 +135,8 @@ router.get('/', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(async
           proveedor: { select: { id: true, nombre: true } },
         },
       },
-      pagos: true,
       creadoPor: { select: { nombre: true } },
+      entregadoPor: { select: { nombre: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -160,6 +160,7 @@ router.get('/:id', requireAuth, requireRole(...ROLES_APARTADOS), asyncHandler(as
       },
       pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
       creadoPor: { select: { nombre: true } },
+      entregadoPor: { select: { nombre: true } },
     },
   });
   if (!apartado) return res.status(404).json({ error: 'Apartado no encontrado.' });
@@ -497,7 +498,7 @@ router.post(
     if (apartado.estado === 'CANCELADO') {
       return res.status(409).json({ error: 'Este apartado está cancelado, no admite más pagos.' });
     }
-    if (apartado.estado === 'LIQUIDADO') {
+    if (apartado.estado === 'LIQUIDADO' || apartado.estado === 'ENTREGADO') {
       return res.status(409).json({ error: 'Este apartado ya está liquidado.' });
     }
 
@@ -651,6 +652,9 @@ router.post(
     if (apartado.estado === 'CANCELADO') {
       return res.status(409).json({ error: 'Este apartado está cancelado.' });
     }
+    if (apartado.estado === 'ENTREGADO') {
+      return res.status(409).json({ error: 'Este apartado ya fue entregado, no se puede modificar su descuento.' });
+    }
     if (!apartado.descuentoTipo) {
       return res.status(409).json({ error: 'Este apartado no tiene un descuento activo.' });
     }
@@ -680,6 +684,70 @@ router.post(
         },
         pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
         creadoPor: { select: { nombre: true } },
+      },
+    });
+
+    res.json({ ...actualizado, ...calcularSaldo(actualizado) });
+  })
+);
+
+// POST /apartados/:id/entregar - el vendedor confirma que el cliente ya
+// recibió su mercancía. Regla de negocio: solo se puede entregar un
+// apartado LIQUIDADO (pagado por completo). Uno ACTIVO todavía tiene saldo
+// pendiente, uno ENTREGADO ya se entregó antes y uno CANCELADO ya regresó
+// su stock. La transición LIQUIDADO -> ENTREGADO se hace con un
+// updateMany condicionado al estado para que dos confirmaciones al mismo
+// tiempo (doble clic, dos vendedores) no la registren dos veces.
+router.post(
+  '/:id/entregar',
+  requireAuth,
+  requireRole(...ROLES_APARTADOS),
+  asyncHandler(async (req, res) => {
+    const apartadoId = Number(req.params.id);
+
+    const apartado = await prisma.apartado.findUnique({ where: { id: apartadoId }, include: { pagos: true } });
+    if (!apartado) return res.status(404).json({ error: 'Apartado no encontrado.' });
+    if (!esAdmin(req.usuario.rol) && apartado.sucursalVentaId !== req.usuario.sucursalId) {
+      return res.status(403).json({ error: 'No tienes permiso para entregar este apartado.' });
+    }
+    if (apartado.estado === 'ENTREGADO') {
+      return res.status(409).json({ error: 'Este apartado ya fue entregado.' });
+    }
+    if (apartado.estado === 'CANCELADO') {
+      return res.status(409).json({ error: 'Este apartado está cancelado, no se puede entregar.' });
+    }
+    // Defensa extra: aunque el estado diga LIQUIDADO, nunca se entrega si
+    // los pagos no cubren el total.
+    const { saldoPendiente } = calcularSaldo(apartado);
+    if (apartado.estado !== 'LIQUIDADO' || saldoPendiente > 0.0001) {
+      return res.status(409).json({
+        error: `No se puede entregar: el apartado aún tiene un saldo pendiente de $${Math.max(saldoPendiente, 0).toFixed(2)}. Debe estar liquidado primero.`,
+      });
+    }
+
+    const { count } = await prisma.apartado.updateMany({
+      where: { id: apartadoId, estado: 'LIQUIDADO' },
+      data: { estado: 'ENTREGADO', entregadoAt: new Date(), entregadoPorId: req.usuario.id },
+    });
+    if (count === 0) {
+      return res.status(409).json({ error: 'El apartado cambió de estado mientras se confirmaba. Recarga e inténtalo de nuevo.' });
+    }
+
+    const actualizado = await prisma.apartado.findUnique({
+      where: { id: apartadoId },
+      include: {
+        cliente: true,
+        sucursalVenta: { select: { nombre: true } },
+        items: {
+          include: {
+            variante: { include: { producto: { include: IMAGEN_PRINCIPAL_INCLUDE }, talla: true } },
+            sucursalStock: { select: { nombre: true } },
+            proveedor: { select: { id: true, nombre: true } },
+          },
+        },
+        pagos: { include: { cuentaTransferencia: { select: { nombre: true } }, registradoPor: { select: { nombre: true } } } },
+        creadoPor: { select: { nombre: true } },
+        entregadoPor: { select: { nombre: true } },
       },
     });
 

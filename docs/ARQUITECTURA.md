@@ -340,7 +340,15 @@ de total por sucursal además del listado detallado.
   propio método de pago y comprobante si aplica. El saldo pendiente se
   calcula al vuelo (`total - suma de pagos`), nunca se guarda cacheado, para
   evitar que se desincronice.
-- Si el saldo llega a 0, el apartado pasa a `LIQUIDADO` automáticamente.
+- Si el saldo llega a 0, el apartado pasa a `LIQUIDADO` automáticamente
+  (pagado por completo, pero todavía **no entregado** al cliente).
+- La entrega la confirma el vendedor (`POST /apartados/:id/entregar`) y solo
+  es posible si el apartado está `LIQUIDADO`; al confirmarla pasa a
+  `ENTREGADO` y se guarda quién (`entregado_por_id`) y cuándo
+  (`entregado_at`). Un apartado con saldo pendiente, ya entregado o
+  cancelado rechaza la entrega con un 409. Flujo de estados:
+  `ACTIVO → LIQUIDADO → ENTREGADO` (o `ACTIVO → CANCELADO`).
+- Un apartado `ENTREGADO` ya no admite abonos ni cambios de descuento.
 - Cancelar un apartado (`CANCELADO`) solo es posible si sigue `ACTIVO`, y
   regresa el stock reservado a la sucursal de donde salió. Los pagos ya
   recibidos no se reembolsan automáticamente — el registro queda como

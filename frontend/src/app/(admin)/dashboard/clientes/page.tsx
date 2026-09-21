@@ -22,7 +22,7 @@ interface Sucursal {
 interface ApartadoResumen {
   id: number;
   folio: string;
-  estado: 'ACTIVO' | 'LIQUIDADO' | 'CANCELADO';
+  estado: 'ACTIVO' | 'LIQUIDADO' | 'ENTREGADO' | 'CANCELADO';
   total: string;
   pagado: number;
   saldoPendiente: number;
@@ -76,7 +76,8 @@ const TIPO_MOVIMIENTO_LABEL: Record<MovimientoSaldo['tipo'], string> = {
 
 const ESTADO_APARTADO_LABEL: Record<ApartadoResumen['estado'], string> = {
   ACTIVO: 'Activo',
-  LIQUIDADO: 'Liquidado',
+  LIQUIDADO: 'Liquidado (por entregar)',
+  ENTREGADO: 'Entregado',
   CANCELADO: 'Cancelado',
 };
 
