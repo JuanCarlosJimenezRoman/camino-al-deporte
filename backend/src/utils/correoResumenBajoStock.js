@@ -99,7 +99,7 @@ function textoIntro({ modo, nombre }) {
       saludo,
       cuerpo:
         'Estos productos se agotaron hace unos minutos. Los que sigan bajos pero con piezas ' +
-        'llegarán en el resumen diario, así no recibes un correo por cada uno.',
+        'llegarán en el resumen diario.',
     };
   }
   return {
