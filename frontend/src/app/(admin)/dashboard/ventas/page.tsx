@@ -307,6 +307,12 @@ function TarjetaProductoGrid({
     acc.get(talla)!.push(v);
     return acc;
   }, new Map<string, Existencia[]>());
+  // Si el producto maneja una sola talla, se muestra directo en la tarjeta
+  // (sin tener que agregarlo al ticket para saber cuál es). 'Único' es el
+  // placeholder de productos sin talla, así que ese no se muestra.
+  const tallaUnica =
+    variantesPorTalla.size === 1 ? Array.from(variantesPorTalla.keys())[0] : null;
+  const mostrarTallaUnica = tallaUnica !== null && tallaUnica !== 'Único';
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3 transition-colors hover:border-primary/40">
@@ -332,6 +338,13 @@ function TarjetaProductoGrid({
         <div className="truncate text-sm font-bold tabular-nums text-primary">{formatoMonedaExacto(producto.precio)}</div>
         <div className="truncate text-xs text-muted-foreground">Stock: {producto.stockTotal}</div>
       </div>
+      {mostrarTallaUnica && (
+        <div>
+          <span className="inline-block rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+            Talla: {tallaUnica}
+          </span>
+        </div>
+      )}
       {multiple &&
         (expandido ? (
           <div className="space-y-2 border-t border-border pt-2">
@@ -375,7 +388,9 @@ function TarjetaProductoGrid({
           </div>
         ) : (
           <div className="text-[11px] text-muted-foreground">
-            {producto.variantes.length} tallas · toca para elegir
+            {variantesPorTalla.size > 1
+              ? `${variantesPorTalla.size} tallas · toca para elegir`
+              : `${producto.variantes.length} proveedores · toca para elegir`}
           </div>
         ))}
     </div>
